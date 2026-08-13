@@ -8,7 +8,7 @@
 // that is the point: the table must be testable with zero infrastructure, and the same
 // table is what the engine applies deterministically at a single log position.
 //
-// The table (design doc, "Katman 2 — engine", 2026-08-12):
+// The table:
 //
 //   targetVersion == currentVersion      -> NOOP_ALREADY_AT_TARGET
 //       Duplicate/retry tolerance. Decided before anything else, and never from
