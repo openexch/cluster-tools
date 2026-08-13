@@ -1,0 +1,21 @@
+# Domain-side CI only: configure with WITH_AERON=OFF, build, run the tests.
+# The full aeron build is deliberately not attempted here — the adapter compiles
+# against a cached aeron tree locally (see README, build matrix).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  domain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -S . -B build -DWITH_AERON=OFF
+      - name: build
+        run: cmake --build build -j
+      - name: test
+        run: ctest --test-dir build --output-on-failure
