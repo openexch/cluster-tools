@@ -14,6 +14,15 @@ repo is where those tools live.
   an order submitted through ingress, and the OrderStatus ack decoded off egress.
   Start here; its README documents the protocol details the hard way taught us.
 
+## Architecture
+
+The PoC is deliberately a flat single file — it is evidence, not a tool. Real tools
+in this repo follow a ports-and-adapters (hexagonal) layout with the domain kept
+pure: `domain/` holds logic that knows nothing about Aeron or SBE, `ports/` defines
+the seams, `adapters/` implements them (Aeron transport, SBE codecs), and each tool
+is a thin `app/` composing the three. On hot paths ports are compile-time
+(templates/concepts); on operator-tool cold paths a small virtual interface is fine.
+
 ## License
 
 Apache-2.0.
