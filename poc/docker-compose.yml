@@ -1,0 +1,94 @@
+name: ccpoc
+
+networks:
+  poc:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  me0data:
+  me1data:
+  me2data:
+  aeronbuild:
+
+x-me-common: &me-common
+  image: eclipse-temurin:21-jre
+  shm_size: 2gb
+  working_dir: /work
+  command:
+    - java
+    - --add-opens
+    - java.base/jdk.internal.misc=ALL-UNNAMED
+    - --add-opens
+    - java.base/sun.nio.ch=ALL-UNNAMED
+    - --add-opens
+    - java.base/java.nio=ALL-UNNAMED
+    - -XX:+UseZGC
+    - -Xmx800m
+    - -jar
+    - /opt/jars/match-cluster.jar
+
+services:
+  me0:
+    <<: *me-common
+    container_name: ccpoc-me0
+    networks:
+      poc:
+        ipv4_address: 172.28.0.10
+    volumes:
+      - ./match-cluster.jar:/opt/jars/match-cluster.jar:ro
+      - me0data:/data
+    environment:
+      CLUSTER_NODE: "0"
+      CLUSTER_ADDRESSES: "172.28.0.10,172.28.0.11,172.28.0.12"
+      TRANSPORT_IDLE_MODE: "backoff"
+      SETTLEMENT_JOURNAL_ENABLED: "true"
+      SETTLEMENT_JOURNAL_DIR: "/data/journal"
+      SETTLEMENT_JOURNAL_ARCHIVE_BIND: "0.0.0.0"
+
+  me1:
+    <<: *me-common
+    container_name: ccpoc-me1
+    networks:
+      poc:
+        ipv4_address: 172.28.0.11
+    volumes:
+      - ./match-cluster.jar:/opt/jars/match-cluster.jar:ro
+      - me1data:/data
+    environment:
+      CLUSTER_NODE: "1"
+      CLUSTER_ADDRESSES: "172.28.0.10,172.28.0.11,172.28.0.12"
+      TRANSPORT_IDLE_MODE: "backoff"
+      SETTLEMENT_JOURNAL_ENABLED: "true"
+      SETTLEMENT_JOURNAL_DIR: "/data/journal"
+      SETTLEMENT_JOURNAL_ARCHIVE_BIND: "0.0.0.0"
+
+  me2:
+    <<: *me-common
+    container_name: ccpoc-me2
+    networks:
+      poc:
+        ipv4_address: 172.28.0.12
+    volumes:
+      - ./match-cluster.jar:/opt/jars/match-cluster.jar:ro
+      - me2data:/data
+    environment:
+      CLUSTER_NODE: "2"
+      CLUSTER_ADDRESSES: "172.28.0.10,172.28.0.11,172.28.0.12"
+      TRANSPORT_IDLE_MODE: "backoff"
+      SETTLEMENT_JOURNAL_ENABLED: "true"
+      SETTLEMENT_JOURNAL_DIR: "/data/journal"
+      SETTLEMENT_JOURNAL_ARCHIVE_BIND: "0.0.0.0"
+
+  client:
+    image: ubuntu:24.04
+    container_name: ccpoc-client
+    shm_size: 1gb
+    networks:
+      poc:
+        ipv4_address: 172.28.0.20
+    volumes:
+      - .:/spike
+    command: ["sleep", "infinity"]
