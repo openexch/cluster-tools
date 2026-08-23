@@ -3,3 +3,4 @@ gen/
 *.jar
 build/
 .DS_Store
+e2e/order-schema.xml
