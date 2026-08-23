@@ -134,6 +134,18 @@ jobs:
           echo "libdriver=${PWD}/${LIBDRIVER}" >> "$GITHUB_OUTPUT"
           echo "libaeron=${PWD}/${LIBAERON}" >> "$GITHUB_OUTPUT"
 
+      # The engine wire schema the tool speaks. Fetched from match main at build
+      # time, never vendored: two copies of a wire schema drift, and the binary is
+      # rebuilt on every push anyway. The engine's ingress gate accepts a version
+      # RANGE, so a tool built against a newer schema keeps working during rollouts.
+      - name: Fetch match order schema
+        uses: actions/checkout@v4
+        with:
+          repository: openexch/match
+          sparse-checkout: match-common/src/main/resources/sbe
+          sparse-checkout-cone-mode: false
+          path: match-schema
+
       # Release because these binaries are what the box runs, not a test build.
       # (ci.yml's default-type build is fine for tests; a published artifact is not
       # allowed to be an unoptimised accident.)
@@ -146,7 +158,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DWITH_AERON=ON \
             -DAERON_SRC="${RUNNER_TEMP}/aeron-src" \
-            -DAERON_LIB="${AERON_LIB}"
+            -DAERON_LIB="${AERON_LIB}" \
+            -DMATCH_SCHEMA="${PWD}/match-schema/match-common/src/main/resources/sbe/order-schema.xml"
           cmake --build build -j"$(nproc)"
 
       # The publish gate. ci.yml already proves the no-aeron hexagon on x86 for
