@@ -1,0 +1,334 @@
+# Publishes the arm64 operator-tool binaries to S3 under their commit sha, so the
+# demo box deploys by downloading rather than by compiling. Nothing is ever built
+# on the box: it is a small machine running the live money path, and a cmake build
+# of aeron there would take RAM and CPU from it. Same pipeline, bucket, role and
+# prefix discipline as match's publish job — this workflow mirrors it deliberately.
+#
+# Separate from ci.yml on purpose: ci.yml proves the hexagon (domain + ports,
+# WITH_AERON=OFF, any x86 runner) on every PR; this workflow builds the full
+# transport stack on the architecture the box actually runs (aarch64) and refuses
+# to publish on a red test. The gate match gets from `needs:` lives here inside
+# the single job: the ctest step sits before anything is uploaded.
+name: publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+jobs:
+  publish:
+    # Opt-in per repo, the same switch match/assets/cloud-console use. Publishing
+    # needs an S3 bucket and an OIDC role that do not exist in a fresh clone or a
+    # fork, and a workflow that hard-fails on absent infrastructure turns main red
+    # for a reason unrelated to the code. Turn it on with:
+    #   gh variable set ARTIFACT_PUBLISH --body true -R openexch/cluster-tools
+    # (The IAM trust policy must also list this repo; cloud-console's
+    # scripts/setup-artifact-pipeline.sh is the record of that list.)
+    if: github.event_name == 'push' && vars.ARTIFACT_PUBLISH == 'true'
+    # One publish at a time per repo, the next one queues; a branch run and a tag
+    # run must never cancel each other, each publishes its own prefix. Serialising
+    # the writes is what keeps them ordered — and the pointer move below still
+    # refuses to go backwards, because a displaced or retried run can arrive late.
+    concurrency:
+      group: publish-${{ github.repository }}
+      cancel-in-progress: false
+    # Native arm64: the box is an aarch64 m7g. No cross-compile, no qemu — the
+    # binaries are produced on the architecture they will run on.
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write # OIDC: no long-lived AWS keys in this repo
+    env:
+      BUCKET: openexch-build-artifacts-675715936685
+      # The prefix builds are addressed by. The box asks for named files inside it,
+      # so more files under the same prefix later is additive.
+      ARTIFACT: cluster-tools
+      # What a bare ubuntu 24.04 arm64 box needs to run the tool: the CLI itself
+      # (aeron linked statically), the media driver, and BOTH shared libraries the
+      # driver needs — libaeron_driver.so (poc/README.md build footnotes) and
+      # libaeron.so, which ldd on a bare box shows aeronmd and libaeron_driver.so
+      # also require (the poc never noticed: its LD_LIBRARY_PATH covered the whole
+      # aeron build tree). The box has no aeron libraries of its own; everything
+      # else must resolve to stock system libs, which the closure check enforces.
+      FILES: switch-behavior aeronmd libaeron_driver.so libaeron.so
+      # The tag the engines embed; adapters compile against this exact protocol.
+      AERON_TAG: 1.52.2
+      CMAKE_VERSION: 3.31.6
+    steps:
+      - uses: actions/checkout@v7
+
+      # SBE codegen is java (adapters/sbe/gen-codecs.sh). The sbe jar itself is
+      # fetched by that script the same way it is fetched everywhere else: with
+      # SBE_JAR unset, it downloads sbe-all into the build dir from maven central.
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # aeron 1.52.2 needs cmake >= 3.30 and ubuntu 24.04's apt ships 3.28. Same
+      # pinned Kitware tarball poc/Dockerfile.builder installs — deterministic,
+      # rather than trusting whatever the runner image happens to carry this week.
+      - name: Install cmake
+        run: |
+          set -euo pipefail
+          curl -sfL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-$(uname -m).tar.gz" \
+            -o "${RUNNER_TEMP}/cmake.tgz"
+          tar -xzf "${RUNNER_TEMP}/cmake.tgz" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/cmake-${CMAKE_VERSION}-linux-$(uname -m)/bin" >> "$GITHUB_PATH"
+
+      - name: Clone aeron at the pinned tag
+        run: |
+          git clone --depth 1 --branch "${AERON_TAG}" \
+            https://github.com/aeron-io/aeron.git "${RUNNER_TEMP}/aeron-src"
+
+      # aeron is pinned, so a warm cache skips the ~15 min aeron build entirely and
+      # the key only ever changes when AERON_TAG does. The .done marker is the same
+      # discipline as poc/scripts/build-aeron.sh: a cache that carries a half-built
+      # tree (a previous run died mid-build) has no marker and is rebuilt.
+      - name: Cache the aeron build
+        uses: actions/cache@v4
+        with:
+          path: aeron-build
+          key: aeron-${{ env.AERON_TAG }}-arm64-${{ runner.os }}
+
+      - name: Build aeron (skipped when the cache is warm)
+        run: |
+          set -euo pipefail
+          if [ -f aeron-build/.done ]; then
+            echo "aeron build cached, skipping"
+            exit 0
+          fi
+          # Flags mirror poc/scripts/build-aeron.sh — the configuration the
+          # dockerized arm64 builds were proven with.
+          cmake -S "${RUNNER_TEMP}/aeron-src" -B aeron-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAERON_TESTS=OFF \
+            -DAERON_SYSTEM_TESTS=OFF \
+            -DAERON_SLOW_SYSTEM_TESTS=OFF \
+            -DBUILD_AERON_ARCHIVE_API=OFF \
+            -DAERON_BUILD_SAMPLES=OFF \
+            -DAERON_BUILD_DOCUMENTATION=OFF
+          cmake --build aeron-build --target aeronmd aeron_static -j"$(nproc)"
+          touch aeron-build/.done
+
+      # find rather than hardcoded paths, like build-aeron.sh: the layout inside
+      # aeron's build tree is aeron's business. Building aeronmd necessarily built
+      # libaeron_driver.so (aeronmd links it), so all three must exist — a missing
+      # one means the cache or the build is broken, and publishing must stop.
+      - name: Locate the aeron artifacts
+        id: aeron
+        run: |
+          set -euo pipefail
+          AERONMD=$(find aeron-build -name aeronmd -type f | head -1)
+          LIBSTATIC=$(find aeron-build -name libaeron_static.a -type f | head -1)
+          LIBDRIVER=$(find aeron-build -name libaeron_driver.so -type f | head -1)
+          LIBAERON=$(find aeron-build -name libaeron.so -type f | head -1)
+          [ -n "$AERONMD" ]   || { echo "::error::aeron build produced no aeronmd"; exit 1; }
+          [ -n "$LIBSTATIC" ] || { echo "::error::aeron build produced no libaeron_static.a"; exit 1; }
+          [ -n "$LIBDRIVER" ] || { echo "::error::aeron build produced no libaeron_driver.so"; exit 1; }
+          [ -n "$LIBAERON" ]  || { echo "::error::aeron build produced no libaeron.so"; exit 1; }
+          echo "aeronmd=${PWD}/${AERONMD}" >> "$GITHUB_OUTPUT"
+          echo "libstatic=${PWD}/${LIBSTATIC}" >> "$GITHUB_OUTPUT"
+          echo "libdriver=${PWD}/${LIBDRIVER}" >> "$GITHUB_OUTPUT"
+          echo "libaeron=${PWD}/${LIBAERON}" >> "$GITHUB_OUTPUT"
+
+      # Release because these binaries are what the box runs, not a test build.
+      # (ci.yml's default-type build is fine for tests; a published artifact is not
+      # allowed to be an unoptimised accident.)
+      - name: Build
+        env:
+          AERON_LIB: ${{ steps.aeron.outputs.libstatic }}
+        run: |
+          set -euo pipefail
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWITH_AERON=ON \
+            -DAERON_SRC="${RUNNER_TEMP}/aeron-src" \
+            -DAERON_LIB="${AERON_LIB}"
+          cmake --build build -j"$(nproc)"
+
+      # The publish gate. ci.yml already proves the no-aeron hexagon on x86 for
+      # every PR; this run proves the same tests on the deploy architecture, in the
+      # same job that uploads — red here means nothing reaches the bucket.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Assemble the artifacts
+        env:
+          AERONMD: ${{ steps.aeron.outputs.aeronmd }}
+          LIBDRIVER: ${{ steps.aeron.outputs.libdriver }}
+          LIBAERON: ${{ steps.aeron.outputs.libaeron }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          cp build/app/switch-behavior/switch-behavior dist/
+          cp "${AERONMD}" dist/aeronmd
+          cp "${LIBDRIVER}" dist/libaeron_driver.so
+          cp "${LIBAERON}" dist/libaeron.so
+          strip dist/switch-behavior dist/aeronmd
+          # --strip-unneeded for the shared libraries: keep the dynamic symbols
+          # the loader resolves against, drop the rest.
+          strip --strip-unneeded dist/libaeron_driver.so dist/libaeron.so
+          ls -la dist/
+
+      # The moral equivalent of match's "verify every jar carries its sha": prove
+      # the shipped set is complete and self-sufficient BEFORE it is uploaded.
+      # Every dynamic dependency must resolve to either the libaeron_driver.so
+      # shipped alongside, or a library a stock ubuntu 24.04 arm64 install already
+      # has — the runner has -dev packages the box does not, so an allowlist, not
+      # just "ldd found everything here".
+      - name: Verify the set runs on a bare box
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in ${FILES}; do
+            echo "== $f"
+            LD_LIBRARY_PATH=. ldd "$f"
+            if LD_LIBRARY_PATH=. ldd "$f" | grep -q 'not found'; then
+              echo "::error::$f has unresolved dependencies"; exit 1
+            fi
+            # Anchored on the .so suffix so libc cannot accidentally admit
+            # libcrypto, and the loader is matched by its absolute path too —
+            # ldd prints it as /lib/ld-linux-aarch64.so.1.
+            BAD=$(LD_LIBRARY_PATH=. ldd "$f" | awk '{print $1}' | grep -vE \
+              '^(linux-vdso\.so|(/lib/)?ld-linux-aarch64\.so|libaeron_driver\.so|libaeron\.so|libc\.so|libm\.so|libpthread\.so|libdl\.so|librt\.so|libstdc\+\+\.so|libgcc_s\.so)' \
+              || true)
+            if [ -n "$BAD" ]; then
+              echo "::error::$f depends on libraries a bare box does not have: $BAD"
+              exit 1
+            fi
+          done
+          # And they actually start. switch-behavior: usage path exits 0.
+          ./switch-behavior --help >/dev/null
+          # aeronmd runs until killed; surviving the 2s timeout (rc 124) IS the
+          # pass — an instant exit would be a load or boot failure.
+          rc=0
+          AERON_DIR=$(mktemp -d) LD_LIBRARY_PATH=. timeout 2 ./aeronmd >/dev/null 2>&1 || rc=$?
+          [ "$rc" -eq 124 ] || { echo "::error::aeronmd did not stay up (rc=$rc)"; exit 1; }
+          echo "bare-box closure verified"
+
+      # Where this build belongs. A branch push is addressed by commit sha and is
+      # fetchable but not deployable in production; a tag push is addressed by the
+      # tag under releases/ and is the only thing the release channel will install.
+      # Both are published: replaying an old incident needs the commit build that
+      # produced its state, whether or not it was ever released.
+      - name: Work out where this build belongs
+        id: dest
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "prefix=${ARTIFACT}/releases/${TAG}" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=${ARTIFACT}/${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Stamped once here and reused, so the value in the manifest is the same
+          # one the pointer comparison sorts on.
+          echo "builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::675715936685:role/openexch-ci-artifact-publisher
+          aws-region: eu-central-1
+
+      # Payload first, manifest last. S3 has no atomic multi-object write, so until
+      # the manifest lands the prefix is an upload in progress and the box must
+      # refuse to deploy from it. Unlike match there is no version stamp INSIDE the
+      # artifact (a stripped ELF carries no manifest to stamp): the sha-addressed
+      # prefix and manifest.json are the traceability record.
+      - name: Publish
+        env:
+          DEST: ${{ steps.dest.outputs.prefix }}
+          TAG: ${{ steps.dest.outputs.tag }}
+          BUILT_AT: ${{ steps.dest.outputs.builtAt }}
+        run: |
+          set -euo pipefail
+          PREFIX="s3://${BUCKET}/${DEST}"
+
+          ENTRIES=""
+          for f in ${FILES}; do
+            SUM=$(sha256sum "dist/$f" | cut -d' ' -f1)
+            BYTES=$(stat -c%s "dist/$f")
+            aws s3 cp "dist/$f" "${PREFIX}/${f}" \
+              --checksum-algorithm SHA256 --no-progress
+            ENTRIES="${ENTRIES}${ENTRIES:+,}{\"name\": \"${f}\", \"sha256\": \"${SUM}\", \"bytes\": ${BYTES}}"
+          done
+
+          # The tag field is what makes a release prefix self-describing, same as
+          # match: a per-commit build copied into releases/ carries no tag and gets
+          # caught rather than deployed.
+          cat > manifest.json <<JSON
+          {
+            "repo": "${ARTIFACT}",
+            "sha": "${GITHUB_SHA}",
+            "shortSha": "$(git rev-parse --short HEAD)",
+            "ref": "${GITHUB_REF}",
+            "tag": "${TAG}",
+            "builtAt": "${BUILT_AT}",
+            "runId": "${GITHUB_RUN_ID}",
+            "artifacts": [${ENTRIES}]
+          }
+          JSON
+          python3 -c 'import json,sys; json.load(open("manifest.json"))' || {
+            echo "::error::the manifest this job just wrote is not valid JSON"
+            exit 1
+          }
+          aws s3 cp manifest.json "${PREFIX}/manifest.json" --no-progress
+
+      # A publish step that cannot tell "uploaded" from "did nothing" is a step
+      # that says yes (cluster-kit's first publish reported success having uploaded
+      # nothing). Read every file back and compare bytes.
+      - name: Verify the uploads landed
+        env:
+          DEST: ${{ steps.dest.outputs.prefix }}
+        run: |
+          set -euo pipefail
+          for f in ${FILES}; do
+            aws s3 cp "s3://${BUCKET}/${DEST}/${f}" ./roundtrip --no-progress
+            diff <(sha256sum < "dist/$f") <(sha256sum < ./roundtrip) \
+              || { echo "::error::$f did not round-trip"; exit 1; }
+            echo "$f round-tripped"
+          done
+
+      # Branch pushes only. The pointer moves after the payload is verified
+      # readable, so "latest" can never name a prefix that is not fully there.
+      # Releases deliberately have NO pointer: the newest release is computed by
+      # listing the prefixes, because two tags' runs can finish out of order.
+      - name: Move the latest pointer
+        if: steps.dest.outputs.release == 'false'
+        env:
+          BUILT_AT: ${{ steps.dest.outputs.builtAt }}
+        run: |
+          set -euo pipefail
+
+          # Compare before writing. Serialising publishes makes them ordered in
+          # the common case, but a displaced pending run or a retried old one can
+          # still arrive late, and a pointer that went backwards would hand the
+          # box an older build than it already had. ISO-8601 UTC sorts
+          # lexicographically, so the string comparison IS a time comparison.
+          CURRENT=$(aws s3 cp "s3://${BUCKET}/${ARTIFACT}/latest" - 2>/dev/null || true)
+          if [ -n "$CURRENT" ] && [ "$CURRENT" != "${GITHUB_SHA}" ]; then
+            CURRENT_AT=$(aws s3 cp "s3://${BUCKET}/${ARTIFACT}/${CURRENT}/manifest.json" - \
+              2>/dev/null | jq -r '.builtAt // ""' || true)
+            if [ -n "$CURRENT_AT" ] && [ "$CURRENT_AT" \> "$BUILT_AT" ]; then
+              echo "latest already names ${CURRENT} built at ${CURRENT_AT}, which is newer than"
+              echo "this build (${BUILT_AT}); leaving the pointer alone."
+              exit 0
+            fi
+          fi
+
+          printf '%s' "${GITHUB_SHA}" > latest
+          aws s3 cp latest "s3://${BUCKET}/${ARTIFACT}/latest" \
+            --content-type text/plain --no-progress
+
+      - name: Say what was published
+        env:
+          DEST: ${{ steps.dest.outputs.prefix }}
+        run: echo "published s3://${BUCKET}/${DEST}"
