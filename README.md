@@ -74,3 +74,11 @@ cmake --build build
 ## License
 
 Apache-2.0.
+
+## Artifacts
+
+Every push to main publishes arm64 Linux binaries to the org's artifact pipeline
+(`cluster-tools/{sha}/` — see `.github/workflows/publish.yml`): `switch-behavior`,
+`aeronmd`, `libaeron_driver.so`, `libaeron.so`, plus a `manifest.json` with per-file
+sha256. Run them with `LD_LIBRARY_PATH` pointing at the artifact directory; nothing
+is ever compiled on a deployment box.
