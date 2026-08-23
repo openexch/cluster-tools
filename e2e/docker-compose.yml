@@ -1,0 +1,107 @@
+# e2e/config-mode — 3-node match cluster in ENGINE-FROM-CONFIG mode + a client box,
+# for the send-config end-to-end proof (see scripts/run-proof.sh). Adapted from
+# poc/docker-compose.yml; distinct project name/subnet so both stacks can coexist.
+#
+# The nodes run a match-cluster.jar built at a pinned match commit (dropped in this
+# dir by the operator/proof script — never committed) with MATCH_ENGINE_FROM_CONFIG=
+# true: engines are born from a logged EngineConfig command, and order commands
+# arriving before one are deterministically REJECTED (ENGINE_NOT_CONFIGURED).
+#
+# Cluster state (raft log, archive, snapshots) lives under /work/node<id> in the
+# container's writable layer: `docker restart` keeps it, so a restarted node recovers
+# from its own log/snapshot — exactly what proof step 5 exercises. /dev/shm (media
+# driver) is tmpfs and starts empty on restart, as it would on a host reboot.
+name: ccfg
+
+networks:
+  cfg:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+
+volumes:
+  me0data:
+  me1data:
+  me2data:
+
+x-me-common: &me-common
+  image: eclipse-temurin:21-jre
+  shm_size: 2gb
+  working_dir: /work
+  command:
+    - java
+    - --add-opens
+    - java.base/jdk.internal.misc=ALL-UNNAMED
+    - --add-opens
+    - java.base/sun.nio.ch=ALL-UNNAMED
+    - --add-opens
+    - java.base/java.nio=ALL-UNNAMED
+    - -XX:+UseZGC
+    - -Xmx800m
+    - -jar
+    - /opt/jars/match-cluster.jar
+
+x-me-env: &me-env
+  CLUSTER_ADDRESSES: "172.29.0.10,172.29.0.11,172.29.0.12"
+  TRANSPORT_IDLE_MODE: "backoff"
+  MATCH_ENGINE_FROM_CONFIG: "true"
+  SETTLEMENT_JOURNAL_ENABLED: "true"
+  SETTLEMENT_JOURNAL_DIR: "/data/journal"
+  SETTLEMENT_JOURNAL_ARCHIVE_BIND: "0.0.0.0"
+
+services:
+  me0:
+    <<: *me-common
+    container_name: ccfg-me0
+    networks:
+      cfg:
+        ipv4_address: 172.29.0.10
+    volumes:
+      - ./match-cluster.jar:/opt/jars/match-cluster.jar:ro
+      - me0data:/data
+    environment:
+      <<: *me-env
+      CLUSTER_NODE: "0"
+
+  me1:
+    <<: *me-common
+    container_name: ccfg-me1
+    networks:
+      cfg:
+        ipv4_address: 172.29.0.11
+    volumes:
+      - ./match-cluster.jar:/opt/jars/match-cluster.jar:ro
+      - me1data:/data
+    environment:
+      <<: *me-env
+      CLUSTER_NODE: "1"
+
+  me2:
+    <<: *me-common
+    container_name: ccfg-me2
+    networks:
+      cfg:
+        ipv4_address: 172.29.0.12
+    volumes:
+      - ./match-cluster.jar:/opt/jars/match-cluster.jar:ro
+      - me2data:/data
+    environment:
+      <<: *me-env
+      CLUSTER_NODE: "2"
+
+  client:
+    image: ubuntu:24.04
+    container_name: ccfg-client
+    shm_size: 1gb
+    networks:
+      cfg:
+        ipv4_address: 172.29.0.20
+    volumes:
+      - .:/e2e
+    environment:
+      AERON_DIR: "/dev/shm/aeron-e2e"
+      SELF_IP: "172.29.0.20"
+      INGRESS_ENDPOINTS: "0=172.29.0.10:9002,1=172.29.0.11:9002,2=172.29.0.12:9002"
+      LD_LIBRARY_PATH: "/e2e/dist"
+    command: ["sleep", "infinity"]

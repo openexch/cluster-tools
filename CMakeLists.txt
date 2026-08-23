@@ -12,6 +12,8 @@ set(AERON_SRC "" CACHE PATH
     "aeron source checkout (tag 1.52.2) — required when WITH_AERON=ON")
 set(AERON_LIB "" CACHE FILEPATH
     "prebuilt libaeron_static.a (see poc/scripts/build-aeron.sh) — required when WITH_AERON=ON")
+set(MATCH_SCHEMA "" CACHE FILEPATH
+    "match order-schema.xml extracted from match main (git show origin/main:match-common/src/main/resources/sbe/order-schema.xml) — required when WITH_AERON=ON")
 set(SBE_JAR "" CACHE FILEPATH
     "sbe-all fat jar for codec generation; downloaded into the build dir when empty")
 
@@ -19,6 +21,7 @@ include(CTest)
 
 add_subdirectory(domain)
 add_subdirectory(ports)
+add_subdirectory(adapters/json)   # no transport dependency — builds and tests everywhere
 
 if(WITH_AERON)
     if(NOT EXISTS "${AERON_SRC}/aeron-client/src/main/cpp_wrapper")

@@ -28,6 +28,8 @@ The tree:
 ```
 domain/               pure decision logic — no Aeron, no SBE, no I/O
   SwitchDecision      the behaviour-versioning switch decision table, + doctest tests
+  EngineConfig        the engine-creation config value type + validation mirroring the
+                      engine's own rules (match EngineConfigState), + doctest tests
 ports/                the seams (header-only)
   ClusterSession      connect / offer / poll / close — virtual, cold-path (the header
                       documents why, and why hot-path ports would be templates/concepts)
@@ -35,30 +37,37 @@ ports/                the seams (header-only)
 adapters/aeron/       AeronClusterSession — the cluster session protocol over the
                       official aeron cpp_wrapper (the only code in the repo that
                       includes an aeron header)
-adapters/sbe/         codegen wiring only: cluster-protocol C++ codecs are generated
-                      from the schema in the aeron checkout into the build dir —
-                      nothing generated is committed
-app/switch-behavior/  the operator CLI; subcommand `probe` works today
+adapters/json/        the engine-config file input adapter: a strict, hand-rolled,
+                      schema-directed parser (no dependencies, no transport — builds
+                      and tests in the WITH_AERON=OFF configuration)
+adapters/sbe/         codegen wiring + the EngineConfig encoder: cluster-protocol and
+                      match order-schema C++ codecs are generated into the build dir
+                      (nothing generated is committed); the encoder is the only TU
+                      outside the generated tree that includes a match codec header
+app/switch-behavior/  the operator CLI; subcommands `probe` and `send-config` work today
 third_party/doctest/  vendored single-header test framework (MIT)
 poc/                  the original flat proof of concept, kept untouched as reference
+e2e/                  dockerized end-to-end proof harnesses (config-mode cluster)
 ```
 
 The build matrix:
 
 | configuration | needs | builds | proves |
 |---|---|---|---|
-| `-DWITH_AERON=OFF` (default, CI) | cmake + a C++17 compiler | domain, ports, their tests | the hexagon: domain logic builds and its tests pass with zero infrastructure |
-| `-DWITH_AERON=ON` `-DAERON_SRC=…` `-DAERON_LIB=…` | aeron 1.52.2 checkout, prebuilt `libaeron_static.a` (see `poc/scripts/build-aeron.sh`), java for SBE codegen | everything, incl. the `switch-behavior` binary | the adapter compiles (and links) against the real transport |
+| `-DWITH_AERON=OFF` (default, CI) | cmake + a C++17 compiler | domain, ports, the json adapter, their tests | the hexagon: domain logic and input parsing build and their tests pass with zero infrastructure |
+| `-DWITH_AERON=ON` `-DAERON_SRC=…` `-DAERON_LIB=…` `-DMATCH_SCHEMA=…` | aeron 1.52.2 checkout, prebuilt `libaeron_static.a` (see `poc/scripts/build-aeron.sh`), the match `order-schema.xml` extracted from match main, java for SBE codegen | everything, incl. the `switch-behavior` binary | the adapters compile (and link) against the real transport and the real wire schema |
 
 ```bash
-# domain + ports + tests — no aeron, no java, anywhere gcc lives:
+# domain + ports + json adapter + tests — no aeron, no java, anywhere gcc lives:
 cmake -S . -B build -DWITH_AERON=OFF
 cmake --build build
 ctest --test-dir build --output-on-failure
 
 # full build (poc/ documents the dockerized aeron build that produces AERON_LIB):
+git -C /path/to/match show origin/main:match-common/src/main/resources/sbe/order-schema.xml > order-schema.xml
 cmake -S . -B build -DWITH_AERON=ON \
-    -DAERON_SRC=/path/to/aeron -DAERON_LIB=/path/to/libaeron_static.a
+    -DAERON_SRC=/path/to/aeron -DAERON_LIB=/path/to/libaeron_static.a \
+    -DMATCH_SCHEMA=$PWD/order-schema.xml
 cmake --build build
 ```
 

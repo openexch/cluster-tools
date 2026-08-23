@@ -1,0 +1,19 @@
+{
+  "configVersion": 1,
+  "impl": "array",
+  "bookCapacity": 131072,
+  "maxMatchesPerOrder": 10000,
+  "maxOrdersPerLevel": 0,
+  "markets": [
+    { "marketId": 1, "symbol": "BTC-USD",
+      "minPrice": 5000000000000, "maxPrice": 15000000000000, "tickSize": 100000000 },
+    { "marketId": 2, "symbol": "ETH-USD",
+      "minPrice": 100000000000, "maxPrice": 1000000000000, "tickSize": 50000000 },
+    { "marketId": 3, "symbol": "SOL-USD",
+      "minPrice": 5000000000, "maxPrice": 50000000000, "tickSize": 5000000 },
+    { "marketId": 4, "symbol": "XRP-USD",
+      "minPrice": 50000000, "maxPrice": 1000000000, "tickSize": 100000 },
+    { "marketId": 5, "symbol": "DOGE-USD",
+      "minPrice": 5000000, "maxPrice": 100000000, "tickSize": 10000 }
+  ]
+}

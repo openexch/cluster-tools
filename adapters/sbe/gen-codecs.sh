@@ -28,7 +28,8 @@ if [ -z "$JAR" ] || [ ! -f "$JAR" ]; then
     fi
 fi
 
-# Only the cluster-protocol schema is generated today; drop stale output before regen.
-rm -rf "$OUT_DIR/io_aeron_cluster_codecs"
+# Drop stale output before regen: the cluster-protocol codecs and the match
+# order-schema codecs (the two schemas this repo generates from today).
+rm -rf "$OUT_DIR/io_aeron_cluster_codecs" "$OUT_DIR/com_match_infrastructure_generated"
 
 "$JAVA_BIN" -Dsbe.target.language=Cpp -Dsbe.output.dir="$OUT_DIR" -jar "$JAR" "$@"
