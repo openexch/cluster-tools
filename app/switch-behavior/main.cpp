@@ -1,24 +1,30 @@
 // switch-behavior — operator CLI for the behaviour-versioning switch flow.
 //
 // Working today:
-//   probe   connect to a cluster, print the session info and the first N egress
-//           frames decoded at header level, exit 0.
+//   probe        connect to a cluster, print the session info and the first N egress
+//                frames decoded at header level, exit 0.
+//   send-config  send the logged EngineConfig command (match wire v10, template 8)
+//                from a JSON file: parse -> normalize -> validate against the
+//                engine's own rules -> encode -> offer through the cluster session.
 //
-// TODO(switch-behavior): the real subcommand — sending EngineConfig /
-// SwitchBehavior{targetVersion} through ingress and awaiting the ack — lands here once
+// TODO(switch-behavior): the SwitchBehavior{targetVersion} subcommand lands here once
 // its wire schema clears design review. The decision table it must respect already
-// lives in domain/include/cluster_tools/domain/SwitchDecision.h; this shell exists so
-// that landing it is a small diff, not a new tool.
+// lives in domain/include/cluster_tools/domain/SwitchDecision.h.
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
 
 #include "cluster_tools/adapters/aeron/AeronClusterSession.h"
+#include "cluster_tools/adapters/json/EngineConfigJson.h"
+#include "cluster_tools/adapters/sbe/EngineConfigCodec.h"
+#include "cluster_tools/domain/EngineConfig.h"
 
 namespace
 {
@@ -40,8 +46,9 @@ std::string envOr(const char *name, const std::string &dflt)
 }
 
 // The standard 8-byte SBE message header (blockLength, templateId, schemaId, version —
-// four little-endian uint16s), decoded by hand: header-level probing must not depend
-// on any engine's generated codecs, that is the whole point of the probe.
+// four little-endian uint16s), decoded by hand: header-level egress reporting must not
+// depend on any engine's generated codecs — the probe's whole point, and enough for
+// send-config too (EngineConfig has no per-command ack egress to decode).
 struct SbeMessageHeader
 {
     std::uint16_t blockLength;
@@ -68,24 +75,53 @@ bool decodeSbeMessageHeader(const std::uint8_t *bytes, std::size_t length, SbeMe
     return true;
 }
 
-struct ProbeOptions
+// Connection flags shared by every subcommand (flag wins over env).
+struct ConnectionOptions
 {
     std::string ingress;
     std::string aeronDir;
     std::string responseChannel;
+};
+
+ConnectionOptions connectionDefaultsFromEnv()
+{
+    ConnectionOptions options;
+    options.ingress = envOr("INGRESS_ENDPOINTS", "");
+    options.aeronDir = envOr("AERON_DIR", "");
+    const std::string selfIp = envOr("SELF_IP", "");
+    if (!selfIp.empty())
+    {
+        options.responseChannel = "aeron:udp?endpoint=" + selfIp + ":19999";
+    }
+    return options;
+}
+
+struct ProbeOptions
+{
+    ConnectionOptions connection;
     int frames = 5;
     std::int64_t timeoutMs = 20 * 1000;
+};
+
+struct SendConfigOptions
+{
+    ConnectionOptions connection;
+    std::string file;
+    std::int64_t pollMs = 3 * 1000;
 };
 
 void printUsage()
 {
     std::printf(
-        "usage: switch-behavior probe [options]\n"
+        "usage: switch-behavior <subcommand> [options]\n"
         "\n"
-        "Connects to an Aeron Cluster, prints the session info and the first N egress\n"
-        "frames decoded at header level, then exits.\n"
+        "subcommands:\n"
+        "  probe        connect to an Aeron Cluster, print the session info and the first\n"
+        "               N egress frames decoded at header level, then exit\n"
+        "  send-config  send the logged EngineConfig command (match wire v10, template 8)\n"
+        "               read from a JSON file through cluster ingress\n"
         "\n"
-        "options (flag wins over env):\n"
+        "common options (flag wins over env):\n"
         "  --ingress SPEC            cluster ingress endpoints \"id=host:port,...\"\n"
         "                            (env: INGRESS_ENDPOINTS)\n"
         "  --response-channel CHAN   egress channel the cluster answers on, e.g.\n"
@@ -95,11 +131,37 @@ void printUsage()
         "                            aeron:udp?endpoint=$SELF_IP:19999)\n"
         "  --aeron-dir DIR           media driver directory (env: AERON_DIR;\n"
         "                            default: the aeron default for this host)\n"
+        "\n"
+        "probe options:\n"
         "  --frames N                egress frames to print before exiting (default 5)\n"
         "  --timeout-ms MS           egress wait budget after connect (default 20000)\n"
         "\n"
-        "exit codes: 0 = session established (frames are best effort within the\n"
-        "timeout); 1 = connect failed or the cluster closed the session; 2 = usage.\n");
+        "send-config options:\n"
+        "  --file PATH               engine-config JSON document (required):\n"
+        "                            {\"configVersion\":1, \"impl\":\"array\"|\"direct\",\n"
+        "                             \"bookCapacity\":131072, \"maxMatchesPerOrder\":10000,\n"
+        "                             \"maxOrdersPerLevel\":0, \"markets\":[{\"marketId\":1,\n"
+        "                             \"symbol\":\"BTC-USD\", \"minPrice\":..., \"maxPrice\":...,\n"
+        "                             \"tickSize\":...}]}\n"
+        "                            every key is required; prices are fixed-point int64\n"
+        "                            (8 decimals); markets are normalized (sorted by\n"
+        "                            marketId) before validation and encoding\n"
+        "  --poll-ms MS              how long to watch egress after the offer (default\n"
+        "                            3000) — reporting only, see the note below\n"
+        "\n"
+        "send-config semantics: the config is validated with the ENGINE's own rules\n"
+        "before anything touches the network (plus one tool-side rule: configVersion\n"
+        "must be a positive uint32). EngineConfig has NO per-command ack on egress: the\n"
+        "engine decides ACCEPT / duplicate no-op / REJECT deterministically server-side\n"
+        "and logs it. After offering, the tool prints the offer position, briefly\n"
+        "reports egress at header level, and points you at the node logs\n"
+        "([ENGINE-CONFIG] lines) and the match_engine_config_{accepted,duplicates,\n"
+        "rejects}_total counters for the verdict.\n"
+        "\n"
+        "exit codes: 0 = done (probe: session established; send-config: command offered\n"
+        "— the server-side verdict lives in the node logs); 1 = connect/offer failed or\n"
+        "the cluster closed the session; 2 = usage, unreadable file, or a config the\n"
+        "engine would reject.\n");
 }
 
 bool parseArg(int argc, char **argv, int &i, const char *name, std::string &out)
@@ -118,19 +180,44 @@ bool parseArg(int argc, char **argv, int &i, const char *name, std::string &out)
     return false;
 }
 
+bool parseConnectionArg(int argc, char **argv, int &i, ConnectionOptions &connection)
+{
+    return parseArg(argc, argv, i, "--ingress", connection.ingress) ||
+        parseArg(argc, argv, i, "--response-channel", connection.responseChannel) ||
+        parseArg(argc, argv, i, "--aeron-dir", connection.aeronDir);
+}
+
+// Refuse ambiguity rather than guess: both endpoints must be explicit.
+bool checkConnectionOptions(const ConnectionOptions &connection)
+{
+    if (connection.ingress.empty())
+    {
+        std::fprintf(stderr, "switch-behavior: no ingress endpoints "
+            "(--ingress or INGRESS_ENDPOINTS)\n");
+        return false;
+    }
+    if (connection.responseChannel.empty())
+    {
+        std::fprintf(stderr, "switch-behavior: no response channel "
+            "(--response-channel or SELF_IP; the cluster must be able to route back)\n");
+        return false;
+    }
+    return true;
+}
+
 int runProbe(const ProbeOptions &options)
 {
     AeronClusterSessionSettings settings;
-    settings.aeronDir = options.aeronDir;
-    settings.responseChannel = options.responseChannel;
+    settings.aeronDir = options.connection.aeronDir;
+    settings.responseChannel = options.connection.responseChannel;
     settings.clientInfo = "name=switch-behavior version=0.1";
 
     AeronClusterSession session(settings);
 
     std::printf("probe: connecting ingress=%s response=%s\n",
-        options.ingress.c_str(), options.responseChannel.c_str());
+        options.connection.ingress.c_str(), options.connection.responseChannel.c_str());
 
-    const auto connected = session.connect(options.ingress);
+    const auto connected = session.connect(options.connection.ingress);
     if (!connected.ok())
     {
         std::fprintf(stderr, "probe: FAIL %s\n", connected.error().c_str());
@@ -194,43 +281,163 @@ int runProbe(const ProbeOptions &options)
     return 0; // RAII: the session destructor sends the close request and releases aeron
 }
 
+int runSendConfig(const SendConfigOptions &options)
+{
+    // 1. Read the document. The app owns file I/O — the parser is pure text-in.
+    std::ifstream file(options.file, std::ios::binary);
+    if (!file)
+    {
+        std::fprintf(stderr, "send-config: cannot read '%s'\n", options.file.c_str());
+        return 2;
+    }
+    std::ostringstream text;
+    text << file.rdbuf();
+
+    // 2. Parse (shape) then 3. normalize + validate (the engine's semantics): a config
+    // the engine would deterministically REJECT never touches the network.
+    const auto parsed = cluster_tools::json_adapter::parseEngineConfig(text.str());
+    if (!parsed.ok())
+    {
+        std::fprintf(stderr, "send-config: %s: %s\n", options.file.c_str(), parsed.error().c_str());
+        return 2;
+    }
+    const cluster_tools::domain::EngineConfig config =
+        cluster_tools::domain::normalized(parsed.value());
+    const std::string invalid = cluster_tools::domain::invalidReason(config);
+    if (!invalid.empty())
+    {
+        std::fprintf(stderr, "send-config: %s: the engine would reject this config: %s\n",
+            options.file.c_str(), invalid.c_str());
+        return 2;
+    }
+
+    std::printf("send-config: configVersion=%lld impl=%s bookCapacity=%lld "
+        "maxMatchesPerOrder=%lld maxOrdersPerLevel=%lld markets=%zu\n",
+        static_cast<long long>(config.configVersion),
+        cluster_tools::domain::implName(config.impl),
+        static_cast<long long>(config.bookCapacity),
+        static_cast<long long>(config.maxMatchesPerOrder),
+        static_cast<long long>(config.maxOrdersPerLevel),
+        config.markets.size());
+    for (const auto &market : config.markets)
+    {
+        std::printf("send-config:   marketId=%d symbol=%s minPrice=%lld maxPrice=%lld tickSize=%lld\n",
+            market.marketId, market.symbol.c_str(),
+            static_cast<long long>(market.minPrice),
+            static_cast<long long>(market.maxPrice),
+            static_cast<long long>(market.tickSize));
+    }
+
+    // 4. Encode the normalized config as match-schema bytes.
+    const auto encoded = cluster_tools::sbe_adapter::encodeEngineConfig(config);
+    if (!encoded.ok())
+    {
+        std::fprintf(stderr, "send-config: %s\n", encoded.error().c_str());
+        return 2;
+    }
+
+    // 5. Connect and offer; the session adapter adds the cluster framing
+    // (SessionMessageHeader), exactly like the PoC's CreateOrder.
+    AeronClusterSessionSettings settings;
+    settings.aeronDir = options.connection.aeronDir;
+    settings.responseChannel = options.connection.responseChannel;
+    settings.clientInfo = "name=switch-behavior version=0.1";
+
+    AeronClusterSession session(settings);
+
+    std::printf("send-config: connecting ingress=%s response=%s\n",
+        options.connection.ingress.c_str(), options.connection.responseChannel.c_str());
+
+    const auto connected = session.connect(options.connection.ingress);
+    if (!connected.ok())
+    {
+        std::fprintf(stderr, "send-config: FAIL %s\n", connected.error().c_str());
+        return 1;
+    }
+    std::printf("send-config: CONNECTED sessionId=%lld leaderMemberId=%d leadershipTermId=%lld\n",
+        static_cast<long long>(connected.value().sessionId),
+        connected.value().leaderMemberId,
+        static_cast<long long>(connected.value().leadershipTermId));
+
+    const auto offered = session.offer(encoded.value().data(), encoded.value().size());
+    if (!offered.ok())
+    {
+        std::fprintf(stderr, "send-config: FAIL %s\n", offered.error().c_str());
+        return 1;
+    }
+    const auto wire = cluster_tools::sbe_adapter::engineConfigWireInfo();
+    std::printf("send-config: OFFERED EngineConfig schemaId=%u version=%u templateId=%u "
+        "payloadLength=%zu position=%lld\n",
+        wire.schemaId, wire.schemaVersion, wire.templateId,
+        encoded.value().size(), static_cast<long long>(offered.value()));
+
+    // 6. Watch egress briefly, header-level only — reporting, not an ack wait (there
+    // is no EngineConfig ack egress to wait for; see the note printed below).
+    constexpr int PRINT_LIMIT = 10;
+    int framesSeen = 0;
+    const auto onEgress = [&](const EgressMessage &message)
+    {
+        framesSeen++;
+        if (framesSeen > PRINT_LIMIT)
+        {
+            return;
+        }
+        SbeMessageHeader header{};
+        if (decodeSbeMessageHeader(message.payload, message.length, header))
+        {
+            std::printf(
+                "send-config: EGRESS[%d] schemaId=%u templateId=%u version=%u "
+                "payloadLength=%zu\n",
+                framesSeen, header.schemaId, header.templateId, header.version,
+                message.length);
+        }
+        else
+        {
+            std::printf("send-config: EGRESS[%d] short frame payloadLength=%zu (no SBE header)\n",
+                framesSeen, message.length);
+        }
+    };
+
+    const std::int64_t deadlineMs = nowMs() + options.pollMs;
+    while (nowMs() < deadlineMs)
+    {
+        const auto polled = session.poll(onEgress, 10);
+        if (!polled.ok())
+        {
+            std::fprintf(stderr, "send-config: FAIL %s\n", polled.error().c_str());
+            return 1;
+        }
+        if (0 == polled.value())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    if (framesSeen > PRINT_LIMIT)
+    {
+        std::printf("send-config: EGRESS ... %d more frame(s) not printed\n",
+            framesSeen - PRINT_LIMIT);
+    }
+
+    std::printf(
+        "send-config: DONE offered at position=%lld; egressFrames=%d in %lldms\n"
+        "send-config: NOTE EngineConfig has no per-command ack on egress. The engine\n"
+        "decided ACCEPT (fresh/adopted), duplicate no-op, or REJECT deterministically\n"
+        "server-side: check the node logs for [ENGINE-CONFIG] lines and the\n"
+        "match_engine_config_{accepted,duplicates,rejects}_total counters.\n",
+        static_cast<long long>(offered.value()), framesSeen,
+        static_cast<long long>(options.pollMs));
+    return 0;
 }
 
-int main(int argc, char **argv)
+int mainProbe(int argc, char **argv)
 {
-    if (argc < 2)
-    {
-        printUsage();
-        return 2;
-    }
-    const std::string subcommand = argv[1];
-    if ("--help" == subcommand || "-h" == subcommand || "help" == subcommand)
-    {
-        printUsage();
-        return 0;
-    }
-    if ("probe" != subcommand)
-    {
-        std::fprintf(stderr, "switch-behavior: unknown subcommand '%s'\n\n", subcommand.c_str());
-        printUsage();
-        return 2;
-    }
-
     ProbeOptions options;
-    options.ingress = envOr("INGRESS_ENDPOINTS", "");
-    options.aeronDir = envOr("AERON_DIR", "");
-    const std::string selfIp = envOr("SELF_IP", "");
-    if (!selfIp.empty())
-    {
-        options.responseChannel = "aeron:udp?endpoint=" + selfIp + ":19999";
-    }
+    options.connection = connectionDefaultsFromEnv();
 
     for (int i = 2; i < argc; i++)
     {
         std::string value;
-        if (parseArg(argc, argv, i, "--ingress", options.ingress) ||
-            parseArg(argc, argv, i, "--response-channel", options.responseChannel) ||
-            parseArg(argc, argv, i, "--aeron-dir", options.aeronDir))
+        if (parseConnectionArg(argc, argv, i, options.connection))
         {
             continue;
         }
@@ -259,19 +466,78 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    // Refuse ambiguity rather than guess: both of these must be explicit.
-    if (options.ingress.empty())
+    if (!checkConnectionOptions(options.connection))
     {
-        std::fprintf(stderr, "switch-behavior: no ingress endpoints "
-            "(--ingress or INGRESS_ENDPOINTS)\n");
         return 2;
     }
-    if (options.responseChannel.empty())
+    return runProbe(options);
+}
+
+int mainSendConfig(int argc, char **argv)
+{
+    SendConfigOptions options;
+    options.connection = connectionDefaultsFromEnv();
+
+    for (int i = 2; i < argc; i++)
     {
-        std::fprintf(stderr, "switch-behavior: no response channel "
-            "(--response-channel or SELF_IP; the cluster must be able to route back)\n");
+        std::string value;
+        if (parseConnectionArg(argc, argv, i, options.connection) ||
+            parseArg(argc, argv, i, "--file", options.file))
+        {
+            continue;
+        }
+        if (parseArg(argc, argv, i, "--poll-ms", value))
+        {
+            options.pollMs = std::atoll(value.c_str());
+            if (options.pollMs < 1)
+            {
+                std::fprintf(stderr, "switch-behavior: --poll-ms wants a positive integer\n");
+                return 2;
+            }
+            continue;
+        }
+        std::fprintf(stderr, "switch-behavior: unknown option '%s'\n\n", argv[i]);
+        printUsage();
         return 2;
     }
 
-    return runProbe(options);
+    if (options.file.empty())
+    {
+        std::fprintf(stderr, "switch-behavior: send-config needs --file <engine-config.json>\n");
+        return 2;
+    }
+    if (!checkConnectionOptions(options.connection))
+    {
+        return 2;
+    }
+    return runSendConfig(options);
+}
+
+}
+
+int main(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        printUsage();
+        return 2;
+    }
+    const std::string subcommand = argv[1];
+    if ("--help" == subcommand || "-h" == subcommand || "help" == subcommand)
+    {
+        printUsage();
+        return 0;
+    }
+    if ("probe" == subcommand)
+    {
+        return mainProbe(argc, argv);
+    }
+    if ("send-config" == subcommand)
+    {
+        return mainSendConfig(argc, argv);
+    }
+
+    std::fprintf(stderr, "switch-behavior: unknown subcommand '%s'\n\n", subcommand.c_str());
+    printUsage();
+    return 2;
 }
