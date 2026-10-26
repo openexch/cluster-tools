@@ -9,7 +9,11 @@
 #   e2e/order-schema.xml    the wire schema the jar embeds, extracted from the SAME
 #                           match commit (git show <commit>:match-common/src/main/
 #                           resources/sbe/order-schema.xml)
-#   AERON_SRC_DIR env       aeron 1.52.2 checkout (shallow clone is fine)
+#   e2e/money-schema.xml    the core money-schema at dependencies.lock money_schema_ref
+#                           (scripts/fetch-schemas.sh writes it; the build needs it
+#                           since RC2 S11 even though the proof does not use it)
+#   DEPS_DIR env            the verified dependency cache of scripts/fetch-deps.sh
+#                           (aeron-1.53.1.tar.gz, sbe-tool-1.40.1.jar, agrona-2.5.0.jar)
 #   docker                  with the poc builder image buildable (poc/Dockerfile.builder)
 #
 # The sequence (evidence goes to stdout — tee it):
@@ -53,13 +57,14 @@ expect_on_all_nodes() {
 
 [ -f "$E2E_DIR/match-cluster.jar" ] || fail "e2e/match-cluster.jar missing (build it from the pinned match commit)"
 [ -f "$E2E_DIR/order-schema.xml" ] || fail "e2e/order-schema.xml missing (extract it from the SAME match commit)"
-[ -n "${AERON_SRC_DIR:-}" ] || fail "AERON_SRC_DIR not set (aeron 1.52.2 checkout)"
-[ -d "$AERON_SRC_DIR/aeron-client/src/main/cpp_wrapper" ] || fail "no cpp_wrapper under AERON_SRC_DIR"
+[ -f "$E2E_DIR/money-schema.xml" ] || fail "e2e/money-schema.xml missing (scripts/fetch-schemas.sh)"
+[ -n "${DEPS_DIR:-}" ] || fail "DEPS_DIR not set (run scripts/fetch-deps.sh <dir> and point DEPS_DIR at it)"
+[ -f "$DEPS_DIR/aeron-1.53.1.tar.gz" ] || fail "no aeron-1.53.1.tar.gz under DEPS_DIR (configure verifies its sha256)"
 
 banner "STEP 0a: build the client artifacts (cached docker volume)"
 docker build -q -t ccpoc-builder -f "$REPO_DIR/poc/Dockerfile.builder" "$REPO_DIR/poc"
 docker run --rm \
-    -v "$AERON_SRC_DIR":/aeron:ro \
+    -v "$DEPS_DIR":/deps:ro \
     -v ccpoc_aeronbuild:/build \
     -v "$REPO_DIR":/repo \
     -v "$E2E_DIR":/schema \

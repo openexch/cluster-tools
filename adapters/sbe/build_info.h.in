@@ -1,0 +1,19 @@
+#ifndef CLUSTER_TOOLS_BUILD_INFO_H
+#define CLUSTER_TOOLS_BUILD_INFO_H
+
+// Generated at configure time (adapters/sbe/CMakeLists.txt). The pins this binary was built
+// against, so a running process can say what it speaks (log it at start, put it in /metrics).
+namespace cluster_tools { namespace build_info {
+
+inline constexpr const char *AERON_VERSION = "@CT_AERON_VERSION@";
+inline constexpr const char *SBE_VERSION = "@CT_LOCK_SBE_VERSION@";
+inline constexpr int MONEY_SCHEMA_VERSION = @CT_MONEY_VERSION@;
+inline constexpr const char *MONEY_SCHEMA_SHA256 = "@CT_MONEY_SHA256@";
+inline constexpr int MATCH_SCHEMA_VERSION = @CT_MATCH_VERSION@;
+inline constexpr const char *MATCH_SCHEMA_SHA256 = "@CT_MATCH_SHA256@";
+inline constexpr bool HAVE_ME_JOURNAL_CODECS = @CT_HAVE_JOURNAL@;
+inline constexpr const char *ME_JOURNAL_SCHEMA_SHA256 = "@CT_JOURNAL_SHA256@";
+
+}}
+
+#endif

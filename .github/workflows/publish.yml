@@ -52,23 +52,22 @@ jobs:
       # aeron build tree). The box has no aeron libraries of its own; everything
       # else must resolve to stock system libs, which the closure check enforces.
       FILES: switch-behavior aeronmd libaeron_driver.so libaeron.so
-      # The tag the engines embed; adapters compile against this exact protocol.
-      AERON_TAG: 1.52.2
+      # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
+      # scripts/fetch-deps.sh + scripts/fetch-schemas.sh fetch and sha256-verify them.
       CMAKE_VERSION: 3.31.6
     steps:
       - uses: actions/checkout@v7
 
-      # SBE codegen is java (adapters/sbe/gen-codecs.sh). The sbe jar itself is
-      # fetched by that script the same way it is fetched everywhere else: with
-      # SBE_JAR unset, it downloads sbe-all into the build dir from maven central.
+      # SBE codegen is java (adapters/sbe/gen-codecs.sh), with the sbe-tool + agrona jars
+      # that scripts/fetch-deps.sh fetches and verifies against dependencies.lock.
       - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
-      # aeron 1.52.2 needs cmake >= 3.30 and ubuntu 24.04's apt ships 3.28. Same
-      # pinned Kitware tarball poc/Dockerfile.builder installs — deterministic,
+      # Aeron 1.53.1 needs cmake >= 3.30 and ubuntu 24.04's apt ships 3.28. Same
+      # pinned Kitware tarball poc/Dockerfile.builder installs - deterministic,
       # rather than trusting whatever the runner image happens to carry this week.
       - name: Install cmake
         run: |
@@ -78,89 +77,83 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/cmake.tgz" -C "${RUNNER_TEMP}"
           echo "${RUNNER_TEMP}/cmake-${CMAKE_VERSION}-linux-$(uname -m)/bin" >> "$GITHUB_PATH"
 
-      - name: Clone aeron at the pinned tag
-        run: |
-          git clone --depth 1 --branch "${AERON_TAG}" \
-            https://github.com/aeron-io/aeron.git "${RUNNER_TEMP}/aeron-src"
-
-      # aeron is pinned, so a warm cache skips the ~15 min aeron build entirely and
-      # the key only ever changes when AERON_TAG does. The .done marker is the same
-      # discipline as poc/scripts/build-aeron.sh: a cache that carries a half-built
-      # tree (a previous run died mid-build) has no marker and is rebuilt.
-      - name: Cache the aeron build
+      # The cache only saves downloads: fetch-deps.sh re-verifies every cached file against
+      # the lock and re-extracts Aeron from the verified tarball on every run.
+      - name: Cache pinned downloads
         uses: actions/cache@v4
         with:
-          path: aeron-build
-          key: aeron-${{ env.AERON_TAG }}-arm64-${{ runner.os }}
+          path: deps-cache
+          key: deps-${{ hashFiles('dependencies.lock') }}-arm64
 
-      - name: Build aeron (skipped when the cache is warm)
+      - name: Fetch and verify the pinned dependencies
+        id: deps
         run: |
           set -euo pipefail
-          if [ -f aeron-build/.done ]; then
-            echo "aeron build cached, skipping"
-            exit 0
-          fi
-          # Flags mirror poc/scripts/build-aeron.sh — the configuration the
-          # dockerized arm64 builds were proven with.
-          cmake -S "${RUNNER_TEMP}/aeron-src" -B aeron-build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DAERON_TESTS=OFF \
-            -DAERON_SYSTEM_TESTS=OFF \
-            -DAERON_SLOW_SYSTEM_TESTS=OFF \
-            -DBUILD_AERON_ARCHIVE_API=OFF \
-            -DAERON_BUILD_SAMPLES=OFF \
-            -DAERON_BUILD_DOCUMENTATION=OFF
-          cmake --build aeron-build --target aeronmd aeron_static -j"$(nproc)"
-          touch aeron-build/.done
+          scripts/fetch-deps.sh "${PWD}/deps-cache" > deps.args
+          echo "args=$(tr '\n' ' ' < deps.args)" >> "$GITHUB_OUTPUT"
 
-      # find rather than hardcoded paths, like build-aeron.sh: the layout inside
-      # aeron's build tree is aeron's business. Building aeronmd necessarily built
-      # libaeron_driver.so (aeronmd links it), so all three must exist — a missing
-      # one means the cache or the build is broken, and publishing must stop.
+      - name: Read the schema pins
+        id: pins
+        run: |
+          set -euo pipefail
+          lock() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' dependencies.lock "$1"; }
+          echo "money_ref=$(lock money_schema_ref)" >> "$GITHUB_OUTPUT"
+          echo "match_ref=$(lock match_schema_ref)" >> "$GITHUB_OUTPUT"
+
+      # The engine wire schemas the tools speak, at the commits the lock pins (never a branch
+      # tip, never vendored: two copies of a wire schema drift).
+      - name: Check out assets at the money-schema pin
+        uses: actions/checkout@v4
+        with:
+          repository: openexch/assets
+          ref: ${{ steps.pins.outputs.money_ref }}
+          path: pinned/assets
+          sparse-checkout: assets-common/src/main/resources/sbe
+          sparse-checkout-cone-mode: false
+
+      - name: Check out match at the order-schema pin
+        uses: actions/checkout@v4
+        with:
+          repository: openexch/match
+          ref: ${{ steps.pins.outputs.match_ref }}
+          path: pinned/match
+          sparse-checkout: match-common/src/main/resources/sbe
+          sparse-checkout-cone-mode: false
+
+      - name: Extract and verify the schemas
+        id: schemas
+        run: |
+          set -euo pipefail
+          scripts/fetch-schemas.sh "${RUNNER_TEMP}/schemas" pinned/assets pinned/match > schemas.args
+          echo "args=$(tr '\n' ' ' < schemas.args)" >> "$GITHUB_OUTPUT"
+
+      # Release because these binaries are what the box runs, not a test build.
+      # (ci.yml's default-type build is fine for tests; a published artifact is not
+      # allowed to be an unoptimised accident.) Aeron (client, driver, aeronmd) is built
+      # from the verified source tree inside this one cmake build.
+      - name: Build
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086 # the args are -D flags, one per word
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWITH_AERON=ON \
+            ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
+          cmake --build build -j"$(nproc)"
+
+      # find rather than hardcoded paths: the layout inside aeron's build tree is aeron's
+      # business. All three must exist - a missing one means the build is broken.
       - name: Locate the aeron artifacts
         id: aeron
         run: |
           set -euo pipefail
-          AERONMD=$(find aeron-build -name aeronmd -type f | head -1)
-          LIBSTATIC=$(find aeron-build -name libaeron_static.a -type f | head -1)
-          LIBDRIVER=$(find aeron-build -name libaeron_driver.so -type f | head -1)
-          LIBAERON=$(find aeron-build -name libaeron.so -type f | head -1)
+          AERONMD=$(find build/aeron -name aeronmd -type f | head -1)
+          LIBDRIVER=$(find build/aeron -name libaeron_driver.so -type f | head -1)
+          LIBAERON=$(find build/aeron -name libaeron.so -type f | head -1)
           [ -n "$AERONMD" ]   || { echo "::error::aeron build produced no aeronmd"; exit 1; }
-          [ -n "$LIBSTATIC" ] || { echo "::error::aeron build produced no libaeron_static.a"; exit 1; }
           [ -n "$LIBDRIVER" ] || { echo "::error::aeron build produced no libaeron_driver.so"; exit 1; }
           [ -n "$LIBAERON" ]  || { echo "::error::aeron build produced no libaeron.so"; exit 1; }
           echo "aeronmd=${PWD}/${AERONMD}" >> "$GITHUB_OUTPUT"
-          echo "libstatic=${PWD}/${LIBSTATIC}" >> "$GITHUB_OUTPUT"
           echo "libdriver=${PWD}/${LIBDRIVER}" >> "$GITHUB_OUTPUT"
           echo "libaeron=${PWD}/${LIBAERON}" >> "$GITHUB_OUTPUT"
-
-      # The engine wire schema the tool speaks. Fetched from match main at build
-      # time, never vendored: two copies of a wire schema drift, and the binary is
-      # rebuilt on every push anyway. The engine's ingress gate accepts a version
-      # RANGE, so a tool built against a newer schema keeps working during rollouts.
-      - name: Fetch match order schema
-        uses: actions/checkout@v4
-        with:
-          repository: openexch/match
-          sparse-checkout: match-common/src/main/resources/sbe
-          sparse-checkout-cone-mode: false
-          path: match-schema
-
-      # Release because these binaries are what the box runs, not a test build.
-      # (ci.yml's default-type build is fine for tests; a published artifact is not
-      # allowed to be an unoptimised accident.)
-      - name: Build
-        env:
-          AERON_LIB: ${{ steps.aeron.outputs.libstatic }}
-        run: |
-          set -euo pipefail
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DWITH_AERON=ON \
-            -DAERON_SRC="${RUNNER_TEMP}/aeron-src" \
-            -DAERON_LIB="${AERON_LIB}" \
-            -DMATCH_SCHEMA="${PWD}/match-schema/match-common/src/main/resources/sbe/order-schema.xml"
-          cmake --build build -j"$(nproc)"
 
       # The publish gate. ci.yml already proves the no-aeron hexagon on x86 for
       # every PR; this run proves the same tests on the deploy architecture, in the

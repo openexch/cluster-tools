@@ -7,9 +7,12 @@
 
 #include "cluster_tools/ports/ClusterSession.h"
 
-// AeronClusterSession — the aeron adapter behind the ClusterSession port, extracted
-// from poc/poc.cpp (which stays untouched as reference). It speaks the cluster session
-// protocol the way io.aeron.cluster.client.AeronCluster does on aeron 1.52.2:
+// AeronClusterSession — the cold-path aeron adapter behind the virtual ClusterSession port
+// (switch-behavior), extracted from poc/poc.cpp (which stays untouched as reference).
+// Built against Aeron 1.53.1 since RC2 S11. Runtime components (forwarder, bridge) use the
+// non-blocking client/ library instead; this adapter blocks, sends empty credentials and does
+// not follow a leader change, which is fine for a one-shot operator command and nothing else.
+// It speaks the cluster session protocol the way io.aeron.cluster.client.AeronCluster does:
 //
 //   - connect: SessionConnectRequest on every member's ingress publication; followers
 //     answer SessionEvent code=REDIRECT (leaderMemberId), the leader answers code=OK.

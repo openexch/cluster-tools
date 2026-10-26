@@ -9,6 +9,14 @@ repo is where those tools live.
 
 ## Contents
 
+- **[`client/`](client/)** — the production C++ cluster client (RC2 S11) the forwarder and
+  the C++ bridge share: a non-blocking state machine mirroring
+  `io.aeron.cluster.client.AeronCluster` 1.53.1 (async connect with credentials, follower
+  REDIRECT, bounded retries with backoff, leader-change follow with the new term stamped,
+  egress-image loss, 1 s keepalive from the duty cycle, typed close reasons), a C++20
+  `ClusterTransport` concept with the Aeron implementation, the core `RegisterSession`
+  registrar (AdminAck re-send, re-declare on every new leader), two clusters on one Aeron
+  client, and exit 70 on a fatal Aeron client error.
 - **[`poc/`](poc/)** — a minimal (~470 LOC) C++ cluster client, proven against a
   3-node dockerized match cluster: session connect (with follower REDIRECT handling),
   an order submitted through ingress, and the OrderStatus ack decoded off egress.
@@ -30,6 +38,10 @@ domain/               pure decision logic — no Aeron, no SBE, no I/O
   SwitchDecision      the behaviour-versioning switch decision table, + doctest tests
   EngineConfig        the engine-creation config value type + validation mirroring the
                       engine's own rules (match EngineConfigState), + doctest tests
+client/               the shared runtime cluster client (see Contents); pure parts
+                      (endpoints, credentials, backoff, settings) build without aeron,
+                      client/aeron holds the transport + fatal-error handling, client/it
+                      the real-cluster integration scenarios (run-it.sh)
 ports/                the seams (header-only)
   ClusterSession      connect / offer / poll / close — virtual, cold-path (the header
                       documents why, and why hot-path ports would be templates/concepts)
@@ -54,22 +66,39 @@ The build matrix:
 
 | configuration | needs | builds | proves |
 |---|---|---|---|
-| `-DWITH_AERON=OFF` (default, CI) | cmake + a C++17 compiler | domain, ports, the json adapter, their tests | the hexagon: domain logic and input parsing build and their tests pass with zero infrastructure |
-| `-DWITH_AERON=ON` `-DAERON_SRC=…` `-DAERON_LIB=…` `-DMATCH_SCHEMA=…` | aeron 1.52.2 checkout, prebuilt `libaeron_static.a` (see `poc/scripts/build-aeron.sh`), the match `order-schema.xml` extracted from match main, java for SBE codegen | everything, incl. the `switch-behavior` binary | the adapters compile (and link) against the real transport and the real wire schema |
+| `-DWITH_AERON=OFF` (default, `ci.yml`) | cmake >= 3.16 + a C++20 compiler | domain, ports, the json adapter, the pure client parts, their tests | the hexagon: domain logic, input parsing and the client's pure rules build and pass with zero infrastructure |
+| `-DWITH_AERON=ON` (`aeron.yml`, `publish.yml`) | cmake >= 3.30, java 21, the verified inputs below | everything: aeron 1.53.1 client + aeronmd from source, codecs, the client and its tests, switch-behavior, the PoC | the client state machine (fake transport), the codec goldens against the engines' Java encoders, the transport against the real wire schema |
+
+Every pinned input of the Aeron build is in `dependencies.lock` and nothing is trusted by
+name or path: `scripts/fetch-deps.sh` downloads the Aeron 1.53.1 source tarball, sbe-tool
+1.40.1 and agrona 2.5.0 and checks each sha256; `scripts/fetch-schemas.sh` extracts the
+money-schema and the order-schema at the pinned commits and checks their sha256. Configure
+then re-hashes the Aeron tarball (`-DAERON_TARBALL`) and extracts it itself (a source tree is
+not accepted as input), re-hashes the SBE jars and runs codegen only from hashed copies in the
+build tree (re-hashed before every run), and checks each schema's id, version floor and
+required templates. `scripts/check-configure-gate.sh` proves each refusal.
 
 ```bash
-# domain + ports + json adapter + tests — no aeron, no java, anywhere gcc lives:
+# domain + ports + json adapter + pure client + tests: no aeron, no java:
 cmake -S . -B build -DWITH_AERON=OFF
 cmake --build build
 ctest --test-dir build --output-on-failure
 
-# full build (poc/ documents the dockerized aeron build that produces AERON_LIB):
-git -C /path/to/match show origin/main:match-common/src/main/resources/sbe/order-schema.xml > order-schema.xml
-cmake -S . -B build -DWITH_AERON=ON \
-    -DAERON_SRC=/path/to/aeron -DAERON_LIB=/path/to/libaeron_static.a \
-    -DMATCH_SCHEMA=$PWD/order-schema.xml
-cmake --build build
+# full build:
+scripts/fetch-deps.sh ~/.cache/ct-deps > deps.args
+scripts/fetch-schemas.sh ~/.cache/ct-schemas /path/to/assets /path/to/match > schemas.args
+cmake -S . -B build-aeron -DWITH_AERON=ON $(cat deps.args schemas.args)
+cmake --build build-aeron -j
+ctest --test-dir build-aeron --output-on-failure
+
+# real-cluster integration (3-node core + 1-node ME on this host, kills included):
+client/it/run-it.sh build-aeron /path/to/assets-cluster.jar /path/to/match-cluster.jar
 ```
+
+A newer wire schema (money v7, order v12) drops in by pointing `-DMONEY_SCHEMA` /
+`-DMATCH_SCHEMA` at it (or bumping the `*_ref`/`*_sha256` pins); the codec goldens then fail
+until `adapters/sbe/tests/golden/regen.sh` is re-run with engine jars at the new commits,
+which is the drift alarm working. `-DME_JOURNAL_SCHEMA=` adds the ME journal codecs (RC2 S1).
 
 ## License
 
