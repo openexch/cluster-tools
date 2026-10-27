@@ -16,6 +16,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # and fetched + verified by scripts/fetch-deps.sh and scripts/fetch-schemas.sh.
 option(WITH_CODECS "Generate the SBE codecs (needs java 21 + the pinned sbe-tool/agrona jars and the three wire schemas; no Aeron)" OFF)
 option(WITH_AERON "Build the aeron adapter, the cluster client transport and the apps that need it (implies WITH_CODECS)" OFF)
+# RC2 S9a: the C++ settlement bridge's archive side (archive/aeron, ct-journal-tail) on the Aeron C
+# archive client built from the verified tarball. Requires WITH_AERON; pins the money and journal
+# schemas by EXACT sha256 (cmake/VerifiedDependencies.cmake).
+option(WITH_BRIDGE "Build the Aeron C archive client, the bridge archive adapter and ct-journal-tail (requires WITH_AERON)" OFF)
 set(AERON_TARBALL "" CACHE FILEPATH
     "Aeron source tarball at the dependencies.lock version and sha256 (scripts/fetch-deps.sh) - required when WITH_AERON=ON; configure verifies and extracts it")
 set(SBE_CLASSPATH "" CACHE STRING
@@ -31,12 +35,25 @@ option(CT_INTEGRATION_TESTS "Register the real-cluster integration test (java + 
 
 include(CTest)
 
+if(WITH_BRIDGE AND NOT WITH_AERON)
+    message(FATAL_ERROR "WITH_BRIDGE=ON requires WITH_AERON=ON (the archive client links the verified Aeron tree)")
+endif()
+
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock" CT_DEPENDENCY_LOCK)
+
+# The ME journal golden fixtures are verified in every configuration (RC2 S9a 9.2 FixtureGuard):
+# the pure archive tests read them in the WITH_AERON=OFF job too.
+include(cmake/VerifyMeJournalFixtures.cmake)
+ct_verify_me_journal_fixtures("${CMAKE_CURRENT_SOURCE_DIR}/archive/tests/fixtures/mejournal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock")
+file(GLOB CT_MEJOURNAL_FIXTURE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/archive/tests/fixtures/mejournal/*")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CT_MEJOURNAL_FIXTURE_FILES}) # an edited .bin re-runs the guard (review N-6)
 
 add_subdirectory(domain)
 add_subdirectory(ports)
 add_subdirectory(adapters/json)   # no transport dependency - builds and tests everywhere
 add_subdirectory(client)          # the pure parts build everywhere; the transport parts need WITH_AERON
+add_subdirectory(archive)         # pure archive core everywhere; archive/aeron with WITH_BRIDGE
 
 if(WITH_AERON)
     set(WITH_CODECS ON)
@@ -52,4 +69,10 @@ if(WITH_AERON)
     add_subdirectory(adapters/aeron)
     add_subdirectory(app/switch-behavior)
     add_subdirectory(poc)
+endif()
+
+if(WITH_BRIDGE)
+    include(cmake/AeronArchive.cmake)
+    add_subdirectory(archive/aeron)
+    add_subdirectory(app/journal-tail)
 endif()

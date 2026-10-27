@@ -1,0 +1,21 @@
+# The RED column of RC2 S9a contract 9.3: scenario | rules switched off (comma separated) | the
+# failure expected | the text the SCENARIO FAIL line must carry (review N-10). run-it.sh requires each
+# scenario to FAIL, for that reason, with these CT_TEST_DISABLE_* seams set (a crash is no RED).
+emptyGenesisRecordingThenData|CHAIN_EMPTY_ROW,CHAIN_DRAINED_ROW|the archive refuses [0, 0) and the follower loops|the data of recording 1 never arrived
+chainFollowAcrossRecordingsAndSuccessor|FOLLOW_ROW7A_IMAGE_END_PROBE|IMAGE_LOST about 1 s after STOP|a source fault was counted
+replayToEphemeralPortResolvesBeforeStartReplay|ADAPTER_RESOLVE_ENDPOINT|port-0 channel sent: no image|no frames with local host
+neverConnected15s|FOLLOW_ROW8_NEVER_CONNECTED,FOLLOW_ROW13_ARCHIVE_ERROR|the follower waits silently|a silent idle
+invokerRunsWhileArchiveCallBlocks|ADAPTER_INVOKER|keepalive gap about 5 s|the keepalive gap reached
+detachStopsReplayFreeingTheSlot|ADAPTER_STOP_REPLAY|REPLAY_OPEN{max_replays} on re-attach|a replay leaked
+rejectedRememberedPositionClearsProofs|MEMO_POSITION_REJECTED|the same position is retried forever|data lost after the rejection
+capacityRejectionKeepsProofs|MEMO_CAPACITY_CLEARS|proofs cleared: rescan from chain start|the capacity rejection cleared the proof
+perSourceMemoSurvivesFailBack|MEMO_SHARED_ACROSS_SOURCES|one shared memo: B's listing wipes A's proof (history change), fail-back rescans A|fail-back did not resume A at A's proof
+activePurgeKeepsTheMemo|MEMO_KEY_WITH_START|key with startPosition: memo lost on purge|the resume after a purge below the proof is not at the proof
+storagePrecheckRefusesWithoutRescan|ADAPTER_STORAGE_PRECHECK|precheck off: the request is sent|no REPLAY_STORAGE
+journalMtuMismatchRefusesSource|CHAIN_MTU_ROW|MTU row off: followed|source A was not refused for its MTU
+seqRegressionWithinRecordingFaults|FOLLOW_ROW3_REGRESSION|row 3 off: delivered silently|the regression was delivered silently
+zeroSeqRecordIsRefusedLoudly|PEEK_HEAD|row 7 off: frames pass the gate (and an owner skips them silently)|no SCHEMA_REFUSED
+appliedHeadKeepsDutyBounded|MEMO_PROVE_FROM_SKIP|memo off: the second resume rescans|no proof at the head's end
+journalTailExitsSeventyOnUncaughtException|TAIL_TERMINATE_HANDLER|terminate handler not installed: 134|exit status 134
+imageLostMidFollowEndsSync|FOLLOW_ROW7A_IGNORE,FOLLOW_ROW9_ARCHIVE_GONE,FOLLOW_ASYNC_DISCONNECT|rows 7a, 9 and the async disconnect path off: the dead source is followed silently|the dead source was followed silently
+chainFollowWithLateSuccessor|FOLLOW_CONTINUATION|F-1 off: the chain is re-replayed while the successor is missing|the chain was re-replayed

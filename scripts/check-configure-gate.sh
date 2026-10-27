@@ -4,11 +4,13 @@
 # and gen-codecs.sh must refuse a jar swapped after configure. Registered as the ctest
 # build.configure_gate in the WITH_AERON build; runnable by hand too.
 #
-# Usage: scripts/check-configure-gate.sh <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema>
+# Usage: scripts/check-configure-gate.sh <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema> [<aeron-all.jar>]
+# The RC2 S9a WITH_BRIDGE cases (contract 9.5) run in the same pass; the optional aeron-all jar adds
+# the integration-fixture jar case.
 set -euo pipefail
 
-if [ $# -ne 6 ]; then
-    echo "usage: $0 <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema>" >&2
+if [ $# -ne 6 ] && [ $# -ne 7 ]; then
+    echo "usage: $0 <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema> [<aeron-all.jar>]" >&2
     exit 64
 fi
 CMAKE=$1
@@ -17,6 +19,7 @@ SBE_CP=$3
 MONEY=$4
 MATCH=$5
 JOURNAL=$6
+AERON_ALL=${7:-}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d -t ct-configure-gate.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
@@ -93,6 +96,34 @@ sed '0,/version="1"/s//version="1" /' "$JOURNAL" > "$WORK/journal-edited.xml"
 expect_refused journal-hash-differs "dependencies.lock pins" "${SCHEMAS[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$WORK/journal-edited.xml"
 expect_refused no-journal-schema "is required" "${SCHEMAS[@]}" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
+
+# 7b. WITH_BRIDGE (RC2 S9a contract 2.2, 9.5): money and journal pinned by EXACT sha256 and version.
+expect_refused bridge-without-aeron "WITH_BRIDGE=ON requires WITH_AERON=ON" "${GOOD[@]}" -DWITH_BRIDGE=ON -DWITH_AERON=OFF
+expect_refused bridge-no-journal-schema "is required" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
+sed '0,/version="7"/s//version="7" /' "$MONEY" > "$WORK/money-edited.xml"
+expect_refused bridge-money-hash-differs "the bridge needs the exact core wire" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+    -DMONEY_SCHEMA="$WORK/money-edited.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed '0,/version="7"/s//version="8"/' "$MONEY" > "$WORK/money-v8.xml"
+expect_refused bridge-money-v8 "WITH_BRIDGE=ON: MONEY_SCHEMA" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+    -DMONEY_SCHEMA="$WORK/money-v8.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed '0,/version="1"/s//version="2"/' "$JOURNAL" > "$WORK/journal-v2.xml"
+expect_refused bridge-journal-v2 "dependencies.lock pins" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$WORK/journal-v2.xml"
+if [ -n "$AERON_ALL" ]; then
+    cp "$AERON_ALL" "$WORK/aeron-all-other.jar"
+    printf 'x' >> "$WORK/aeron-all-other.jar"
+    expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" -DWITH_BRIDGE=ON -DCT_INTEGRATION_TESTS=ON \
+        -DCT_IT_ASSETS_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
+fi
+if "$CMAKE" -S "$HERE" -B "$WORK/build-bridge" -DWITH_AERON=ON -DWITH_BRIDGE=ON -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \
+    > "$WORK/bridge.log" 2>&1; then
+    pass "pinned inputs configure with WITH_BRIDGE=ON"
+else
+    fail "pinned inputs were refused with WITH_BRIDGE=ON:"
+    grep -A3 'CMake Error' "$WORK/bridge.log" | head -8
+fi
+rm -rf "$WORK/build-bridge"
 
 # 8. Positive control: the pinned inputs configure.
 if "$CMAKE" -S "$HERE" -B "$WORK/build-good" -DWITH_AERON=ON -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \

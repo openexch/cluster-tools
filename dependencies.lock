@@ -25,9 +25,15 @@
   "match_schema_min_version": 12,
   "match_schema_required_templates": [8, 9, 21, 22, 25, 26],
   "me_journal_schema_repo": "openexch/match",
+  "me_journal_schema_ref": "68a9375b89c39c0fa9f48bd926dc232eac4f4866",
   "me_journal_schema_path": "match-common/src/main/resources/sbe/me-journal-schema.xml",
   "me_journal_schema_sha256": "a7c58d87e4f1cfaa642014e4c92f46492c5fe20d36bd6b1d127dd7fa05a3541a",
   "me_journal_schema_id": 4,
   "me_journal_schema_min_version": 1,
-  "me_journal_schema_required_templates": [1, 2, 3, 4, 5]
+  "me_journal_schema_required_templates": [1, 2, 3, 4, 5],
+  "me_journal_fixture_source_commit": "fec9a0e978d40743b05396b35e0cf5c6db22e831",
+  "me_journal_fixture_sha256sums_sha256": "127739bfb6c0b5da5d0e8cf5b5b52706e8c58ce075d8bad33ca25e696f3da5c4",
+  "aeron_all_version": "1.53.1",
+  "aeron_all_url": "https://repo1.maven.org/maven2/io/aeron/aeron-all/1.53.1/aeron-all-1.53.1.jar",
+  "aeron_all_sha256": "504ac8bc74ca63783a921da8e7ee96985b8422dd7cae003b9f629e75e97ae333"
 }

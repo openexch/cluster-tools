@@ -4,7 +4,9 @@
 # include paths. The sbe-tool + agrona jars are the dependencies.lock pins, verified at
 # configure time (cmake/VerifiedDependencies.cmake); this script never downloads anything.
 #
-# Usage: gen-codecs.sh <output-dir> <stamp-file> <schema.xml>
+# Usage: gen-codecs.sh <output-dir> <stamp-file> <schema.xml> [<language> [<namespace>]]
+#        language defaults to Cpp; the Aeron archive C client codecs (cmake/AeronArchive.cmake)
+#        are generated as C under the namespace aeron.archive.client
 # Env:   SBE_CLASSPATH   - sbe-tool.jar:agrona.jar, the hashed copies in the build tree (required)
 #        SBE_JAR_SHA256S - space-separated sha256 values every classpath entry must match
 #                          (the lock's); checked before EVERY run, not only at configure
@@ -14,6 +16,8 @@ set -euo pipefail
 OUT_DIR=$1
 STAMP=$2
 SCHEMA=$3
+LANGUAGE=${4:-Cpp}
+NAMESPACE=${5:-}
 : "${SBE_CLASSPATH:?SBE_CLASSPATH is required}"
 : "${SBE_JAR_SHA256S:?SBE_JAR_SHA256S is required}"
 JAVA_BIN=${JAVA:-java}
@@ -31,8 +35,10 @@ done
 # header in the build tree.
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+NS_ARGS=()
+if [ -n "$NAMESPACE" ]; then NS_ARGS=(-Dsbe.target.namespace="$NAMESPACE"); fi
 "$JAVA_BIN" --add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
-    -Dsbe.target.language=Cpp \
+    -Dsbe.target.language="$LANGUAGE" "${NS_ARGS[@]}" \
     -Dsbe.output.dir="$OUT_DIR" \
     -Dsbe.validation.stop.on.error=true \
     -cp "$SBE_CLASSPATH" uk.co.real_logic.sbe.SbeTool "$SCHEMA"

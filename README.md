@@ -17,6 +17,14 @@ repo is where those tools live.
   `ClusterTransport` concept with the Aeron implementation, the core `RegisterSession`
   registrar (AdminAck re-send, re-declare on every new leader), two clusters on one Aeron
   client, and exit 70 on a fatal Aeron client error.
+- **[`archive/`](archive/)**: the archive side of the C++ settlement bridge (RC2 S9a): the
+  schema 4 frame admission gate and common-head peek, the recording chain model, the follow
+  state machine with the source-death detectors (pure, with negative controls), the per-source
+  resume memo keyed on `journalSeq`, strict settings, and `archive/aeron` (`WITH_BRIDGE`): the
+  Aeron C archive client built from the verified tarball, one `ArchiveSource` per archive, the
+  `SourceSet` with one source attached at a time. `archive/it` runs it against a real Java
+  Aeron Archive.
+- **[`app/journal-tail/`](app/journal-tail/)**: `ct-journal-tail`, see below.
 - **[`poc/`](poc/)** — a minimal (~470 LOC) C++ cluster client, proven against a
   3-node dockerized match cluster: session connect (with follower REDIRECT handling),
   an order submitted through ingress, and the OrderStatus ack decoded off egress.
@@ -68,6 +76,7 @@ The build matrix:
 |---|---|---|---|
 | `-DWITH_AERON=OFF` (default, `ci.yml`) | cmake >= 3.16 + a C++20 compiler | domain, ports, the json adapter, the pure client parts, their tests | the hexagon: domain logic, input parsing and the client's pure rules build and pass with zero infrastructure |
 | `-DWITH_CODECS=ON` (`codecs` job in `ci.yml`) | cmake >= 3.21, java 21, the pinned sbe-tool/agrona jars, the three wire schemas | SBE codegen for money-schema v7, order-schema v12 and ME journal schema 4, the EngineConfig codec, the codec layout goldens | the wire contracts without Aeron: codegen, schema pins, the Java-encoder goldens |
+| `-DWITH_AERON=ON -DWITH_BRIDGE=ON` (`aeron.yml`) | as `WITH_AERON=ON`; the money and journal schemas must equal the lock's sha256 exactly | the Aeron C archive client + cpp_wrapper (archive codecs generated with the pinned sbe), `archive/aeron`, `ct-journal-tail`, the archive integration driver | the archive side against the generated schema 4 codecs; with `CT_INTEGRATION_TESTS=ON` and `-DCT_IT_AERON_ALL_JAR` the 9.3 scenarios against a real archive |
 | `-DWITH_AERON=ON` (`aeron.yml`, `publish.yml`) | cmake >= 3.30, java 21, the verified inputs below | everything: aeron 1.53.1 client + aeronmd from source, codecs, the client and its tests, switch-behavior, the PoC | the client state machine (fake transport), the codec goldens against the engines' Java encoders, the transport against the real wire schema |
 
 Every pinned input of the Aeron build is in `dependencies.lock` and nothing is trusted by
@@ -94,10 +103,37 @@ ctest --test-dir build-aeron --output-on-failure
 
 # real-cluster integration (3-node core + 1-node ME on this host, kills included):
 client/it/run-it.sh build-aeron /path/to/assets-cluster.jar /path/to/match-cluster.jar
+
+# the bridge's archive side and its integration run against a real Java archive:
+scripts/fetch-deps.sh ~/.cache/ct-deps --it > deps.args   # adds the pinned aeron-all jar
+cmake -S . -B build-bridge -DWITH_AERON=ON -DWITH_BRIDGE=ON $(cat deps.args schemas.args)
+cmake --build build-bridge -j
+archive/it/run-it.sh build-bridge ~/.cache/ct-deps/aeron-all-1.53.1.jar
 ```
 
+### ct-journal-tail
+
+Reads the ME journal (schema 4) from the configured archives through `archive/`, without a core
+session, and prints it. It reads only: no file is written and no core is contacted. It is the
+tool the core's SOURCE_SCHEMA runbook uses to look at journal entry `s`:
+
+```bash
+ct-journal-tail --aeron-dir /dev/shm/aeron --archive 10.0.0.1:9010 --control-stream 4010 \
+    --journal-stream 4001 --channel aeron:ipc --replay-stream 9101 --local-host 10.0.0.9 \
+    --journal-mtu 1408 --from-seq 1234 --to-seq 1234 --hex
+```
+
+Every admitted frame in `[--from-seq, --to-seq]` prints as `FRAME seq=... template=... epoch=...
+egress=... recording=... end=... length=...` (with `hex=` under `--hex`); every refused frame
+prints as `REFUSED <reason> <position> <length> <hex>` and the tail goes on with the next frame
+(a refused frame without a seq is selected by its position). `--cursor C --epoch E` seeds the
+resume memo as a FeedPositionReport would. Exit 0 after `--to-seq`, 75 on `--timeout-ms`, 78 on
+a usage or settings error, 70 on any fatal error (never 134).
+
 The pins today are money-schema v7 (assets `b05b8e8`), order-schema v12 and ME journal schema 4 v1
-(both match `68a9375`). A newer engine wire schema drops in by pointing `-DMONEY_SCHEMA` /
+(both match `68a9375`), the six ME journal golden fixtures of match's `MeJournalFixtureDump`
+(`archive/tests/fixtures/mejournal`, source commit and `SHA256SUMS` hash in the lock, verified at
+every configure) and, for the archive integration fixture only, aeron-all 1.53.1. A newer engine wire schema drops in by pointing `-DMONEY_SCHEMA` /
 `-DMATCH_SCHEMA` at it (or bumping the `*_ref`/`*_sha256` pins); the codec goldens then fail
 until `adapters/sbe/tests/golden/regen.sh` is re-run with engine jars at the new commits,
 which is the drift alarm working. The ME journal schema is pinned by exact sha256 (a fixed

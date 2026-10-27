@@ -79,7 +79,8 @@ if(BUILD_TESTING)
     if(WITH_AERON)
     add_test(NAME build.configure_gate
         COMMAND bash "${PROJECT_SOURCE_DIR}/scripts/check-configure-gate.sh" "${CMAKE_COMMAND}"
-            "${AERON_TARBALL}" "${SBE_CLASSPATH}" "${MONEY_SCHEMA}" "${MATCH_SCHEMA}" "${ME_JOURNAL_SCHEMA}")
+            "${AERON_TARBALL}" "${SBE_CLASSPATH}" "${MONEY_SCHEMA}" "${MATCH_SCHEMA}" "${ME_JOURNAL_SCHEMA}"
+            ${CT_IT_AERON_ALL_JAR})
     set_tests_properties(build.configure_gate PROPERTIES TIMEOUT 300)
     endif()
 endif()

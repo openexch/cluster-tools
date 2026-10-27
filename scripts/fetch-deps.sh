@@ -4,7 +4,9 @@
 # by name or by version string: every file is checked against the lock's sha256 before
 # it is used, and a file already in the cache is re-checked, not assumed.
 #
-# Usage: scripts/fetch-deps.sh <cache-dir>
+# Usage: scripts/fetch-deps.sh <cache-dir> [--it]
+#        --it also fetches the aeron-all jar the archive integration fixture runs on
+#        (archive/it, RC2 S9a 9.3) and prints -DCT_IT_AERON_ALL_JAR=...
 # Prints the cmake arguments to use on stdout, e.g.
 #   -DAERON_TARBALL=<cache>/aeron-1.53.1.tar.gz -DSBE_CLASSPATH=<cache>/sbe-tool-1.40.1.jar:<cache>/agrona-2.5.0.jar
 # The CMake configure re-hashes every one of them (cmake/VerifiedDependencies.cmake) and
@@ -13,10 +15,12 @@
 # Env: FETCH_OFFLINE=1 refuses to download (verify what is in the cache only).
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-    echo "usage: $0 <cache-dir>" >&2
+if [ $# -lt 1 ] || [ $# -gt 2 ] || { [ $# -eq 2 ] && [ "$2" != "--it" ]; }; then
+    echo "usage: $0 <cache-dir> [--it]" >&2
     exit 64
 fi
+WANT_IT=0
+[ $# -eq 2 ] && WANT_IT=1
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 LOCK="$HERE/dependencies.lock"
@@ -58,3 +62,8 @@ fetch_verified "$(lock agrona_url)" "$(lock agrona_sha256)" "$CACHE/agrona-$AGRO
 
 echo "-DAERON_TARBALL=$TARBALL"
 echo "-DSBE_CLASSPATH=$CACHE/sbe-tool-$SBE_VERSION.jar:$CACHE/agrona-$AGRONA_VERSION.jar"
+if [ "$WANT_IT" = "1" ]; then
+    AERON_ALL="$CACHE/aeron-all-$(lock aeron_all_version).jar"
+    fetch_verified "$(lock aeron_all_url)" "$(lock aeron_all_sha256)" "$AERON_ALL"
+    echo "-DCT_IT_AERON_ALL_JAR=$AERON_ALL"
+fi

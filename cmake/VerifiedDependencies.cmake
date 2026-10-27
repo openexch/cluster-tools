@@ -150,6 +150,30 @@ if(NOT CT_JOURNAL_SHA256 STREQUAL CT_LOCK_JOURNAL_SHA)
         "dependencies.lock pins ${CT_LOCK_JOURNAL_SHA}")
 endif()
 
+# RC2 S9a (contract 2.2): the bridge reads the ME journal and writes the core money wire, and the
+# core gate is exact (v7 only). Under WITH_BRIDGE both schemas are pinned by EXACT sha256 and exact
+# root version, unlike the structural floor above: a money v8 file would pass a floor and be refused
+# by the exact-7 core gate at run time (R-B1-1's C++ twin).
+if(WITH_BRIDGE)
+    string(JSON CT_LOCK_MONEY_SHA GET "${CT_DEPENDENCY_LOCK}" money_schema_sha256)
+    if(NOT CT_MONEY_SHA256 STREQUAL CT_LOCK_MONEY_SHA)
+        message(FATAL_ERROR "WITH_BRIDGE=ON: MONEY_SCHEMA ${MONEY_SCHEMA} has sha256 ${CT_MONEY_SHA256}; "
+            "dependencies.lock pins ${CT_LOCK_MONEY_SHA} (the bridge needs the exact core wire)")
+    endif()
+    string(JSON CT_LOCK_MONEY_VERSION GET "${CT_DEPENDENCY_LOCK}" money_schema_min_version)
+    string(JSON CT_LOCK_MONEY_ID GET "${CT_DEPENDENCY_LOCK}" money_schema_id)
+    if(NOT CT_MONEY_VERSION STREQUAL CT_LOCK_MONEY_VERSION)
+        message(FATAL_ERROR "WITH_BRIDGE=ON: MONEY_SCHEMA ${MONEY_SCHEMA} is version ${CT_MONEY_VERSION}; "
+            "the bridge speaks exactly id=\"${CT_LOCK_MONEY_ID}\" version=\"${CT_LOCK_MONEY_VERSION}\"")
+    endif()
+    string(JSON CT_LOCK_JOURNAL_VERSION GET "${CT_DEPENDENCY_LOCK}" me_journal_schema_min_version)
+    string(JSON CT_LOCK_JOURNAL_ID GET "${CT_DEPENDENCY_LOCK}" me_journal_schema_id)
+    if(NOT CT_JOURNAL_VERSION STREQUAL CT_LOCK_JOURNAL_VERSION)
+        message(FATAL_ERROR "WITH_BRIDGE=ON: ME_JOURNAL_SCHEMA ${ME_JOURNAL_SCHEMA} is version ${CT_JOURNAL_VERSION}; "
+            "the bridge reads exactly id=\"${CT_LOCK_JOURNAL_ID}\" version=\"${CT_LOCK_JOURNAL_VERSION}\"")
+    endif()
+endif()
+
 # RC2 S1 refuter X6: a v12 order schema whose DurableOrderCommand (template 9) has no
 # timeInForce is not the schema the lock names, whatever its root version says.
 file(READ "${MATCH_SCHEMA}" CT_MATCH_XML)

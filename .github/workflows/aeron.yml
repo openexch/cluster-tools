@@ -10,7 +10,9 @@
 # Not here: the real-cluster integration run (client/it/run-it.sh). It needs assets and match
 # jars built at the pinned commits, and those builds depend on runtime cluster-kit versions
 # that are not published to a registry yet; it runs locally and moves into the fixture (RC2
-# S14) once the runtime jars are artifacts.
+# S14) once the runtime jars are artifacts. The archive integration run (archive/it/run-it.sh,
+# RC2 S9a 9.3) is local and in the S14 fixture as well; this job builds its binaries
+# (-DWITH_BRIDGE=ON) and runs the pure, codec-layout and adapter tests.
 name: aeron
 
 on:
@@ -23,10 +25,12 @@ on:
       - 'dependencies.lock'
       - 'scripts/**'
       - 'client/**'
+      - 'archive/**'
       - 'adapters/**'
       - 'ports/**'
       - 'domain/**'
       - 'app/**'
+      - 'app/journal-tail/**'
       - 'poc/**'
       - '.github/workflows/aeron.yml'
 
@@ -106,7 +110,7 @@ jobs:
       - name: Configure
         run: |
           # shellcheck disable=SC2086 # the args are -D flags, one per word
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON \
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON -DWITH_BRIDGE=ON \
             ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
 
       - name: Build
