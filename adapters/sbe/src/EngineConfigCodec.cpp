@@ -58,7 +58,11 @@ ports::Result<std::vector<std::uint8_t>> encodeEngineConfig(const domain::Engine
                 ? mm::EngineImpl::ARRAY : mm::EngineImpl::DIRECT)
             .bookCapacity(static_cast<std::uint32_t>(config.bookCapacity))
             .maxMatchesPerOrder(static_cast<std::uint32_t>(config.maxMatchesPerOrder))
-            .maxOrdersPerLevel(static_cast<std::uint32_t>(config.maxOrdersPerLevel));
+            .maxOrdersPerLevel(static_cast<std::uint32_t>(config.maxOrdersPerLevel))
+            .behaviorVersion(static_cast<std::uint32_t>(config.behaviorVersion))
+            .commandLedgerCapacity(static_cast<std::uint32_t>(config.commandLedgerCapacity))
+            .genesisId(config.genesisId)
+            .maxWireVersion(static_cast<std::uint16_t>(config.maxWireVersion));
 
         mm::EngineConfig::Markets &markets =
             encoder.marketsCount(static_cast<std::uint16_t>(config.markets.size()));

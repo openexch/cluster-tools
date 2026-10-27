@@ -6,7 +6,7 @@
 #include <vector>
 
 // EngineConfig — the engine-creation config a `send-config` command puts on the wire
-// (match order-schema v10, template 8), as a pure domain value with deterministic
+// (match order-schema v12, template 8), as a pure domain value with deterministic
 // validation. This header knows nothing about JSON, SBE, or Aeron: parsing a config
 // file into this type is an input adapter's job, encoding it onto the wire is the SBE
 // adapter's job, and THIS is where the rules live.
@@ -26,7 +26,18 @@
 //                       maxPrice > minPrice, and (maxPrice-minPrice)/tickSize+1
 //                       price levels must fit an int32
 //
-// One rule is TOOL-SIDE ONLY and deliberately stricter than the engine:
+// The v12 root fields (behaviorVersion, commandLedgerCapacity, genesisId, maxWireVersion) are
+// TOOL-SIDE rules too: S1 of the engine records whatever arrives, S2 adds its structural
+// rules, and this tool refuses before the wire what S2 will:
+//
+//   behaviorVersion         >= 1 (and fits a uint32)
+//   commandLedgerCapacity   in [1, UINT32_MAX]
+//   genesisId               != 0 (the operator's random nonce; meEpoch := genesisId, and 0
+//                           is "never set" on the int64 wire field; the tool requires the
+//                           key and never generates one)
+//   maxWireVersion          in [11, 12] (the recorded ingress ceiling)
+//
+// One further rule is TOOL-SIDE ONLY and deliberately stricter than the engine:
 //
 //   configVersion       in [1, UINT32_MAX]. The engine (as of match cd85640) records
 //                       whatever uint32 arrives, 0 included. This tool refuses 0 —
@@ -73,6 +84,10 @@ struct EngineConfig
     std::int64_t bookCapacity = 0;
     std::int64_t maxMatchesPerOrder = 0;
     std::int64_t maxOrdersPerLevel = 0;
+    std::int64_t behaviorVersion = 0;         // v12 wire field 6 (uint32)
+    std::int64_t commandLedgerCapacity = 0;   // v12 wire field 7 (uint32)
+    std::int64_t genesisId = 0;               // v12 wire field 8 (int64)
+    std::int64_t maxWireVersion = 0;          // v12 wire field 9 (uint16)
     std::vector<MarketDef> markets;
 };
 

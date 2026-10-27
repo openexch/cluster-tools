@@ -23,6 +23,10 @@ const char *const VALID =
     "  \"bookCapacity\": 131072,\n"
     "  \"maxMatchesPerOrder\": 10000,\n"
     "  \"maxOrdersPerLevel\": 0,\n"
+    "  \"behaviorVersion\": 3,\n"
+    "  \"commandLedgerCapacity\": 100000,\n"
+    "  \"genesisId\": 1234567890123456789,\n"
+    "  \"maxWireVersion\": 12,\n"
     "  \"markets\": [\n"
     "    { \"marketId\": 2, \"symbol\": \"ETH-USD\", \"minPrice\": 100000000000,\n"
     "      \"maxPrice\": 1000000000000, \"tickSize\": 50000000 },\n"
@@ -43,6 +47,10 @@ TEST_CASE("a valid document parses into the domain value, wire order preserved")
     CHECK(config.bookCapacity == 131072);
     CHECK(config.maxMatchesPerOrder == 10000);
     CHECK(config.maxOrdersPerLevel == 0);
+    CHECK(config.behaviorVersion == 3);
+    CHECK(config.commandLedgerCapacity == 100000);
+    CHECK(config.genesisId == 1234567890123456789LL);
+    CHECK(config.maxWireVersion == 12);
     REQUIRE(config.markets.size() == 2);
     // The parser is shape-only: normalization (sorting) is the caller's explicit step.
     CHECK(config.markets[0].marketId == 2);
@@ -57,13 +65,13 @@ TEST_CASE("impl accepts exactly array and direct")
 {
     const auto direct = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"direct\",\"bookCapacity\":0,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":64,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":64,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE(direct.ok());
     CHECK(direct.value().impl == EngineImpl::DIRECT);
 
     const auto bad = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"ARRAY\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().find("impl must be \"array\" or \"direct\"") != std::string::npos);
 }
@@ -72,22 +80,60 @@ TEST_CASE("every root key is required and named when missing")
 {
     const auto result = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":131072,"
-        "\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(result.ok());
     CHECK(result.error().find("missing required key(s): maxMatchesPerOrder") != std::string::npos);
+}
+
+TEST_CASE("the four v12 root keys have no defaults: each missing one is named")
+{
+    // behaviorVersion, commandLedgerCapacity, genesisId, maxWireVersion (RC2 S1 contract 5.4).
+    const char *const names[] = { "behaviorVersion", "commandLedgerCapacity", "genesisId", "maxWireVersion" };
+    const char *const values[] = { "1", "100000", "99", "12" };
+    for (int omitted = 0; omitted < 4; omitted++)
+    {
+        std::string doc = "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
+            "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,";
+        for (int i = 0; i < 4; i++)
+        {
+            if (i != omitted)
+            {
+                doc += std::string("\"") + names[i] + "\":" + values[i] + ",";
+            }
+        }
+        doc += "\"markets\":[]}";
+        const auto result = parseEngineConfig(doc);
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.error().find(std::string("missing required key(s): ") + names[omitted]) != std::string::npos);
+    }
+
+    // genesisId is an int64 and a duplicate is refused like every key.
+    const auto duplicate = parseEngineConfig(
+        "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,\"maxMatchesPerOrder\":1,"
+        "\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":1,\"genesisId\":1,"
+        "\"genesisId\":2,\"maxWireVersion\":12,\"markets\":[]}");
+    REQUIRE_FALSE(duplicate.ok());
+    CHECK(duplicate.error().find("duplicate key 'genesisId'") != std::string::npos);
+
+    const auto negative = parseEngineConfig(
+        "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,\"maxMatchesPerOrder\":1,"
+        "\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":1,\"genesisId\":-5,"
+        "\"maxWireVersion\":12,\"markets\":[]}");
+    REQUIRE(negative.ok());
+    CHECK(negative.value().genesisId == -5); // any non-zero int64 is a valid nonce
 }
 
 TEST_CASE("unknown and duplicate keys are refused loudly")
 {
     const auto unknown = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookcapacity\":131072,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(unknown.ok());
     CHECK(unknown.error().find("unknown key 'bookcapacity'") != std::string::npos);
 
     const auto duplicate = parseEngineConfig(
         "{\"configVersion\":1,\"configVersion\":2,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(duplicate.ok());
     CHECK(duplicate.error().find("duplicate key 'configVersion'") != std::string::npos);
 }
@@ -96,7 +142,7 @@ TEST_CASE("market objects get the same strictness")
 {
     const auto missing = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":["
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":["
         "{\"marketId\":1,\"symbol\":\"BTC-USD\",\"minPrice\":1,\"maxPrice\":2}]}");
     REQUIRE_FALSE(missing.ok());
     CHECK(missing.error().find("market object is missing required key(s): tickSize")
@@ -104,7 +150,7 @@ TEST_CASE("market objects get the same strictness")
 
     const auto unknown = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":["
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":["
         "{\"marketId\":1,\"symbol\":\"BTC-USD\",\"minPrice\":1,\"maxPrice\":2,"
         "\"tick\":3}]}");
     REQUIRE_FALSE(unknown.ok());
@@ -115,25 +161,25 @@ TEST_CASE("numeric fields are strict integers")
 {
     const auto floatCapacity = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1.5,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(floatCapacity.ok());
     CHECK(floatCapacity.error().find("not a float") != std::string::npos);
 
     const auto quoted = parseEngineConfig(
         "{\"configVersion\":\"1\",\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(quoted.ok());
     CHECK(quoted.error().find("expected an integer") != std::string::npos);
 
     const auto leadingZero = parseEngineConfig(
         "{\"configVersion\":01,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(leadingZero.ok());
     CHECK(leadingZero.error().find("leading zeros") != std::string::npos);
 
     const auto tooWide = parseEngineConfig(
         "{\"configVersion\":9223372036854775808,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE_FALSE(tooWide.ok());
     CHECK(tooWide.error().find("does not fit int64") != std::string::npos);
 
@@ -141,7 +187,7 @@ TEST_CASE("numeric fields are strict integers")
     // parser must carry them through unchanged, not mangle or refuse them.
     const auto negative = parseEngineConfig(
         "{\"configVersion\":-2,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE(negative.ok());
     CHECK(negative.value().configVersion == -2);
 }
@@ -150,7 +196,7 @@ TEST_CASE("marketId must fit int32 at parse time")
 {
     const auto result = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":["
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":["
         "{\"marketId\":2147483648,\"symbol\":\"X\",\"minPrice\":1,\"maxPrice\":2,"
         "\"tickSize\":1}]}");
     REQUIRE_FALSE(result.ok());
@@ -172,7 +218,7 @@ TEST_CASE("string escapes: the simple ones decode, \\u is refused")
 {
     const auto escaped = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":["
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":["
         "{\"marketId\":1,\"symbol\":\"A\\\\B\",\"minPrice\":1,\"maxPrice\":2,"
         "\"tickSize\":1}]}");
     REQUIRE(escaped.ok());
@@ -180,7 +226,7 @@ TEST_CASE("string escapes: the simple ones decode, \\u is refused")
 
     const auto unicode = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":["
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":["
         "{\"marketId\":1,\"symbol\":\"\\u0041\",\"minPrice\":1,\"maxPrice\":2,"
         "\"tickSize\":1}]}");
     REQUIRE_FALSE(unicode.ok());
@@ -191,7 +237,7 @@ TEST_CASE("an empty markets array is shape-valid (the domain rejects it, not the
 {
     const auto result = parseEngineConfig(
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,"
-        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"markets\":[]}");
+        "\"maxMatchesPerOrder\":1,\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":100000,\"genesisId\":99,\"maxWireVersion\":12,\"markets\":[]}");
     REQUIRE(result.ok());
     CHECK(result.value().markets.empty());
 }

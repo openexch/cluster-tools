@@ -12,6 +12,7 @@ inline constexpr const char *MONEY_SCHEMA_SHA256 = "@CT_MONEY_SHA256@";
 inline constexpr int MATCH_SCHEMA_VERSION = @CT_MATCH_VERSION@;
 inline constexpr const char *MATCH_SCHEMA_SHA256 = "@CT_MATCH_SHA256@";
 inline constexpr bool HAVE_ME_JOURNAL_CODECS = @CT_HAVE_JOURNAL@;
+inline constexpr int ME_JOURNAL_SCHEMA_VERSION = @CT_JOURNAL_VERSION@;
 inline constexpr const char *ME_JOURNAL_SCHEMA_SHA256 = "@CT_JOURNAL_SHA256@";
 
 }}

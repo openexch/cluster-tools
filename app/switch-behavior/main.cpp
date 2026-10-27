@@ -3,7 +3,7 @@
 // Working today:
 //   probe        connect to a cluster, print the session info and the first N egress
 //                frames decoded at header level, exit 0.
-//   send-config  send the logged EngineConfig command (match wire v10, template 8)
+//   send-config  send the logged EngineConfig command (match wire v12, template 8)
 //                from a JSON file: parse -> normalize -> validate against the
 //                engine's own rules -> encode -> offer through the cluster session.
 //
@@ -118,7 +118,7 @@ void printUsage()
         "subcommands:\n"
         "  probe        connect to an Aeron Cluster, print the session info and the first\n"
         "               N egress frames decoded at header level, then exit\n"
-        "  send-config  send the logged EngineConfig command (match wire v10, template 8)\n"
+        "  send-config  send the logged EngineConfig command (match wire v12, template 8)\n"
         "               read from a JSON file through cluster ingress\n"
         "\n"
         "common options (flag wins over env):\n"
@@ -140,7 +140,10 @@ void printUsage()
         "  --file PATH               engine-config JSON document (required):\n"
         "                            {\"configVersion\":1, \"impl\":\"array\"|\"direct\",\n"
         "                             \"bookCapacity\":131072, \"maxMatchesPerOrder\":10000,\n"
-        "                             \"maxOrdersPerLevel\":0, \"markets\":[{\"marketId\":1,\n"
+        "                             \"maxOrdersPerLevel\":0, \"behaviorVersion\":1,\n"
+        "                             \"commandLedgerCapacity\":100000,\n"
+        "                             \"genesisId\":<random non-zero int64>,\n"
+        "                             \"maxWireVersion\":12, \"markets\":[{\"marketId\":1,\n"
         "                             \"symbol\":\"BTC-USD\", \"minPrice\":..., \"maxPrice\":...,\n"
         "                             \"tickSize\":...}]}\n"
         "                            every key is required; prices are fixed-point int64\n"
@@ -150,8 +153,10 @@ void printUsage()
         "                            3000) — reporting only, see the note below\n"
         "\n"
         "send-config semantics: the config is validated with the ENGINE's own rules\n"
-        "before anything touches the network (plus one tool-side rule: configVersion\n"
-        "must be a positive uint32). EngineConfig has NO per-command ack on egress: the\n"
+        "before anything touches the network (plus tool-side rules: configVersion must be\n"
+        "a positive uint32; behaviorVersion >= 1; commandLedgerCapacity in [1, uint32];\n"
+        "genesisId non-zero, supplied by the operator, never generated here;\n"
+        "maxWireVersion in [11, 12]). EngineConfig has NO per-command ack on egress: the\n"
         "engine decides ACCEPT / duplicate no-op / REJECT deterministically server-side\n"
         "and logs it. After offering, the tool prints the offer position, briefly\n"
         "reports egress at header level, and points you at the node logs\n"
@@ -312,12 +317,17 @@ int runSendConfig(const SendConfigOptions &options)
     }
 
     std::printf("send-config: configVersion=%lld impl=%s bookCapacity=%lld "
-        "maxMatchesPerOrder=%lld maxOrdersPerLevel=%lld markets=%zu\n",
+        "maxMatchesPerOrder=%lld maxOrdersPerLevel=%lld behaviorVersion=%lld "
+        "commandLedgerCapacity=%lld genesisId=%lld maxWireVersion=%lld markets=%zu\n",
         static_cast<long long>(config.configVersion),
         cluster_tools::domain::implName(config.impl),
         static_cast<long long>(config.bookCapacity),
         static_cast<long long>(config.maxMatchesPerOrder),
         static_cast<long long>(config.maxOrdersPerLevel),
+        static_cast<long long>(config.behaviorVersion),
+        static_cast<long long>(config.commandLedgerCapacity),
+        static_cast<long long>(config.genesisId),
+        static_cast<long long>(config.maxWireVersion),
         config.markets.size());
     for (const auto &market : config.markets)
     {

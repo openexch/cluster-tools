@@ -19,3 +19,61 @@ jobs:
         run: cmake --build build -j
       - name: test
         run: ctest --test-dir build --output-on-failure
+
+  # Codegen without Aeron (RC2 S1 contract 8.5, W8): the three wire schemas at the lock's
+  # pins, SBE codegen, the EngineConfig codec and the Java-encoder goldens. Needs Java only;
+  # the Aeron-linked build stays in aeron.yml.
+  codecs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Fetch and verify the pinned SBE jars
+        id: deps
+        run: |
+          set -euo pipefail
+          # only the sbe-tool and agrona jars are used here; the Aeron tarball is fetched and
+          # verified too (one script, one lock) and simply not passed to cmake
+          scripts/fetch-deps.sh "${PWD}/deps-cache" > deps.args
+          echo "args=$(grep SBE_CLASSPATH deps.args | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+      - name: Read the schema pins
+        id: pins
+        run: |
+          set -euo pipefail
+          lock() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' dependencies.lock "$1"; }
+          echo "money_ref=$(lock money_schema_ref)" >> "$GITHUB_OUTPUT"
+          echo "match_ref=$(lock match_schema_ref)" >> "$GITHUB_OUTPUT"
+      - name: Check out assets at the money-schema pin
+        uses: actions/checkout@v4
+        with:
+          repository: openexch/assets
+          ref: ${{ steps.pins.outputs.money_ref }}
+          path: pinned/assets
+          sparse-checkout: assets-common/src/main/resources/sbe
+          sparse-checkout-cone-mode: false
+      - name: Check out match at the order-schema pin
+        uses: actions/checkout@v4
+        with:
+          repository: openexch/match
+          ref: ${{ steps.pins.outputs.match_ref }}
+          path: pinned/match
+          sparse-checkout: match-common/src/main/resources/sbe
+          sparse-checkout-cone-mode: false
+      - name: Extract and verify the schemas
+        id: schemas
+        run: |
+          set -euo pipefail
+          scripts/fetch-schemas.sh "${RUNNER_TEMP}/schemas" pinned/assets pinned/match > schemas.args
+          echo "args=$(tr '\n' ' ' < schemas.args)" >> "$GITHUB_OUTPUT"
+      - name: configure
+        run: |
+          # shellcheck disable=SC2086 # the args are -D flags, one per word
+          cmake -S . -B build-codecs -DWITH_CODECS=ON \
+            ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
+      - name: build
+        run: cmake --build build-codecs -j"$(nproc)"
+      - name: test
+        run: ctest --test-dir build-codecs --output-on-failure

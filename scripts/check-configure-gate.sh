@@ -4,11 +4,11 @@
 # and gen-codecs.sh must refuse a jar swapped after configure. Registered as the ctest
 # build.configure_gate in the WITH_AERON build; runnable by hand too.
 #
-# Usage: scripts/check-configure-gate.sh <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema>
+# Usage: scripts/check-configure-gate.sh <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema>
 set -euo pipefail
 
-if [ $# -ne 5 ]; then
-    echo "usage: $0 <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema>" >&2
+if [ $# -ne 6 ]; then
+    echo "usage: $0 <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema>" >&2
     exit 64
 fi
 CMAKE=$1
@@ -16,6 +16,7 @@ TARBALL=$2
 SBE_CP=$3
 MONEY=$4
 MATCH=$5
+JOURNAL=$6
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d -t ct-configure-gate.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
@@ -39,7 +40,7 @@ expect_refused() { # name needle cmake-args...
     rm -rf "$WORK/build-$name"
 }
 
-GOOD=(-DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH")
+GOOD=(-DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL")
 
 # 1. A tampered Aeron tree, repacked: one C source changed, version.txt intact.
 mkdir -p "$WORK/tamper"
@@ -63,15 +64,35 @@ printf 'x' >> "$WORK/agrona-other.jar"
 expect_refused unpinned-jar "is not a jar dependencies.lock pins" -DAERON_TARBALL="$TARBALL" \
     -DSBE_CLASSPATH="$SBE_JAR:$WORK/agrona-other.jar" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 
-# 5-7. Schemas: missing, below the floor, required template removed.
-expect_refused no-money-schema "is required" -DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP" -DMATCH_SCHEMA="$MATCH"
-sed '0,/version="11"/s//version="10"/' "$MATCH" > "$WORK/order-v10.xml"
-expect_refused match-below-floor "below the floor" -DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP" \
-    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$WORK/order-v10.xml"
+# 5-7. Schemas: missing, below the floor, required template removed. The negatives the RC2 S1
+# contract (8.5) names: the v11 order schema, a money-schema v6, an ME journal whose hash differs,
+# a v12 order schema whose template 9 lost timeInForce.
+SCHEMAS=(-DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP")
+expect_refused no-money-schema "is required" "${SCHEMAS[@]}" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed '0,/version="12"/s//version="11"/' "$MATCH" > "$WORK/order-v11.xml"
+expect_refused match-v11-below-floor "below the floor" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$WORK/order-v11.xml" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed '0,/version="7"/s//version="6"/' "$MONEY" > "$WORK/money-v6.xml"
+expect_refused money-v6-below-floor "below the floor" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$WORK/money-v6.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
 sed 's/<sbe:message name="DurableOrderCommand" id="9"/<sbe:message name="DurableOrderCommandX" id="99"/' "$MATCH" \
     > "$WORK/order-no9.xml"
-expect_refused match-no-template-9 "template 9 is missing" -DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP" \
-    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$WORK/order-no9.xml"
+expect_refused match-no-template-9 "template 9 is missing" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$WORK/order-no9.xml" -DME_JOURNAL_SCHEMA="$JOURNAL"
+python3 -I - "$MATCH" "$WORK/order-no-tif.xml" <<'PY'
+import re, sys
+xml = open(sys.argv[1]).read()
+m = re.search(r'<sbe:message[^>]*\bid="9".*?</sbe:message>', xml, re.S)
+body = m.group(0)
+assert 'name="timeInForce"' in body
+open(sys.argv[2], 'w').write(xml.replace(body, body.replace('name="timeInForce"', 'name="timeInForceX"')))
+PY
+expect_refused match-no-timeInForce "has no timeInForce" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$WORK/order-no-tif.xml" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed '0,/version="1"/s//version="1" /' "$JOURNAL" > "$WORK/journal-edited.xml"
+expect_refused journal-hash-differs "dependencies.lock pins" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$WORK/journal-edited.xml"
+expect_refused no-journal-schema "is required" "${SCHEMAS[@]}" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 
 # 8. Positive control: the pinned inputs configure.
 if "$CMAKE" -S "$HERE" -B "$WORK/build-good" -DWITH_AERON=ON -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \

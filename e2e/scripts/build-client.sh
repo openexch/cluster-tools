@@ -7,7 +7,7 @@
 #   - ct_poc: the flat PoC client compiled UNCHANGED against the same generated codecs -
 #     the proof's CreateOrder/OrderStatus probe
 # Mounts: /deps = scripts/fetch-deps.sh cache (ro), /repo = this repo, /build = named
-# volume (cache), /schema = dir holding order-schema.xml and money-schema.xml.
+# volume (cache), /schema = dir holding order-schema.xml, money-schema.xml and me-journal-schema.xml.
 set -euo pipefail
 
 echo "=== building (WITH_AERON=ON, verified pins) ==="
@@ -17,7 +17,8 @@ cmake -S /repo -B /build/ct \
     -DAERON_TARBALL=/deps/aeron-1.53.1.tar.gz \
     -DSBE_CLASSPATH=/deps/sbe-tool-1.40.1.jar:/deps/agrona-2.5.0.jar \
     -DMONEY_SCHEMA=/schema/money-schema.xml \
-    -DMATCH_SCHEMA=/schema/order-schema.xml
+    -DMATCH_SCHEMA=/schema/order-schema.xml \
+    -DME_JOURNAL_SCHEMA=/schema/me-journal-schema.xml
 cmake --build /build/ct -j"$(nproc)"
 
 AERONMD=$(find /build/ct/aeron -name aeronmd -type f | head -1)

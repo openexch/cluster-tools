@@ -48,6 +48,9 @@ trap cleanup EXIT
 # assets TestAuth.KEYS: one key per class (the FORWARDER key is 6:FORWARDER:66..66). RC2 S6 (A16): every key
 # carries the explicit any-user scope ::users=*; a key with no users field makes the AE refuse to boot.
 KEYS="1:ADMIN:$(printf '11%.0s' {1..32})::users=*;2:TOOL:$(printf '22%.0s' {1..32})::users=*;3:BRIDGE:$(printf '33%.0s' {1..32})::users=*;5:GATEWAY:$(printf '55%.0s' {1..32})::users=*;6:FORWARDER:$(printf '66%.0s' {1..32})::users=*"
+# match ME_AUTH_KEYS (S6): the ME has no anonymous mode; one GATEWAY key (market data) for the IT's ME session,
+# every key explicitly users=* (the ME has no user scope).
+ME_KEYS="5:GATEWAY:$(printf '55%.0s' {1..32})::users=*"
 AE_BASE=22000
 ME_BASE=23000
 HOST=127.0.0.1
@@ -93,7 +96,7 @@ DRIVER_DIR="$SHM/client-driver"
 start_driver "$DRIVER_DIR" "$W/aeronmd.log"
 for i in 0 1 2; do start_ae_node "$i"; done
 mkdir -p "$W/me0"
-env CLUSTER_NODE=0 CLUSTER_ADDRESSES=localhost CLUSTER_PORT_BASE=$ME_BASE BASE_DIR="$W/me0" \
+env CLUSTER_NODE=0 CLUSTER_ADDRESSES=localhost CLUSTER_PORT_BASE=$ME_BASE BASE_DIR="$W/me0" ME_AUTH_KEYS="$ME_KEYS" \
     METRICS_PORT=$((ME_BASE + 90)) java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/me" -jar "$ME_JAR" > "$W/me0.log" 2>&1 &
 PIDS+=($!)
 

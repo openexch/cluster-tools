@@ -33,6 +33,7 @@
 #include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
 #include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
 #include "com_openexchange_assets_infrastructure_generated/QueryFeedPosition.h"
+#include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
 
 using namespace cluster_tools::client;
@@ -47,6 +48,9 @@ namespace
 {
 
 // assets TestAuth.java keys (the run script installs the same table on the core).
+// The ME authenticates every session since match S6 (ME_AUTH_KEYS in run-it.sh); the market-data
+// class presents this key (id 5, class GATEWAY, 32 bytes of 0x55).
+const std::string ME_GATEWAY_KEY = "5:GATEWAY:" + std::string(64, '5');
 const std::string FORWARDER_KEY = "6:FORWARDER:" + std::string(64, '6');
 const std::string WRONG_CLASS_KEY = "6:BRIDGE:" + std::string(64, '6');
 constexpr std::int64_t MAX_CALL_US = 5'000;
@@ -190,11 +194,18 @@ struct Session
         }
         std::uint16_t schemaId;
         std::uint16_t templateId;
+        std::uint16_t blockLength;
+        std::uint16_t version;
+        std::memcpy(&blockLength, m.payload, 2);
         std::memcpy(&templateId, m.payload + 2, 2);
         std::memcpy(&schemaId, m.payload + 4, 2);
+        std::memcpy(&version, m.payload + 6, 2);
         if (schemaId == money::MessageHeader::sbeSchemaId() && templateId == money::AdmissionState::sbeTemplateId())
         {
             admissionStates++;
+            // v7: gateReasons appended, block 23 -> 27. The block on the wire is the frame's own.
+            admissionBlock = blockLength;
+            admissionVersion = version;
         }
         if (schemaId == me::MessageHeader::sbeSchemaId())
         {
@@ -202,6 +213,18 @@ struct Session
             if (21 == templateId)
             {
                 meHeartbeats++;
+                // v12: meEpoch appended, block 9 -> 17. Decode with the frame's OWN blockLength and
+                // version through the generated codec (never a compiled-in length).
+                heartbeatBlock = blockLength;
+                heartbeatVersion = version;
+                me::ClusterHeartbeat hb(const_cast<char *>(reinterpret_cast<const char *>(m.payload)),
+                    me::MessageHeader::encodedLength(), m.length, blockLength, version);
+                heartbeatTimestamp = hb.timestamp();
+                heartbeatHasEpoch = hb.meEpochInActingVersion();
+                if (heartbeatHasEpoch)
+                {
+                    heartbeatEpoch = hb.meEpoch();
+                }
             }
         }
     }
@@ -214,6 +237,13 @@ struct Session
     std::uint64_t admissionStates = 0;
     std::uint64_t meFrames = 0;
     std::uint64_t meHeartbeats = 0;
+    std::uint16_t admissionBlock = 0;
+    std::uint16_t admissionVersion = 0;
+    std::uint16_t heartbeatBlock = 0;
+    std::uint16_t heartbeatVersion = 0;
+    std::int64_t heartbeatTimestamp = 0;
+    bool heartbeatHasEpoch = false;
+    std::int64_t heartbeatEpoch = 0;
 };
 
 bool runUntil(std::vector<Session *> sessions, const std::function<bool()> &done, std::int64_t timeoutMs)
@@ -299,6 +329,10 @@ int scenarioAuth(const std::string &dir, const std::string &ingress, const std::
             nameOf(ok.registrar->state()) + ")");
         runUntil({ &ok }, [&] { return ok.admissionStates > 0; }, 5'000);
         check(ok.admissionStates > 0, "ORIGIN AdmissionState after registration");
+        check(ok.admissionVersion == 7 && ok.admissionBlock == 27 &&
+                ok.admissionBlock == money::AdmissionState::sbeBlockLength(),
+            "AdmissionState arrives at money v7, block 27 (got v" + std::to_string(ok.admissionVersion) +
+            " block " + std::to_string(ok.admissionBlock) + ")");
         printCounters("auth", ok.client);
         std::printf("  redirects on connect: %llu (leader %d)\n",
             static_cast<unsigned long long>(ok.client.counters().redirects), ok.client.leaderMemberId());
@@ -372,7 +406,7 @@ int scenarioTwoClusters(const std::string &dir, const std::string &aeIngress, co
     auto monitor = std::make_shared<AeronFatalMonitor>();
     auto aeron = aeronFor(dir, monitor); // ONE client conductor for both sessions
     Session core(aeron, coreSettings(aeIngress, host, 41021, FORWARDER_KEY), true);
-    ClientSettings meSettings = coreSettings(meIngress, host, 41022, "");
+    ClientSettings meSettings = coreSettings(meIngress, host, 41022, ME_GATEWAY_KEY);
     meSettings.ingressChannel = "aeron:udp";
     Session engine(aeron, meSettings, false);
     core.client.connect();
@@ -384,6 +418,9 @@ int scenarioTwoClusters(const std::string &dir, const std::string &aeIngress, co
         engine.client.lastDetail() + ")");
     check(engine.meHeartbeats > 0, "ME egress flows on the same aeron client: " + std::to_string(engine.meFrames) +
         " ME frames, " + std::to_string(engine.meHeartbeats) + " ClusterHeartbeat");
+    check(engine.heartbeatVersion == 12 && engine.heartbeatBlock == 17 && engine.heartbeatHasEpoch,
+        "ClusterHeartbeat arrives at order-schema v12, block 17, and decodes meEpoch (got v" +
+        std::to_string(engine.heartbeatVersion) + " block " + std::to_string(engine.heartbeatBlock) + ")");
     // Both alive for 12 s: past the session timeout on both clusters.
     runUntil({ &core, &engine }, [&] { return false; }, 12'000);
     check(core.client.isConnected() && engine.client.isConnected(), "both sessions alive after 12 s");

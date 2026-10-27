@@ -41,6 +41,10 @@ EngineConfig validArray()
     config.bookCapacity = 131072;
     config.maxMatchesPerOrder = 10000;
     config.maxOrdersPerLevel = 0;
+    config.behaviorVersion = 1;
+    config.commandLedgerCapacity = 100000;
+    config.genesisId = 0x0102030405060708LL;
+    config.maxWireVersion = 12;
     config.markets = { btc(), eth() };
     return config;
 }
@@ -53,6 +57,10 @@ EngineConfig validDirect()
     config.bookCapacity = 0;
     config.maxMatchesPerOrder = 10000;
     config.maxOrdersPerLevel = 64;
+    config.behaviorVersion = 2;
+    config.commandLedgerCapacity = 1;
+    config.genesisId = -1;
+    config.maxWireVersion = 11;
     config.markets = { btc() };
     return config;
 }
@@ -82,6 +90,62 @@ TEST_CASE("configVersion must be a positive uint32 (tool-side rule)")
 
     config.configVersion = 4294967296LL; // ...its successor is not
     CHECK_FALSE(invalidReason(config).empty());
+}
+
+TEST_CASE("behaviorVersion must be in [1, UINT32_MAX] (tool-side, RC2 S1)")
+{
+    EngineConfig config = validArray();
+    config.behaviorVersion = 0;
+    CHECK(invalidReason(config).find("behaviorVersion=0") == 0);
+    config.behaviorVersion = -1;
+    CHECK_FALSE(invalidReason(config).empty());
+    config.behaviorVersion = 4294967295LL;
+    CHECK(invalidReason(config) == "");
+    config.behaviorVersion = 4294967296LL;
+    CHECK(invalidReason(config).find("behaviorVersion=") == 0);
+}
+
+TEST_CASE("commandLedgerCapacity must be in [1, UINT32_MAX] (tool-side, RC2 S1)")
+{
+    EngineConfig config = validArray();
+    config.commandLedgerCapacity = 0;
+    CHECK(invalidReason(config).find("commandLedgerCapacity=0") == 0);
+    config.commandLedgerCapacity = -1;
+    CHECK_FALSE(invalidReason(config).empty());
+    config.commandLedgerCapacity = 1;
+    CHECK(invalidReason(config) == "");
+    config.commandLedgerCapacity = 4294967295LL;
+    CHECK(invalidReason(config) == "");
+    config.commandLedgerCapacity = 4294967296LL;
+    CHECK(invalidReason(config).find("commandLedgerCapacity=") == 0);
+}
+
+TEST_CASE("genesisId must be non-zero; any other int64 is a valid nonce (tool-side, RC2 S1)")
+{
+    EngineConfig config = validArray();
+    config.genesisId = 0;
+    CHECK(invalidReason(config).find("genesisId must be non-zero") == 0);
+    config.genesisId = 1;
+    CHECK(invalidReason(config) == "");
+    config.genesisId = -1;
+    CHECK(invalidReason(config) == "");
+    config.genesisId = INT64_MIN;
+    CHECK(invalidReason(config) == "");
+}
+
+TEST_CASE("maxWireVersion must be in [11, 12] (tool-side, RC2 S1)")
+{
+    EngineConfig config = validArray();
+    config.maxWireVersion = 0; // what a pre-12 frame decodes as; never a valid ceiling to send
+    CHECK(invalidReason(config).find("maxWireVersion=0") == 0);
+    config.maxWireVersion = 10;
+    CHECK_FALSE(invalidReason(config).empty());
+    config.maxWireVersion = 11;
+    CHECK(invalidReason(config) == "");
+    config.maxWireVersion = 12;
+    CHECK(invalidReason(config) == "");
+    config.maxWireVersion = 13;
+    CHECK(invalidReason(config).find("maxWireVersion=13") == 0);
 }
 
 TEST_CASE("impl must be array or direct")

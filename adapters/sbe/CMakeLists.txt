@@ -1,16 +1,13 @@
 # adapters/sbe - codec generation wiring plus the one compiled match-codec adapter. No
 # generated code is committed. One output directory per schema, each regenerated whole:
-#   cluster  - the Aeron cluster session protocol (schema 111, from the Aeron tree configure extracted from the verified tarball)
-#   money    - the core money-schema (schema 2, MONEY_SCHEMA; v6 today, v7 by file swap)
-#   match    - the ME order-schema (schema 1, MATCH_SCHEMA)
-#   journal  - the ME settlement journal (optional, ME_JOURNAL_SCHEMA; RC2 S1 schemaId 4)
+#   cluster  - the Aeron cluster session protocol (schema 111, from the Aeron tree configure
+#              extracted from the verified tarball; WITH_AERON only)
+#   money    - the core money-schema (schema 2, MONEY_SCHEMA; v7)
+#   match    - the ME order-schema (schema 1, MATCH_SCHEMA; v12)
+#   journal  - the ME settlement journal (schema 4, ME_JOURNAL_SCHEMA; v1)
 # ct_sbe_codecs exposes the include paths plus build_info.h (pins + schema hashes).
 
 set(CT_SBE_GEN_DIR "${CMAKE_BINARY_DIR}/generated/sbe")
-set(CT_CLUSTER_SCHEMA "${AERON_SRC}/aeron-cluster/src/main/resources/cluster/aeron-cluster-codecs.xml")
-if(NOT EXISTS "${CT_CLUSTER_SCHEMA}")
-    message(FATAL_ERROR "cluster codec schema not found: ${CT_CLUSTER_SCHEMA}")
-endif()
 
 set(CT_SBE_STAMPS)
 set(CT_SBE_INCLUDES)
@@ -30,22 +27,17 @@ function(ct_generate name schema)
     set(CT_SBE_INCLUDES ${CT_SBE_INCLUDES} "${out}" PARENT_SCOPE)
 endfunction()
 
-ct_generate(cluster "${CT_CLUSTER_SCHEMA}")
+if(WITH_AERON)
+    set(CT_CLUSTER_SCHEMA "${AERON_SRC}/aeron-cluster/src/main/resources/cluster/aeron-cluster-codecs.xml")
+    if(NOT EXISTS "${CT_CLUSTER_SCHEMA}")
+        message(FATAL_ERROR "cluster codec schema not found: ${CT_CLUSTER_SCHEMA}")
+    endif()
+    ct_generate(cluster "${CT_CLUSTER_SCHEMA}")
+endif()
 ct_generate(money "${MONEY_SCHEMA}")
 ct_generate(match "${MATCH_SCHEMA}")
-set(CT_HAVE_JOURNAL 0)
-set(CT_JOURNAL_SHA256 "")
-set(CT_JOURNAL_VERSION 0)
-if(NOT ME_JOURNAL_SCHEMA STREQUAL "")
-    if(NOT EXISTS "${ME_JOURNAL_SCHEMA}")
-        message(FATAL_ERROR "ME_JOURNAL_SCHEMA not found: ${ME_JOURNAL_SCHEMA}")
-    endif()
-    file(SHA256 "${ME_JOURNAL_SCHEMA}" CT_JOURNAL_SHA256)
-    ct_generate(journal "${ME_JOURNAL_SCHEMA}")
-    set(CT_HAVE_JOURNAL 1)
-else()
-    message(STATUS "ME_JOURNAL_SCHEMA not set: no journal codecs (the C++ bridge needs RC2 S1's schemaId 4)")
-endif()
+ct_generate(journal "${ME_JOURNAL_SCHEMA}")
+set(CT_HAVE_JOURNAL 1)
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/build_info.h.in"
     "${CT_SBE_GEN_DIR}/info/cluster_tools/build_info.h" @ONLY)
@@ -76,9 +68,18 @@ if(BUILD_TESTING)
     target_compile_options(ct_codec_tests PRIVATE -Wall -Wextra)
     add_test(NAME adapters.sbe_codec_layout COMMAND ct_codec_tests)
 
+    # EngineConfigCodec against the ME's own Java encoder (v12 root fields included).
+    add_executable(ct_engine_config_codec_tests tests/EngineConfigCodecTest.cpp)
+    target_link_libraries(ct_engine_config_codec_tests PRIVATE ct_adapter_sbe ct_sbe_codecs)
+    target_include_directories(ct_engine_config_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_options(ct_engine_config_codec_tests PRIVATE -Wall -Wextra)
+    add_test(NAME adapters.sbe_engine_config_codec COMMAND ct_engine_config_codec_tests)
+
     # The verified-dependency gate refuses tampered/unpinned inputs (scripts/check-configure-gate.sh).
+    if(WITH_AERON)
     add_test(NAME build.configure_gate
         COMMAND bash "${PROJECT_SOURCE_DIR}/scripts/check-configure-gate.sh" "${CMAKE_COMMAND}"
-            "${AERON_TARBALL}" "${SBE_CLASSPATH}" "${MONEY_SCHEMA}" "${MATCH_SCHEMA}")
+            "${AERON_TARBALL}" "${SBE_CLASSPATH}" "${MONEY_SCHEMA}" "${MATCH_SCHEMA}" "${ME_JOURNAL_SCHEMA}")
     set_tests_properties(build.configure_gate PROPERTIES TIMEOUT 300)
+    endif()
 endif()

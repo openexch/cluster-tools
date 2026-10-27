@@ -67,12 +67,13 @@ The build matrix:
 | configuration | needs | builds | proves |
 |---|---|---|---|
 | `-DWITH_AERON=OFF` (default, `ci.yml`) | cmake >= 3.16 + a C++20 compiler | domain, ports, the json adapter, the pure client parts, their tests | the hexagon: domain logic, input parsing and the client's pure rules build and pass with zero infrastructure |
+| `-DWITH_CODECS=ON` (`codecs` job in `ci.yml`) | cmake >= 3.21, java 21, the pinned sbe-tool/agrona jars, the three wire schemas | SBE codegen for money-schema v7, order-schema v12 and ME journal schema 4, the EngineConfig codec, the codec layout goldens | the wire contracts without Aeron: codegen, schema pins, the Java-encoder goldens |
 | `-DWITH_AERON=ON` (`aeron.yml`, `publish.yml`) | cmake >= 3.30, java 21, the verified inputs below | everything: aeron 1.53.1 client + aeronmd from source, codecs, the client and its tests, switch-behavior, the PoC | the client state machine (fake transport), the codec goldens against the engines' Java encoders, the transport against the real wire schema |
 
 Every pinned input of the Aeron build is in `dependencies.lock` and nothing is trusted by
 name or path: `scripts/fetch-deps.sh` downloads the Aeron 1.53.1 source tarball, sbe-tool
 1.40.1 and agrona 2.5.0 and checks each sha256; `scripts/fetch-schemas.sh` extracts the
-money-schema and the order-schema at the pinned commits and checks their sha256. Configure
+money-schema, the order-schema and the ME journal schema (schemaId 4) at the pinned commits and checks their sha256. Configure
 then re-hashes the Aeron tarball (`-DAERON_TARBALL`) and extracts it itself (a source tree is
 not accepted as input), re-hashes the SBE jars and runs codegen only from hashed copies in the
 build tree (re-hashed before every run), and checks each schema's id, version floor and
@@ -95,10 +96,12 @@ ctest --test-dir build-aeron --output-on-failure
 client/it/run-it.sh build-aeron /path/to/assets-cluster.jar /path/to/match-cluster.jar
 ```
 
-A newer wire schema (money v7, order v12) drops in by pointing `-DMONEY_SCHEMA` /
+The pins today are money-schema v7 (assets `b05b8e8`), order-schema v12 and ME journal schema 4 v1
+(both match `68a9375`). A newer engine wire schema drops in by pointing `-DMONEY_SCHEMA` /
 `-DMATCH_SCHEMA` at it (or bumping the `*_ref`/`*_sha256` pins); the codec goldens then fail
 until `adapters/sbe/tests/golden/regen.sh` is re-run with engine jars at the new commits,
-which is the drift alarm working. `-DME_JOURNAL_SCHEMA=` adds the ME journal codecs (RC2 S1).
+which is the drift alarm working. The ME journal schema is pinned by exact sha256 (a fixed
+on-disk contract), and `-DME_JOURNAL_SCHEMA=` is required with `WITH_CODECS` / `WITH_AERON`.
 
 ## License
 

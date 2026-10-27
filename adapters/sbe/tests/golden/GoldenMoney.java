@@ -66,7 +66,11 @@ public final class GoldenMoney {
                     .price(700_000_000L + i)
                     .quantity(800_000_000L + i)
                     .budget(900_000_000L + i)
-                    .timeInForce((short) 2);
+                    .timeInForce((short) 2)
+                    // v7 tail (entry 80 -> 89 bytes): released-id scope and the expected remaining
+                    // the ME subtracts in-window fills from (distinct, non-default values).
+                    .releaseScope(com.openexchange.assets.infrastructure.generated.ReleaseScope.ORDER)
+                    .expectedOldRemaining(1_100_000_000L + i);
         }
         print("JAVA_ME_DISPATCH_BATCH", buf, header.encodedLength() + batch.encodedLength());
 

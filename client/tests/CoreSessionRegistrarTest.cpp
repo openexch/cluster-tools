@@ -119,6 +119,7 @@ TEST_CASE("registers once connected; the frame is RegisterSession v-current with
     char *p = reinterpret_cast<char *>(frames[0].data());
     money::MessageHeader h(p, 32, frames[0].size(), 0);
     CHECK(h.version() == money::MessageHeader::sbeSchemaVersion());
+    CHECK(h.version() == 7); // RegisterSession goes out at money-schema v7 (the core refuses a lower header)
     money::RegisterSession r(p, 40, frames[0].size(), h.blockLength(), h.version());
     CHECK(r.correlationId() == registrar.correlationId());
     CHECK(r.sessionClass() == money::SessionClass::FORWARDER);

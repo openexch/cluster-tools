@@ -343,7 +343,8 @@ struct Parser
             return false;
         }
         bool seenVersion = false, seenImpl = false, seenCapacity = false,
-            seenMatches = false, seenPerLevel = false, seenMarkets = false;
+            seenMatches = false, seenPerLevel = false, seenMarkets = false,
+            seenBehavior = false, seenLedger = false, seenGenesis = false, seenWire = false;
         while (true)
         {
             std::string key;
@@ -415,6 +416,54 @@ struct Parser
                     return false;
                 }
             }
+            else if ("behaviorVersion" == key)
+            {
+                if (seenBehavior)
+                {
+                    return fail("duplicate key 'behaviorVersion'");
+                }
+                seenBehavior = true;
+                if (!parseInt64(config.behaviorVersion))
+                {
+                    return false;
+                }
+            }
+            else if ("commandLedgerCapacity" == key)
+            {
+                if (seenLedger)
+                {
+                    return fail("duplicate key 'commandLedgerCapacity'");
+                }
+                seenLedger = true;
+                if (!parseInt64(config.commandLedgerCapacity))
+                {
+                    return false;
+                }
+            }
+            else if ("genesisId" == key)
+            {
+                if (seenGenesis)
+                {
+                    return fail("duplicate key 'genesisId'");
+                }
+                seenGenesis = true;
+                if (!parseInt64(config.genesisId))
+                {
+                    return false;
+                }
+            }
+            else if ("maxWireVersion" == key)
+            {
+                if (seenWire)
+                {
+                    return fail("duplicate key 'maxWireVersion'");
+                }
+                seenWire = true;
+                if (!parseInt64(config.maxWireVersion))
+                {
+                    return false;
+                }
+            }
             else if ("markets" == key)
             {
                 if (seenMarkets)
@@ -448,7 +497,8 @@ struct Parser
         {
             return fail("unexpected content after the closing '}'");
         }
-        if (!seenVersion || !seenImpl || !seenCapacity || !seenMatches || !seenPerLevel || !seenMarkets)
+        if (!seenVersion || !seenImpl || !seenCapacity || !seenMatches || !seenPerLevel || !seenMarkets ||
+            !seenBehavior || !seenLedger || !seenGenesis || !seenWire)
         {
             std::string missing;
             if (!seenVersion) missing += " configVersion";
@@ -456,6 +506,10 @@ struct Parser
             if (!seenCapacity) missing += " bookCapacity";
             if (!seenMatches) missing += " maxMatchesPerOrder";
             if (!seenPerLevel) missing += " maxOrdersPerLevel";
+            if (!seenBehavior) missing += " behaviorVersion";
+            if (!seenLedger) missing += " commandLedgerCapacity";
+            if (!seenGenesis) missing += " genesisId";
+            if (!seenWire) missing += " maxWireVersion";
             if (!seenMarkets) missing += " markets";
             return fail("missing required key(s):" + missing);
         }

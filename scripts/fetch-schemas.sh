@@ -5,10 +5,14 @@
 #
 # Usage: scripts/fetch-schemas.sh <out-dir> <assets-checkout> <match-checkout>
 # Prints the cmake arguments: -DMONEY_SCHEMA=<out>/money-schema.xml -DMATCH_SCHEMA=<out>/order-schema.xml
+# -DME_JOURNAL_SCHEMA=<out>/me-journal-schema.xml
 #
-# A newer schema (money-schema v7, order-schema v12) is taken by bumping *_ref and *_sha256 in
-# the lock, or by pointing -DMONEY_SCHEMA / -DMATCH_SCHEMA at the file directly: the CMake
-# configure check validates structure (schema id, version floor, required templates), not the hash.
+# The ME settlement journal (schemaId 4) lives in the match repo and is taken at the SAME commit as the
+# order schema (match_schema_ref); only its path and sha256 are separate lock entries.
+#
+# A newer schema is taken by bumping *_ref and *_sha256 in the lock, or by pointing
+# -DMONEY_SCHEMA / -DMATCH_SCHEMA / -DME_JOURNAL_SCHEMA at the file directly: the CMake configure
+# check validates structure (schema id, version floor, required templates), not the hash.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -44,5 +48,8 @@ extract() { # checkout ref path want dest
 extract "$2" "$(lock money_schema_ref)" "$(lock money_schema_path)" "$(lock money_schema_sha256)" "$OUT/money-schema.xml"
 extract "$3" "$(lock match_schema_ref)" "$(lock match_schema_path)" "$(lock match_schema_sha256)" "$OUT/order-schema.xml"
 
+extract "$3" "$(lock match_schema_ref)" "$(lock me_journal_schema_path)" "$(lock me_journal_schema_sha256)" "$OUT/me-journal-schema.xml"
+
 echo "-DMONEY_SCHEMA=$OUT/money-schema.xml"
 echo "-DMATCH_SCHEMA=$OUT/order-schema.xml"
+echo "-DME_JOURNAL_SCHEMA=$OUT/me-journal-schema.xml"

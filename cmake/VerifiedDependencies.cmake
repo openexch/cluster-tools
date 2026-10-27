@@ -1,12 +1,17 @@
-# The verified-dependency gate for the WITH_AERON build (pattern: oms/execution-projector).
-# Nothing is trusted by path or by name: Aeron is built only from the source TARBALL whose
-# sha256 dependencies.lock pins (configure hashes it and extracts it itself), the SBE jars are
-# hashed and then executed from hashed copies inside the build tree, and every wire schema must
-# have the schema id, version floor and templates the lock names. A failure here stops
-# configure; it never degrades to "use what is there".
+# The verified-dependency gate for the WITH_CODECS / WITH_AERON builds (pattern:
+# oms/execution-projector). Nothing is trusted by path or by name: Aeron (WITH_AERON only) is
+# built only from the source TARBALL whose sha256 dependencies.lock pins (configure hashes it
+# and extracts it itself), the SBE jars are hashed and then executed from hashed copies inside
+# the build tree, and every wire schema must have the schema id, version floor and templates
+# the lock names. A failure here stops configure; it never degrades to "use what is there".
+# WITH_CODECS needs Java only (codegen for money, order and ME-journal schemas); WITH_AERON
+# adds the Aeron tree, the cluster-protocol codecs and everything that links Aeron.
 
-if(CMAKE_VERSION VERSION_LESS 3.30)
+if(WITH_AERON AND CMAKE_VERSION VERSION_LESS 3.30)
     message(FATAL_ERROR "WITH_AERON=ON needs cmake >= 3.30 (Aeron 1.53.1's floor), have ${CMAKE_VERSION}")
+endif()
+if(CMAKE_VERSION VERSION_LESS 3.21)
+    message(FATAL_ERROR "WITH_CODECS=ON needs cmake >= 3.21 (file(COPY_FILE)), have ${CMAKE_VERSION}")
 endif()
 
 string(JSON CT_LOCK_AERON_VERSION GET "${CT_DEPENDENCY_LOCK}" aeron_version)
@@ -16,6 +21,8 @@ string(JSON CT_LOCK_SBE_SHA GET "${CT_DEPENDENCY_LOCK}" sbe_sha256)
 string(JSON CT_LOCK_AGRONA_SHA GET "${CT_DEPENDENCY_LOCK}" agrona_sha256)
 
 # ---- Aeron: the tarball is the input, never a tree.
+set(CT_AERON_VERSION "")
+if(WITH_AERON)
 if(DEFINED AERON_SRC AND NOT AERON_SRC STREQUAL "")
     message(FATAL_ERROR "AERON_SRC is not an input any more: a source tree cannot be hash-verified. "
         "Pass -DAERON_TARBALL=<aeron-${CT_LOCK_AERON_VERSION}.tar.gz> (scripts/fetch-deps.sh).")
@@ -55,6 +62,7 @@ if(NOT CT_AERON_VERSION STREQUAL CT_LOCK_AERON_VERSION)
     message(FATAL_ERROR "AERON_TARBALL holds Aeron ${CT_AERON_VERSION}; dependencies.lock pins ${CT_LOCK_AERON_VERSION}")
 endif()
 message(STATUS "Aeron ${CT_AERON_VERSION} from ${AERON_TARBALL} (sha256 ${CT_AERON_TARBALL_SHA}), extracted to ${AERON_SRC}")
+endif()
 
 # ---- SBE classpath: exactly the two pinned jars, each verified, then COPIED into the build
 # tree; codegen runs only from the copies and gen-codecs.sh re-hashes them before every run, so
@@ -96,7 +104,7 @@ string(REPLACE ";" ":" CT_SBE_VERIFIED_CLASSPATH "${CT_SBE_VERIFIED_JARS}")
 set(CT_SBE_JAR_SHA256S "${CT_LOCK_SBE_SHA} ${CT_LOCK_AGRONA_SHA}")
 
 # ct_check_schema(<label> <path> <lock-prefix> <out-var-prefix>)
-# Structural check, not a hash pin: a newer schema (money v7, order v12) passes by file swap
+# Structural check, not a hash pin: a newer schema (a later money or order version) passes by file swap
 # as long as it keeps the id, does not go below the floor and still defines every template
 # the client code is compiled against. The hash and version are recorded in build_info.h.
 function(ct_check_schema label path prefix out)
@@ -133,9 +141,31 @@ endfunction()
 
 ct_check_schema(MONEY_SCHEMA "${MONEY_SCHEMA}" money CT_MONEY)
 ct_check_schema(MATCH_SCHEMA "${MATCH_SCHEMA}" match CT_MATCH)
+ct_check_schema(ME_JOURNAL_SCHEMA "${ME_JOURNAL_SCHEMA}" me_journal CT_JOURNAL)
+# The ME journal is a fixed on-disk contract (schemaId 4 v1), not a moving wire: its bytes are
+# pinned exactly, unlike the two engine wires above which pass on structure.
+string(JSON CT_LOCK_JOURNAL_SHA GET "${CT_DEPENDENCY_LOCK}" me_journal_schema_sha256)
+if(NOT CT_JOURNAL_SHA256 STREQUAL CT_LOCK_JOURNAL_SHA)
+    message(FATAL_ERROR "ME_JOURNAL_SCHEMA ${ME_JOURNAL_SCHEMA} has sha256 ${CT_JOURNAL_SHA256}; "
+        "dependencies.lock pins ${CT_LOCK_JOURNAL_SHA}")
+endif()
+
+# RC2 S1 refuter X6: a v12 order schema whose DurableOrderCommand (template 9) has no
+# timeInForce is not the schema the lock names, whatever its root version says.
+file(READ "${MATCH_SCHEMA}" CT_MATCH_XML)
+string(REGEX MATCH "<sbe:message[ \t\r\n]+name=\"[A-Za-z0-9_]+\"[ \t\r\n]+id=\"9\"" CT_T9_OPEN "${CT_MATCH_XML}")
+string(FIND "${CT_MATCH_XML}" "${CT_T9_OPEN}" CT_T9_START)
+string(SUBSTRING "${CT_MATCH_XML}" ${CT_T9_START} -1 CT_T9_TAIL)
+string(FIND "${CT_T9_TAIL}" "</sbe:message>" CT_T9_LEN)
+string(SUBSTRING "${CT_T9_TAIL}" 0 ${CT_T9_LEN} CT_T9_BODY)
+if(NOT CT_T9_BODY MATCHES "name=\"timeInForce\"")
+    message(FATAL_ERROR "MATCH_SCHEMA ${MATCH_SCHEMA}: template 9 has no timeInForce field (the v12 DurableOrderCommand)")
+endif()
 
 find_package(Java 21 COMPONENTS Runtime REQUIRED)
 find_package(Threads REQUIRED)
+
+if(WITH_AERON)
 
 # Aeron from source, client only by default; the driver too when CT_BUILD_MEDIA_DRIVER.
 set(BUILD_AERON_DRIVER ${CT_BUILD_MEDIA_DRIVER} CACHE BOOL "" FORCE)
@@ -152,4 +182,5 @@ add_subdirectory("${AERON_SRC}" aeron EXCLUDE_FROM_ALL)
 if(CT_BUILD_MEDIA_DRIVER)
     # aeronmd is EXCLUDE_FROM_ALL inside the aeron tree; pull it into the default build.
     add_custom_target(ct_media_driver ALL DEPENDS aeronmd aeron_driver aeron)
+endif()
 endif()

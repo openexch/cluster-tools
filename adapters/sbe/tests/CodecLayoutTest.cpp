@@ -16,13 +16,20 @@
 #include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
 #include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
 #include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
+#include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
+#include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/DurableOrderCommand.h"
+#include "com_match_infrastructure_generated/EngineConfig.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
+#include "com_match_infrastructure_generated/OrderStatusBatch.h"
+#include "com_match_infrastructure_mejournal_generated/MessageHeader.h"
+#include "com_match_infrastructure_mejournal_generated/Trade.h"
 
 #include "golden/golden_frames.inc"
 
 namespace money = com::openexchange::assets::infrastructure::generated;
 namespace me = com::match::infrastructure::generated;
+namespace journal = com::match::infrastructure::mejournal::generated;
 
 namespace
 {
@@ -38,8 +45,24 @@ TEST_CASE("build info names the schemas this binary speaks")
 {
     CHECK(cluster_tools::build_info::MONEY_SCHEMA_VERSION == money::MessageHeader::sbeSchemaVersion());
     CHECK(cluster_tools::build_info::MATCH_SCHEMA_VERSION == me::MessageHeader::sbeSchemaVersion());
+    CHECK(cluster_tools::build_info::ME_JOURNAL_SCHEMA_VERSION == journal::MessageHeader::sbeSchemaVersion());
     CHECK(money::MessageHeader::sbeSchemaId() == 2);
     CHECK(me::MessageHeader::sbeSchemaId() == 1);
+    CHECK(journal::MessageHeader::sbeSchemaId() == 4);
+    // The pins of RC2 S1 / dependencies.lock: money v7, order v12, ME journal v1.
+    CHECK(money::MessageHeader::sbeSchemaVersion() == 7);
+    CHECK(me::MessageHeader::sbeSchemaVersion() == 12);
+    CHECK(journal::MessageHeader::sbeSchemaVersion() == 1);
+}
+
+TEST_CASE("v7/v12 block lengths: the layouts the engines encode")
+{
+    CHECK(money::AdmissionState::sbeBlockLength() == 27);    // v6 was 23: gateReasons (4) appended
+    CHECK(money::RegisterSession::sbeBlockLength() == 31);
+    CHECK(money::MeDispatchBatch::Dispatches::sbeBlockLength() == 89); // v6 was 80: releaseScope + expectedOldRemaining
+    CHECK(me::ClusterHeartbeat::sbeBlockLength() == 17);     // v11 was 9: meEpoch appended
+    CHECK(me::EngineConfig::sbeBlockLength() == 35);         // v11 was 17: four v12 root fields
+    CHECK(me::DurableOrderCommand::sbeBlockLength() == 80);  // v11 was 71: timeInForce + expectedOldRemaining
 }
 
 TEST_CASE("RegisterSession: Java golden decodes, C++ re-encodes byte-equal")
@@ -119,6 +142,8 @@ TEST_CASE("MeDispatchBatch: Java golden decodes entry by entry, C++ re-encodes b
         CHECK(entries.quantity() == 800'000'000 + i);
         CHECK(entries.budget() == 900'000'000 + i);
         CHECK(entries.timeInForce() == 2);
+        CHECK(entries.releaseScope() == money::ReleaseScope::ORDER);
+        CHECK(entries.expectedOldRemaining() == 1'100'000'000LL + i);
         i++;
     }
 
@@ -142,7 +167,9 @@ TEST_CASE("MeDispatchBatch: Java golden decodes entry by entry, C++ re-encodes b
             .price(700'000'000 + k)
             .quantity(800'000'000 + k)
             .budget(900'000'000 + k)
-            .timeInForce(2);
+            .timeInForce(2)
+            .releaseScope(money::ReleaseScope::ORDER)
+            .expectedOldRemaining(1'100'000'000LL + k);
     }
     mine.resize(money::MessageHeader::encodedLength() + encoder.encodedLength());
     CHECK(mine == golden);
@@ -150,8 +177,9 @@ TEST_CASE("MeDispatchBatch: Java golden decodes entry by entry, C++ re-encodes b
 
 TEST_CASE("MeDispatch entry -> DurableOrderCommand: the one-to-one copy equals match's Java encoder bytes")
 {
-    // rc2-forwarder.md 2.5 step 3: the 12 intent fields copied, dispatchSeq and timeInForce
-    // dropped (until ME v12, refuter X6). Entry 1 of the batch golden is the source.
+    // rc2-forwarder.md 2.5 step 3, at ME v12: the 12 intent fields copied, dispatchSeq dropped,
+    // timeInForce and expectedOldRemaining now carried (X6 closed by the v12 template 9 tail).
+    // Entry 1 of the batch golden is the source.
     std::vector<std::uint8_t> golden = JAVA_ME_DISPATCH_BATCH;
     money::MessageHeader header(bytes(golden), 0, golden.size(), 0);
     money::MeDispatchBatch batch(bytes(golden), 8, golden.size(), header.blockLength(), header.version());
@@ -173,9 +201,92 @@ TEST_CASE("MeDispatch entry -> DurableOrderCommand: the one-to-one copy equals m
         .marketId(entries.marketId())
         .commandKind(entries.kindRaw())
         .orderType(entries.orderType())
-        .orderSide(entries.side());
+        .orderSide(entries.side())
+        .timeInForce(entries.timeInForce())
+        .expectedOldRemaining(entries.expectedOldRemaining());
     mine.resize(me::MessageHeader::encodedLength() + command.encodedLength());
     CHECK(mine == JAVA_DURABLE_ORDER_COMMAND);
     me::MessageHeader meHeader(bytes(mine), 0, mine.size(), 0);
-    CHECK(meHeader.version() >= 11); // the ME's per-template floor for template 9
+    CHECK(meHeader.version() == 12); // this build speaks v12; the ME's floor for template 9 is 11
+}
+
+TEST_CASE("ClusterHeartbeat v12 (block 17) decodes with the frame's own blockLength and version")
+{
+    std::vector<std::uint8_t> golden = JAVA_CLUSTER_HEARTBEAT;
+    me::MessageHeader h(bytes(golden), 0, golden.size(), 0);
+    CHECK(h.templateId() == 21);
+    CHECK(h.blockLength() == 17);
+    CHECK(h.version() == 12);
+    me::ClusterHeartbeat hb(bytes(golden), 8, golden.size(), h.blockLength(), h.version());
+    CHECK(hb.nodeId() == 2);
+    CHECK(hb.timestamp() == 1'700'000'000'123LL);
+    CHECK(hb.meEpochInActingVersion());
+    CHECK(hb.meEpoch() == 0x5152535455565758LL);
+
+    std::vector<std::uint8_t> mine(golden.size() + 16, 0xEE);
+    me::ClusterHeartbeat encoder;
+    encoder.wrapAndApplyHeader(bytes(mine), 0, mine.size())
+        .nodeId(2)
+        .timestamp(1'700'000'000'123LL)
+        .meEpoch(0x5152535455565758LL);
+    mine.resize(me::MessageHeader::encodedLength() + encoder.encodedLength());
+    CHECK(mine == golden);
+}
+
+TEST_CASE("ClusterHeartbeat from a pre-12 ME (block 9, version 11) still decodes: meEpoch is out of the acting version")
+{
+    // A frame an ME at order-schema v11 puts on egress: header block 9 / version 11, 9 bytes of body.
+    std::vector<std::uint8_t> frame = JAVA_CLUSTER_HEARTBEAT;
+    frame.resize(8 + 9);
+    frame[0] = 9;  // blockLength (LE)
+    frame[1] = 0;
+    frame[6] = 11; // version (LE)
+    frame[7] = 0;
+    me::MessageHeader h(bytes(frame), 0, frame.size(), 0);
+    CHECK(h.blockLength() == 9);
+    CHECK(h.version() == 11);
+    me::ClusterHeartbeat hb(bytes(frame), 8, frame.size(), h.blockLength(), h.version());
+    CHECK(hb.nodeId() == 2);
+    CHECK(hb.timestamp() == 1'700'000'000'123LL);
+    CHECK_FALSE(hb.meEpochInActingVersion());
+    CHECK(hb.meEpoch() == me::ClusterHeartbeat::meEpochNullValue());
+}
+
+TEST_CASE("OrderStatusBatch: Java golden decodes entry by entry through the generated codec")
+{
+    std::vector<std::uint8_t> golden = JAVA_ORDER_STATUS_BATCH;
+    me::MessageHeader h(bytes(golden), 0, golden.size(), 0);
+    CHECK(h.templateId() == 24);
+    CHECK(h.version() == 12);
+    me::OrderStatusBatch batch(bytes(golden), 8, golden.size(), h.blockLength(), h.version());
+    CHECK(batch.marketId() == 7);
+    CHECK(batch.timestamp() == 1'700'000'000'456LL);
+    auto &orders = batch.orders();
+    REQUIRE(orders.count() == 2);
+    int i = 0;
+    while (orders.hasNext())
+    {
+        orders.next();
+        CHECK(orders.orderId() == 9000 + i);
+        CHECK(orders.userId() == 3000 + i);
+        CHECK(orders.status() == me::OrderStatus::PARTIALLY_FILLED);
+        CHECK(orders.price() == 700'000'000LL + i);
+        CHECK(orders.remainingQty() == 100 + i);
+        CHECK(orders.filledQty() == 200 + i);
+        CHECK(orders.side() == me::OrderSide::ASK);
+        CHECK(orders.omsOrderId() == 4000 + i);
+        CHECK(orders.statusSeq() == 500 + i);
+        CHECK(orders.rejectReason() == 0);
+        CHECK(orders.egressSeq() == 600 + i);
+        CHECK(orders.clusterTimestamp() == 1'700'000'000'000LL + i);
+        i++;
+    }
+    CHECK(i == 2);
+}
+
+TEST_CASE("ME journal codecs are generated: schemaId 4 v1, templates 1..5")
+{
+    CHECK(journal::Trade::sbeTemplateId() == 1);
+    CHECK(journal::Trade::sbeSchemaId() == 4);
+    CHECK(journal::Trade::sbeSchemaVersion() == 1);
 }
