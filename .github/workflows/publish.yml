@@ -51,7 +51,8 @@ jobs:
       # also require (the poc never noticed: its LD_LIBRARY_PATH covered the whole
       # aeron build tree). The box has no aeron libraries of its own; everything
       # else must resolve to stock system libs, which the closure check enforces.
-      FILES: switch-behavior aeronmd libaeron_driver.so libaeron.so
+      # RC2 S12: ct-forwarder, the production forwarder (exit 78 on a missing env is its start smoke below).
+      FILES: switch-behavior ct-forwarder aeronmd libaeron_driver.so libaeron.so
       # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
       # scripts/fetch-deps.sh + scripts/fetch-schemas.sh fetch and sha256-verify them.
       CMAKE_VERSION: 3.31.6
@@ -169,11 +170,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir dist
+          # RC2 S12: the negative-control and test-corruption forwarders are never published. This build does not
+          # set CT_FORWARDER_TEST_BUILDS, so they must not exist; and nothing in FILES may name them.
+          if find build -type f -name 'ct_forwarder_nc_*' -o -type f -name 'ct_forwarder_tc_*' | grep -q .; then
+            echo "::error::a ct_forwarder_nc_*/ct_forwarder_tc_* test build is in the publish tree"; exit 1
+          fi
+          if echo " ${FILES} " | grep -qE 'ct_forwarder_(nc|tc)_'; then
+            echo "::error::FILES names a forwarder test build"; exit 1
+          fi
           cp build/app/switch-behavior/switch-behavior dist/
+          cp build/app/forwarder/ct-forwarder dist/
           cp "${AERONMD}" dist/aeronmd
           cp "${LIBDRIVER}" dist/libaeron_driver.so
           cp "${LIBAERON}" dist/libaeron.so
-          strip dist/switch-behavior dist/aeronmd
+          strip dist/switch-behavior dist/ct-forwarder dist/aeronmd
           # --strip-unneeded for the shared libraries: keep the dynamic symbols
           # the loader resolves against, drop the rest.
           strip --strip-unneeded dist/libaeron_driver.so dist/libaeron.so
@@ -208,6 +218,10 @@ jobs:
           done
           # And they actually start. switch-behavior: usage path exits 0.
           ./switch-behavior --help >/dev/null
+          # ct-forwarder: strict env (RC2 S12 section 9): no environment = refuse to start with 78 (F5).
+          rc=0
+          env -i ./ct-forwarder >/dev/null 2>&1 || rc=$?
+          [ "$rc" -eq 78 ] || { echo "::error::ct-forwarder without env exited $rc, expected 78"; exit 1; }
           # aeronmd runs until killed; surviving the 2s timeout (rc 124) IS the
           # pass — an instant exit would be a load or boot failure.
           rc=0

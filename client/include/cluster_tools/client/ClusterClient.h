@@ -61,6 +61,10 @@ namespace cluster_tools { namespace client {
 struct EgressMessage
 {
     std::int64_t clusterSessionId = -1;
+    // The leadership term the service stamped on this frame's SessionMessageHeader (Aeron 1.53.1
+    // ClusteredServiceAgent sets it from every NewLeadershipTermEvent and from recovery). RC2 S12 rule S:
+    // an owner that frames replies by arrival order drops a frame of another term than leadershipTermId().
+    std::int64_t leadershipTermId = -1;
     std::int64_t timestamp = 0;
     const std::uint8_t *payload = nullptr; // engine-schema bytes; valid only during the call
     std::size_t length = 0;
@@ -825,6 +829,7 @@ private:
                 m_counters.egressMessages++;
                 EgressMessage message;
                 message.clusterSessionId = m_sessionId;
+                message.leadershipTermId = smh.leadershipTermId();
                 message.timestamp = smh.timestamp();
                 message.payload = fragment.data + payloadOffset;
                 message.length = static_cast<std::size_t>(capacity - payloadOffset);

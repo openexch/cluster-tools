@@ -145,13 +145,18 @@ public:
                 return result;
             }
         }
+        p.position += static_cast<std::int64_t>(headerLength + bodyLength);
+        if (!recordOffers)
+        {
+            offersNotRecorded++; // an allocation-free fake for allocation counting (RC2 S12 zeroAllocDutyCycle)
+            return p.position;
+        }
         std::vector<std::uint8_t> frame(header, header + headerLength);
         if (bodyLength > 0)
         {
             frame.insert(frame.end(), body, body + bodyLength);
         }
         p.offered.push_back(std::move(frame));
-        p.position += static_cast<std::int64_t>(headerLength + bodyLength);
         return p.position;
     }
     void closePublication(PublicationId id)
@@ -256,12 +261,13 @@ public:
         egress.push_back(QueuedFragment{ std::move(bytes), image });
     }
 
-    void pushAppMessage(std::int64_t sessionId, const std::vector<std::uint8_t> &payload, std::int32_t image)
+    void pushAppMessage(std::int64_t sessionId, const std::vector<std::uint8_t> &payload, std::int32_t image,
+        std::int64_t leadershipTermId = 0)
     {
         std::vector<std::uint8_t> bytes(32 + payload.size());
         cc::SessionMessageHeader header;
         header.wrapAndApplyHeader(reinterpret_cast<char *>(bytes.data()), 0, bytes.size())
-            .leadershipTermId(0)
+            .leadershipTermId(leadershipTermId)
             .clusterSessionId(sessionId)
             .timestamp(42);
         std::memcpy(bytes.data() + 32, payload.data(), payload.size());
@@ -294,6 +300,8 @@ public:
     int resetsInsidePoll = 0;
     int pollCalls = 0;
     int offerCalls = 0;
+    bool recordOffers = true;
+    std::uint64_t offersNotRecorded = 0;
 };
 
 static_assert(ClusterTransport<FakeTransport>);

@@ -12,7 +12,9 @@
 # that are not published to a registry yet; it runs locally and moves into the fixture (RC2
 # S14) once the runtime jars are artifacts. The archive integration run (archive/it/run-it.sh,
 # RC2 S9a 9.3) is local and in the S14 fixture as well; this job builds its binaries
-# (-DWITH_BRIDGE=ON) and runs the pure, codec-layout and adapter tests.
+# (-DWITH_BRIDGE=ON) and runs the pure, codec-layout and adapter tests. RC2 S12: the forwarder's domain, codec,
+# agent (two fake transports), config and supervisor tests and their negative-control tables run here too
+# (forwarder.*); its T1 run (app/forwarder/it/run-forwarder-it.sh) is local like the other integration runs.
 name: aeron
 
 on:
@@ -31,6 +33,8 @@ on:
       - 'domain/**'
       - 'app/**'
       - 'app/journal-tail/**'
+      - 'app/forwarder/**'
+      - 'domain/forwarder/**'
       - 'poc/**'
       - '.github/workflows/aeron.yml'
 

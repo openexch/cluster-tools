@@ -1,0 +1,27 @@
+# The RED column of RC2 S12 contract 11.3 (light method: re-proved on every run). Each line: test case | rule |
+# why | expected text; run by archive/tests/run-negative-controls.sh against ct_forwarder_app_tests (linked with
+# ct_forwarder_domain_seamed): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass
+# without it.
+# Not listed (no RED at this level, recorded in the S12 README): RING_GROUP_CAP_48 (the agent caps a release frame
+# at 48 again when it encodes, a second guard) and ADMISSION_ORIGIN_BASELINE (the ORIGIN reply is processed in the
+# poll that precedes the C3 transition, so the machine is still D0 and ignores the T3; the domain test proves the
+# watcher rule).
+ForwarderAgentTest.staleTermFrameAfterNewLeaderIsDropped|AGENT_STALE_TERM_FILTER|without rule S the old-term entry is framed into the reply and 101 is never sent (FIX-1)|CHECK( ids == std::vector<std::int64_t>{ 101, 103 } )
+ForwarderAgentTest.noRegistrationBeforeMeEpoch|AGENT_EPOCH_BEFORE_REGISTER|RegisterSession sent with sourceEpoch 0 before the bind (D8a row 1 exemption)|CHECK( r.coreOffers(80).empty() )
+ForwarderAgentTest.invalidDispatchReachesTheMe|AGENT_SEND_INVALID|classes I and C discarded (the pre-review rule): two orders never reach the ME|REQUIRE( commands.size() == 4 )
+ForwarderAgentTest.invalidDispatchReachesTheMe|CARRIER|class C sent verbatim: the ME decode-drops it unjournaled|CHECK( commands[2].payload == JAVA_DURABLE_ORDER_COMMAND_V12_CARRIER )
+ForwarderAgentTest.releaseIdValidationPerKind|RING_RX_ISOLATION|the RX entry joins its neighbours' frame (the ME drops all of them)|REQUIRE( frames.size() == 3 )
+ForwarderAgentTest.releaseIdValidationPerKind|AGENT_RELEASE_RELAY|RELEASE_ID entries discarded|REQUIRE( frames.size() == 3 )
+ForwarderAgentTest.meBackPressureNeverRetriesInPlace|AGENT_ONE_ATTEMPT_PER_CYCLE|a back-pressured offer retried in place|CHECK( attempts <= 2 )
+ForwarderAgentTest.sessionLimitErrorRetries|AGENT_CLUSTER_ERROR_RETRY|a session-limit CLUSTER_ERROR exits 78 for good (FIX-7)|CHECK_FALSE( r.agent.stopped() )
+ForwarderAgentTest.preS8CoreProbeExits78|RESYNC_PROBE_COUNT|a pre-S8 core's page answer to the probe is accepted (F15)|CHECK( r.agent.stopped() )
+ForwarderAgentTest.admissionChangeResyncsAndOriginNeverResyncs|ADMISSION_REASON_BITS|ME_CAPACITY cleared under an unchanged SUSPENDED state is missed (W16)|CHECK( r.agent.resync().counters().resyncs[3] == 1 )
+ForwarderAgentTest.lost108IsReissued|RESYNC_T9|a lost 108 is never re-issued|CHECK( again.correlationId != first.correlationId )
+ForwarderAgentTest.lost108IsReissued|RESYNC_T9_RESTART|a 108 delayed by back-pressure is re-issued|CHECK( r.last65().correlationId == slow.correlationId )
+ForwarderAgentTest.headProbeAtRegistrationAndEveryTenSecondsInLive|RESYNC_HEAD_PROBE|no periodic head probe in LIVE|REQUIRE( r.coreOffers(65).size() == before + 1 )
+ForwarderAgentTest.headBehindCursorResyncs|RESYNC_T7|head above the cursor ignored|CHECK( r.agent.resync().counters().headProbeBehind == 1 )
+ForwarderAgentTest.coreNewLeaderReRegistersAndResyncsFromZero|RESYNC_ZERO_CLEARS_RING|the old term's ring survives the re-registration|CHECK( r.agent.ring().depth() == 0 )
+ForwarderAgentTest.exitSeams|EPOCH_MISMATCH_FATAL|an ME epoch change after the bind is accepted (F8)|CHECK( r.agent.stopReason().exitCode == 78 )
+ForwarderAgentTest.exitSeams|EPOCH_ZERO_FATAL|an ME epoch 0 after the bind is accepted (NOTE-6)|CHECK( r.agent.stopReason().exitCode == 78 )
+ForwarderAgentTest.meEpochWaitReconnects|EPOCH_WAIT|an ME session that never shows its epoch is kept forever (F-ME-1)|CHECK( r.agent.counters().meEpochReconnects == 1 )
+ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds|AGENT_ME_SESSION_BEFORE_POLL|the ME session starts after the poll: the same-batch hello is discarded (review FIX-1)|CHECK( r.agent.meLink() == MeLink::BOUND )

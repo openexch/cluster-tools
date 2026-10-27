@@ -59,7 +59,24 @@ target_link_libraries(ct_adapter_sbe
     PRIVATE ct_sbe_codecs)
 target_compile_options(ct_adapter_sbe PRIVATE -Wall -Wextra)
 
+# RC2 S12 W5: the forwarder's wire (money 104/105/108/109/101 decode, 65 encode; order 9/10 encode, 21 decode).
+# The domain value types come from domain/forwarder (headers only): consumers link the domain flavour they
+# want (production or seamed), so the codec never pulls a second copy in.
+add_library(ct_forwarder_codec STATIC src/ForwarderCodec.cpp)
+add_library(cluster_tools::forwarder_codec ALIAS ct_forwarder_codec)
+add_dependencies(ct_forwarder_codec ct_sbe_generate)
+target_include_directories(ct_forwarder_codec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${PROJECT_SOURCE_DIR}/domain/forwarder/include")
+target_link_libraries(ct_forwarder_codec PRIVATE ct_sbe_codecs)
+target_compile_options(ct_forwarder_codec PRIVATE -Wall -Wextra)
+
 if(BUILD_TESTING)
+    add_executable(ct_forwarder_codec_tests tests/ForwarderCodecTest.cpp)
+    target_link_libraries(ct_forwarder_codec_tests PRIVATE ct_forwarder_codec ct_forwarder_domain ct_sbe_codecs)
+    target_include_directories(ct_forwarder_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_options(ct_forwarder_codec_tests PRIVATE -Wall -Wextra)
+    add_test(NAME forwarder.codec COMMAND ct_forwarder_codec_tests)
+
     # Codec layout pins: the generated money/match codecs must have the block lengths and
     # template ids the Java engines encode (golden bytes in the test).
     add_executable(ct_codec_tests tests/CodecLayoutTest.cpp)

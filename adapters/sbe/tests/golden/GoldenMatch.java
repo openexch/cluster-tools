@@ -98,7 +98,98 @@ public final class GoldenMatch {
         print("JAVA_ENGINE_CONFIG_V12", buf, header.encodedLength() + config.encodedLength());
     }
 
+    // ---- RC2 S12 (contract 11.2): what the forwarder must put on the ME wire ----
+
+    /** The 14 DurableOrderCommand fields: high, low, user, oms, old, price, qty, budget, market, kind, type, side, tif, eor. */
+    private static int command(final UnsafeBuffer buf, final long[] c) {
+        final com.match.infrastructure.generated.MessageHeaderEncoder header =
+                new com.match.infrastructure.generated.MessageHeaderEncoder();
+        final var e = new com.match.infrastructure.generated.DurableOrderCommandEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .commandIdHigh(c[0]).commandIdLow(c[1]).userId(c[2]).omsOrderId(c[3]).oldOrderId(c[4])
+                .price(c[5]).quantity(c[6]).budget(c[7]).marketId((int) c[8])
+                .commandKind((short) c[9]).orderType((short) c[10]).orderSide((short) c[11])
+                .timeInForce((short) c[12]).expectedOldRemaining(c[13]);
+        return header.encodedLength() + e.encodedLength();
+    }
+
+    private static int release(final UnsafeBuffer buf, final long releaseSeq, final long[][] entries) {
+        final com.match.infrastructure.generated.MessageHeaderEncoder header =
+                new com.match.infrastructure.generated.MessageHeaderEncoder();
+        final var e = new com.match.infrastructure.generated.ReleaseCommandIdsEncoder()
+                .wrapAndApplyHeader(buf, 0, header).releaseSeq(releaseSeq);
+        final var g = e.releasesCount(entries.length);
+        for (final long[] r : entries) {
+            g.next().commandIdHigh(r[0]).idLowFloor(r[1])
+                    .scope(com.match.infrastructure.generated.ReleaseScope.get((short) r[2]));
+        }
+        return header.encodedLength() + e.encodedLength();
+    }
+
+    /**
+     * The S12 INVALID carrier (contract 5.5), written here independently of the C++ code: a pure function of
+     * the dispatch's 14 command fields (kind raw). Returned in the command() field order.
+     */
+    private static long[] carrier(final long high, final long low, final long user, final long oms, final long old,
+                                  final long price, final long qty, final long budget, final long market, final long kind,
+                                  final long side, final long eor) {
+        final long k = kind >= 0 && kind <= 2 ? kind : ((low & 3) <= 2 ? (low & 3) : 0);
+        return new long[] {
+            high, low,
+            user >= 1 ? user : 1,
+            oms >= 1 ? oms : (high >= 1 ? high : 1),
+            k == 0 ? 0 : (old >= 1 ? old : 1),
+            price, qty, budget,
+            market >= 1 ? market : 1,
+            k, 2, side >= 0 && side <= 1 ? side : 0, 1,
+            k == 2 ? (eor >= 0 ? eor : 0) : 0,
+        };
+    }
+
+    private static void forwarder() {
+        final UnsafeBuffer buf = new UnsafeBuffer(new byte[2048]);
+        // The 5.2 one-to-one mapping of GoldenMoney.E2E entries 1-3 (dispatchSeq and releaseScope dropped).
+        final long[] create = { 1001, (3 << 2) | 0, 3001, 1001, 0, 700_000_001L, 800_000_001L, 900_000_001L, 7, 0, 0, 1, 1, 0 };
+        final long[] cancel = { 1002, (5 << 2) | 1, 3002, 1002, 5002, 700_000_002L, 800_000_002L, 0, 8, 1, 2, 0, 0, 0 };
+        final long[] amend = { 1003, (7 << 2) | 2, 3003, 1003, 5003, 700_000_003L, 800_000_003L, 0, 9, 2, 0, 1, 0, 1_100_000_003L };
+        print("JAVA_DURABLE_ORDER_COMMAND_V12_CREATE", buf, command(buf, create));
+        print("JAVA_DURABLE_ORDER_COMMAND_V12_CANCEL", buf, command(buf, cancel));
+        print("JAVA_DURABLE_ORDER_COMMAND_V12_AMEND", buf, command(buf, amend));
+
+        // The carrier of the E2E CREATE with userId 0 (class C, rule R2), proven INVALID by match's own rules.
+        final long[] c = carrier(1001, (3 << 2) | 0, 0, 1001, 0, 700_000_001L, 800_000_001L, 900_000_001L, 7, 0, 1, 0);
+        if (!com.match.domain.commands.DurableOrderIntent.isValid(c[0], c[1], c[2], c[3], c[4], (int) c[8], (int) c[9],
+                (int) c[10], (int) c[11], (int) c[12], c[13])) {
+            throw new IllegalStateException("carrier is not reader-valid");
+        }
+        final int cause = com.match.domain.commands.DurableOrderIntent.behaviourTwoCause(c[0], c[1], c[3], (int) c[9],
+                (int) c[10], (int) c[12], c[13]);
+        if (cause != com.match.domain.commands.DurableOrderIntent.B2_INVALID_TIF) {
+            throw new IllegalStateException("carrier behaviourTwoCause " + cause + ", want 4");
+        }
+        print("JAVA_DURABLE_ORDER_COMMAND_V12_CARRIER", buf, command(buf, c));
+
+        print("JAVA_RELEASE_COMMAND_IDS_V12_1", buf, release(buf, 504, new long[][] { { 1004, (9 << 2) | 1, 0 } }));
+        print("JAVA_RELEASE_COMMAND_IDS_V12_E2E", buf,
+                release(buf, 504, new long[][] { { 1004, (9 << 2) | 1, 0 }, { 1005, (11 << 2) | 3, 1 } }));
+        final long[][] many = new long[48][];
+        for (int i = 0; i < 48; i++) {
+            many[i] = new long[] { 5000 + i, ((long) i << 2) | (i % 3), i % 2 };
+        }
+        print("JAVA_RELEASE_COMMAND_IDS_V12_48", buf, release(buf, 9000, many));
+
+        final com.match.infrastructure.generated.MessageHeaderEncoder header =
+                new com.match.infrastructure.generated.MessageHeaderEncoder();
+        final var heartbeat = new com.match.infrastructure.generated.ClusterHeartbeatEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .nodeId((short) 1)
+                .timestamp(1_700_000_000_999L)
+                .meEpoch(0x0A1B2C3D4E5F6071L);
+        print("JAVA_CLUSTER_HEARTBEAT_V12", buf, header.encodedLength() + heartbeat.encodedLength());
+    }
+
     public static void main(final String[] args) {
         match();
+        forwarder();
     }
 }

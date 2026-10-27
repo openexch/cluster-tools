@@ -202,6 +202,21 @@ set(AERON_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
 set(AERON_BUILD_DOCUMENTATION OFF CACHE BOOL "" FORCE)
 set(AERON_INSTALL_TARGETS OFF CACHE BOOL "" FORCE)
 set(AERON_HIDE_DEPRECATION_MESSAGE ON CACHE BOOL "" FORCE)
+# RC2 S12 review Q5 / NOTE-9: never link libbsd / libmd. Aeron's C build probes bsd/stdlib.h and libbsd and links them
+# when the build host happens to have libbsd-dev, which makes the shipped binaries depend on what the runner had
+# installed (and the bare-box allowlist of publish.yml refuses them). glibc >= 2.36 has arc4random in stdlib.h, so with
+# the probes pre-answered Aeron takes it from libc. Normal variables shadow the probes' cache entries (CMP0125 NEW in
+# Aeron's tree).
+option(CT_AERON_USE_LIBBSD "Let the Aeron C build link libbsd when the host has it (never for published artifacts)" OFF)
+if(NOT CT_AERON_USE_LIBBSD)
+    set(BSDSTDLIB_H_EXISTS 0)
+    set(LIBBSD_EXISTS FALSE)
+    # the symbol probes that ran against bsd/stdlib.h are re-run against plain stdlib.h (a build dir configured
+    # before this rule cached reallocf as present)
+    unset(ARC4RANDOM_PROTOTYPE_EXISTS CACHE)
+    unset(POSIX_MEMALIGN_PROTOTYPE_EXISTS CACHE)
+    unset(REALLOCF_PROTOTYPE_EXISTS CACHE)
+endif()
 add_subdirectory("${AERON_SRC}" aeron EXCLUDE_FROM_ALL)
 if(CT_BUILD_MEDIA_DRIVER)
     # aeronmd is EXCLUDE_FROM_ALL inside the aeron tree; pull it into the default build.

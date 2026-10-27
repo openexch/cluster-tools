@@ -25,6 +25,10 @@ repo is where those tools live.
   `SourceSet` with one source attached at a time. `archive/it` runs it against a real Java
   Aeron Archive.
 - **[`app/journal-tail/`](app/journal-tail/)**: `ct-journal-tail`, see below.
+- **[`domain/forwarder/`](domain/forwarder/) + [`app/forwarder/`](app/forwarder/)**: `ct-forwarder`, the production
+  forwarder (RC2 S12), see below. The pure core (classification and the INVALID carrier, the send ring, the resync
+  machine with its 10,000-seed property test, the epoch binder, the admission watcher) builds in every configuration;
+  the codec is in `adapters/sbe`, the agent and the binary need `WITH_AERON`.
 - **[`poc/`](poc/)** — a minimal (~470 LOC) C++ cluster client, proven against a
   3-node dockerized match cluster: session connect (with follower REDIRECT handling),
   an order submitted through ingress, and the OrderStatus ack decoded off egress.
@@ -110,6 +114,33 @@ cmake -S . -B build-bridge -DWITH_AERON=ON -DWITH_BRIDGE=ON $(cat deps.args sche
 cmake --build build-bridge -j
 archive/it/run-it.sh build-bridge ~/.cache/ct-deps/aeron-all-1.53.1.jar
 ```
+
+### ct-forwarder
+
+A stateless C++20 process (RC2 S12): one resumable FORWARDER session on the core, one FORWARDER session on the ME.
+Every pending core `MeDispatch` becomes the ME's `DurableOrderCommand` 9 or `ReleaseCommandIds` 10, byte for byte
+the minted values (a dispatch the ME would drop unjournaled travels as the INVALID carrier, so only the ME ends an
+order); it resyncs from the core (`RequestPendingDispatch`, a head probe every 10 s) after anything that may have lost a
+frame: registration, either cluster's new leader, a live gap, a GLOBAL admission change, a shape violation, an
+overflow, an operator `SIGHUP` / `POST /resync`. Nothing is written to disk; a restart is a cold start.
+
+```bash
+env FWD_CORE_INGRESS=0=10.0.0.1:9002,1=10.0.0.2:9002,2=10.0.0.3:9002 \
+    FWD_CORE_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' AE_AUTH_CREDENTIAL=6:FORWARDER:<64 hex> \
+    FWD_ME_INGRESS=0=10.0.1.1:9002,1=10.0.1.2:9002,2=10.0.1.3:9002 \
+    FWD_ME_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' ME_AUTH_CREDENTIAL=6:FORWARDER:<64 hex> \
+    FWD_INGRESS_CHANNEL='aeron:udp?term-length=4m|mtu=8192' AERON_DIR=/dev/shm/aeron FWD_HTTP_BIND=127.0.0.1:9600 \
+    ct-forwarder
+```
+
+Every variable is required (a missing one, a non-FORWARDER credential or two equal fixed-port response channels exit
+78). GET `/health` (200 UP / 503 STALLED), `/ready` (200, or 503 naming the failing conjuncts), `/metrics`
+(Prometheus; alert rules in `app/forwarder/alerts.yml`), POST `/resync`. Exit codes: 0 stopped by SIGTERM/SIGINT;
+70 process health (a fatal Aeron error, an escaped exception or broken invariant, the 5 s duty watchdog, the 2 s join
+bound); 75 an inferred refusal (restart allowed); 78 configuration or an observed refusal: the unit sets
+`RestartPreventExitStatus=78`, `RestartSec >= 2s` and a start limit. The T1 integration run is
+`app/forwarder/it/run-forwarder-it.sh <build> <assets-cluster.jar> <match-cluster.jar>` (3 AE + 3 ME + 2 forwarders,
+the negative-control binaries need `-DCT_FORWARDER_TEST_BUILDS=ON`; they are never published).
 
 ### ct-journal-tail
 

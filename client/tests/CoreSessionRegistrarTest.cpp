@@ -435,3 +435,35 @@ TEST_CASE("F3: an accepted registration resets the unanswered count; a client cl
     CHECK(registrar.consecutiveUnansweredSessions() == 0);
     CHECK_FALSE(registrar.isRejected());
 }
+
+TEST_CASE("RC2 S12: requestReRegistration starts a new round in the same session and term; REJECTED stays terminal")
+{
+    FakeTransport fake;
+    Client client(fake, settings());
+    CoreSessionRegistrar<Client> registrar(client, forwarder());
+    connect(fake, client);
+    registrar.doWork();
+    const std::int64_t first = registrar.correlationId();
+    fake.pushAppMessage(77, adminAck(first, money::AdminResult::ACCEPTED), 900);
+    pollInto(client, registrar);
+    REQUIRE(registrar.isRegistered());
+    // the core said UNREGISTERED_SESSION naming one of our commands (S12 4.1 C3 -> C2)
+    registrar.requestReRegistration();
+    CHECK_FALSE(registrar.isRegistered());
+    CHECK(registrar.correlationId() != first);
+    registrar.doWork();
+    const auto frames = registerFrames(fake);
+    REQUIRE(frames.size() == 2);
+    CHECK(correlationOf(frames[1]) == registrar.correlationId());
+    fake.pushAppMessage(77, adminAck(first, money::AdminResult::ACCEPTED), 900); // the old round's ack: not ours
+    pollInto(client, registrar);
+    CHECK_FALSE(registrar.isRegistered());
+    fake.pushAppMessage(77, adminAck(registrar.correlationId(), money::AdminResult::DUPLICATE), 900);
+    pollInto(client, registrar);
+    CHECK(registrar.isRegistered());
+    fake.pushAppMessage(77, adminAck(registrar.correlationId(), money::AdminResult::REJECTED), 900);
+    pollInto(client, registrar);
+    REQUIRE(registrar.isRejected());
+    registrar.requestReRegistration();
+    CHECK(registrar.isRejected());
+}

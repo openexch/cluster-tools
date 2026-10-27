@@ -541,6 +541,30 @@ TEST_CASE("egress: only this session's app messages reach the handler, payload a
     CHECK(client.counters().foreignSessionFragments == 1);
 }
 
+TEST_CASE("egress: every app message carries the leadership term its SessionMessageHeader was stamped with (RC2 S12 W6)")
+{
+    FakeTransport fake;
+    Recorder recorder;
+    Client client(fake, settings(), &recorder);
+    connectOk(fake, client);
+    fake.pushAppMessage(77, { 1 }, 900, 5);
+    fake.pushNewLeader(77, 6, 1, DETAIL_ENDPOINTS, 901);
+    fake.pushAppMessage(77, { 2 }, 900, 5); // a deposed leader's frame after the event (FIX-1)
+    fake.pushAppMessage(77, { 3 }, 901, 6);
+    std::vector<std::pair<std::uint8_t, std::int64_t>> seen;
+    std::vector<std::int64_t> clientTermAtDelivery;
+    client.poll([&](const EgressMessage &m) {
+        seen.emplace_back(m.payload[0], m.leadershipTermId);
+        clientTermAtDelivery.push_back(client.leadershipTermId());
+    }, 10);
+    REQUIRE(seen.size() == 3);
+    CHECK(seen[0] == std::make_pair<std::uint8_t, std::int64_t>(1, 5));
+    CHECK(seen[1] == std::make_pair<std::uint8_t, std::int64_t>(2, 5));
+    CHECK(seen[2] == std::make_pair<std::uint8_t, std::int64_t>(3, 6));
+    // what the owner compares against: the client's term moved to 6 at the event
+    CHECK(clientTermAtDelivery == std::vector<std::int64_t>{ 5, 6, 6 });
+}
+
 TEST_CASE("close: polite SessionCloseRequest, CLOSED/CLIENT_CLOSE, and connect() opens a new session")
 {
     FakeTransport fake;

@@ -1,0 +1,114 @@
+# TYPE forwarder_info gauge
+forwarder_info{identity="1311768467294899695",version="s12-test",me_epoch="728224406569967729"} 1
+# TYPE forwarder_ready gauge
+forwarder_ready 0
+# TYPE forwarder_session_state gauge
+forwarder_session_state{cluster="core"} 2
+forwarder_session_state{cluster="me"} 2
+# TYPE forwarder_session_new_leader_total counter
+forwarder_session_new_leader_total{cluster="core"} 3
+forwarder_session_new_leader_total{cluster="me"} 1
+# TYPE forwarder_session_reconnect_total counter
+forwarder_session_reconnect_total{cluster="core"} 3
+forwarder_session_reconnect_total{cluster="me"} 1
+# TYPE forwarder_connect_cluster_error_total counter
+forwarder_connect_cluster_error_total{cluster="core"} 1
+forwarder_connect_cluster_error_total{cluster="me"} 0
+# TYPE forwarder_keepalive_total counter
+forwarder_keepalive_total{cluster="core"} 1200
+forwarder_keepalive_total{cluster="me"} 1199
+# TYPE forwarder_keepalive_failures_total counter
+forwarder_keepalive_failures_total{cluster="core"} 2
+forwarder_keepalive_failures_total{cluster="me"} 0
+# TYPE forwarder_registered gauge
+forwarder_registered 1
+# TYPE forwarder_registration_total counter
+forwarder_registration_total{result="accepted"} 3
+forwarder_registration_total{result="duplicate"} 1
+forwarder_registration_total{result="rejected"} 0
+# TYPE forwarder_me_epoch_reconnects_total counter
+forwarder_me_epoch_reconnects_total 2
+# TYPE forwarder_me_egress_age_ms gauge
+forwarder_me_egress_age_ms 120
+# TYPE forwarder_mode gauge
+forwarder_mode 1
+# TYPE forwarder_dispatch_seq gauge
+forwarder_dispatch_seq{point="cursor"} 9000
+forwarder_dispatch_seq{point="last_sent"} 8990
+forwarder_dispatch_seq{point="core_head"} 9100
+# TYPE forwarder_dispatch_received_total counter
+forwarder_dispatch_received_total 12000
+# TYPE forwarder_dispatch_duplicate_total counter
+forwarder_dispatch_duplicate_total 30
+# TYPE forwarder_dispatch_dropped_idle_total counter
+forwarder_dispatch_dropped_idle_total 4
+# TYPE forwarder_dispatch_discarded_total counter
+forwarder_dispatch_discarded_total 0
+# TYPE forwarder_core_stale_term_total counter
+forwarder_core_stale_term_total 6
+# TYPE forwarder_core_future_term_total counter
+forwarder_core_future_term_total 0
+# TYPE forwarder_dispatch_sent_total counter
+forwarder_dispatch_sent_total{template="9"} 11000
+forwarder_dispatch_sent_total{template="10"} 90
+# TYPE forwarder_release_entries_sent_total counter
+forwarder_release_entries_sent_total 1900
+# TYPE forwarder_invalid_dispatch_total counter
+forwarder_invalid_dispatch_total{kind="0",rule="R2",action="carrier"} 2
+forwarder_invalid_dispatch_total{kind="2",rule="B5",action="sent"} 1
+forwarder_invalid_dispatch_total{kind="3",rule="X2",action="isolated"} 1
+forwarder_invalid_dispatch_total{kind="other",rule="V12",action="unroutable"} 1
+# TYPE forwarder_resync_total counter
+forwarder_resync_total{reason="T1"} 3
+forwarder_resync_total{reason="T2"} 1
+forwarder_resync_total{reason="T3"} 2
+forwarder_resync_total{reason="T4"} 0
+forwarder_resync_total{reason="T5"} 0
+forwarder_resync_total{reason="T6"} 0
+forwarder_resync_total{reason="T7"} 0
+forwarder_resync_total{reason="T8"} 0
+forwarder_resync_total{reason="T9"} 1
+# TYPE forwarder_resync_pages_total counter
+forwarder_resync_pages_total 7
+# TYPE forwarder_resync_entries_total counter
+forwarder_resync_entries_total 9100
+# TYPE forwarder_resync_timeouts_total counter
+forwarder_resync_timeouts_total 1
+# TYPE forwarder_resync_shape_violation_total counter
+forwarder_resync_shape_violation_total{check="S1"} 0
+forwarder_resync_shape_violation_total{check="S2"} 1
+forwarder_resync_shape_violation_total{check="S3"} 0
+# TYPE forwarder_resync_duration_ms gauge
+forwarder_resync_duration_ms 15
+# TYPE forwarder_head_probe_total counter
+forwarder_head_probe_total{result="covered"} 20
+forwarder_head_probe_total{result="behind"} 1
+# TYPE forwarder_head_probe_age_ms gauge
+forwarder_head_probe_age_ms 3000
+# TYPE forwarder_ring_depth gauge
+forwarder_ring_depth 10
+# TYPE forwarder_ring_head_age_ms gauge
+forwarder_ring_head_age_ms 0
+# TYPE forwarder_ring_overflow_total counter
+forwarder_ring_overflow_total 0
+# TYPE forwarder_hold_overflow_total counter
+forwarder_hold_overflow_total 0
+# TYPE forwarder_ring_cleared_entries_total counter
+forwarder_ring_cleared_entries_total 0
+# TYPE forwarder_me_backpressure_total counter
+forwarder_me_backpressure_total 4
+# TYPE forwarder_me_poll_saturated_total counter
+forwarder_me_poll_saturated_total 0
+# TYPE forwarder_unknown_template_total counter
+forwarder_unknown_template_total{cluster="core",template="113"} 5
+forwarder_unknown_template_total{cluster="me",template="22"} 300
+# TYPE forwarder_core_malformed_total counter
+forwarder_core_malformed_total 0
+# TYPE forwarder_dispatch_seq_below_one_total counter
+forwarder_dispatch_seq_below_one_total 0
+# TYPE forwarder_aeron_errors_total counter
+forwarder_aeron_errors_total 0
+# TYPE forwarder_duty_max_cycle_us gauge
+forwarder_duty_max_cycle_us 85
+# TYPE forwarder_log_dropped_total counter
+forwarder_log_dropped_total 0

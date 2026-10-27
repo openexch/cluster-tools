@@ -1,0 +1,61 @@
+# Prometheus alert rules for ct-forwarder (RC2 S12 contract section 10). Scrape: GET /metrics on FWD_HTTP_BIND.
+# The pending-oldest signal lives at the core, where the pending set is (assets grafana/alerts.yml DispatchStuck,
+# S8 / S12 13.1 A-3): a forwarder cannot see a dispatch it never received.
+groups:
+  - name: forwarder
+    rules:
+      - alert: ForwarderInvalidDispatch
+        # a correct core yields no anomalous dispatch: every one is a core defect (5.4, F13)
+        expr: increase(forwarder_invalid_dispatch_total[5m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "forwarder relayed an anomalous dispatch (rule {{ $labels.rule }}, action {{ $labels.action }})"
+      - alert: ForwarderRingOverflow
+        expr: increase(forwarder_ring_overflow_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "send ring overflowed: the ME is not draining (D3, then RESYNC(cursor))"
+      - alert: ForwarderNotReady
+        expr: forwarder_ready == 0
+        for: 10s
+        labels: { severity: page }
+        annotations:
+          summary: "forwarder not ready (GET /ready names the failing conjuncts)"
+      - alert: ForwarderBehindCoreHead
+        # review NOTE-4: gated on pending work. last_sent vs core_head stood high on an idle market, after a restart and
+        # at N = 2 (a dispatch resolved without this forwarder sending it); a non-empty ring whose head has waited 5 s
+        # is work that is not moving, whatever the other forwarder did.
+        expr: forwarder_ring_depth > 0 and forwarder_ring_head_age_ms > 5000
+        for: 5s
+        labels: { severity: warning }
+        annotations:
+          summary: "dispatches wait in the send ring and the ME accepts none of them"
+      - alert: ForwarderResyncTimeouts
+        expr: increase(forwarder_resync_timeouts_total[1m]) > 2
+        labels: { severity: warning }
+        annotations:
+          summary: "RequestPendingDispatch unanswered more than twice in a minute (T9)"
+      - alert: ForwarderResyncShapeViolation
+        # the reply-block rule of 6.1 rests on core properties (D-S12-5): a violation is a core defect
+        expr: increase(forwarder_resync_shape_violation_total[5m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "resync reply shape check {{ $labels.check }} failed (RESYNC(0) ran)"
+      - alert: ForwarderConnectClusterError
+        # the session limit of 50 or a transient refusal: retried with backoff, but someone must look (FIX-7)
+        expr: increase(forwarder_connect_cluster_error_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.cluster }} refused a forwarder session (CLUSTER_ERROR)"
+      - alert: ForwarderStaleTermFrames
+        # a deposed leader still draining its egress image to this forwarder
+        expr: rate(forwarder_core_stale_term_total[1m]) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "core frames of an ended leadership term keep arriving"
+      - alert: ForwarderMeEgressStale
+        expr: forwarder_me_egress_age_ms > 5000
+        labels: { severity: warning }
+        annotations:
+          summary: "no ME egress frame for more than 5 s"

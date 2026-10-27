@@ -17,11 +17,15 @@
 #include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
 #include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
 #include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
+#include "com_openexchange_assets_infrastructure_generated/MeDispatch.h"
+#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
+#include "com_openexchange_assets_infrastructure_generated/RequestPendingDispatch.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/DurableOrderCommand.h"
 #include "com_match_infrastructure_generated/EngineConfig.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
 #include "com_match_infrastructure_generated/OrderStatusBatch.h"
+#include "com_match_infrastructure_generated/ReleaseCommandIds.h"
 #include "com_match_infrastructure_mejournal_generated/MessageHeader.h"
 #include "com_match_infrastructure_mejournal_generated/Trade.h"
 
@@ -63,6 +67,25 @@ TEST_CASE("v7/v12 block lengths: the layouts the engines encode")
     CHECK(me::ClusterHeartbeat::sbeBlockLength() == 17);     // v11 was 9: meEpoch appended
     CHECK(me::EngineConfig::sbeBlockLength() == 35);         // v11 was 17: four v12 root fields
     CHECK(me::DurableOrderCommand::sbeBlockLength() == 80);  // v11 was 71: timeInForce + expectedOldRemaining
+}
+
+TEST_CASE("RC2 S12 floors: the templates the forwarder reads and writes exist at their v7/v12 layouts")
+{
+    // dependencies.lock requires money 65/101 and match 10 (W1); the forwarder's fixed frame sizes (contract 5.1)
+    // follow from these block lengths.
+    CHECK(money::RequestPendingDispatch::sbeTemplateId() == 65);
+    CHECK(money::RequestPendingDispatch::sbeBlockLength() == 20);
+    CHECK(money::OrderReject::sbeTemplateId() == 101);
+    CHECK(money::MeDispatch::sbeTemplateId() == 104);
+    CHECK(money::MeDispatch::sbeBlockLength() == 89);
+    CHECK(money::MeDispatch::releaseScopeSinceVersion() == 7);
+    CHECK(money::MeDispatch::expectedOldRemainingSinceVersion() == 7);
+    CHECK(money::PendingDispatchEnd::sbeBlockLength() == 20);
+    CHECK(me::ReleaseCommandIds::sbeTemplateId() == 10);
+    CHECK(me::ReleaseCommandIds::sbeBlockLength() == 8);
+    CHECK(me::ReleaseCommandIds::Releases::sbeBlockLength() == 17);
+    CHECK(me::DurableOrderCommand::timeInForceSinceVersion() == 12);
+    CHECK(me::DurableOrderCommand::expectedOldRemainingSinceVersion() == 12);
 }
 
 TEST_CASE("RegisterSession: Java golden decodes, C++ re-encodes byte-equal")

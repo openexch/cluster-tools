@@ -260,6 +260,20 @@ public:
         }
     }
 
+    // RC2 S12 (contract 4.1 C3 -> C2): the core says this session is not registered on this leader (an
+    // OrderReject UNREGISTERED_SESSION or UNAUTHORIZED_CLASS naming one of the owner's commands, e.g. between a
+    // D8b revoke and its close). Starts a new round (new correlation id) in the same session and term; the next
+    // doWork() sends it. REJECTED stays terminal.
+    void requestReRegistration()
+    {
+        if (RegistrationState::REJECTED == m_state)
+        {
+            return;
+        }
+        m_state = RegistrationState::UNREGISTERED;
+        m_correlationId = m_settings.correlationIdBase + static_cast<std::int64_t>(++m_counters.rounds);
+    }
+
     RegistrationState state() const { return m_state; }
     // Registered in the client's CURRENT, CONNECTED session and term (what readiness must
     // check): a closed session keeps its epoch and term until the next connect, so the state

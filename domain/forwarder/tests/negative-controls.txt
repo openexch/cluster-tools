@@ -1,0 +1,75 @@
+# The RED column of RC2 S12 contract 11.1 (light method: nothing is committed, so each rule's RED is a
+# negative control re-proved on every run). Each line: test case | rule | why | expected text. The runner
+# (archive/tests/run-negative-controls.sh) runs the test with CT_TEST_DISABLE_<rule>=1 (a seam that exists
+# only in ct_forwarder_domain_seamed) and requires an ASSERTION failure carrying the expected text, then runs
+# it once more without the variable and requires it to pass.
+#
+# 5.4 classification: one line per rule
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_V12|kind > 3 classified as a valid kind|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_R1|both ids 0 classified, carrier built for an id no core order has|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_R2|userId/omsOrderId/marketId/type/side violations pass|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_R3|old leg violations pass|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_R4|tif above 2 passes (the ME decode-drops it)|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_R5|expectedOldRemaining violations pass|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_B1|sign violations reported later or as P|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_B2|kind-bit violations pass|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_B3|owner violations pass|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_B4|tif allow-list violations pass|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_B5|amend reference 0 passes|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_B6|MARKET amend passes|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_V1|seq below 1 passes|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_X1|bad release id grouped with its neighbours|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_X2|scope 2 grouped with its neighbours|CHECK( got == r.want )
+DispatchRulesTest.failingRowPerRuleAndKind|RULE_A1|release payload anomalies pass unflagged|CHECK( got == r.want )
+DispatchRulesTest.evaluationOrderReportsTheFirstFailingRule|RULE_ORDER_B_BEFORE_R|B3 reported before R2 (FIX-10 order)|CHECK( classify(d) == Classification{ DispatchClass::CARRIER, RuleId::R2 } )
+# 5.5 carrier
+CarrierTest.everyCarrierIsReaderValidAndJournaledInvalid|CARRIER|class C sent verbatim: the ME decode-drops it, the order stays pending|CHECK( me_port::react(carrier) == me_port::MeReaction::INVALID )
+CarrierTest.everyCarrierIsReaderValidAndJournaledInvalid|CARRIER_TIF|the carrier keeps the tif: some carriers are judged instead of INVALID|CHECK( me_port::react(carrier) == me_port::MeReaction::INVALID )
+# 5.3 / 7 drain plan
+SendRingTest.releaseRunOf64IsCutAt48|RING_GROUP_CAP_48|a 64 run in one frame (the ME refuses more than 48)|CHECK( p.count == 48 )
+SendRingTest.releaseRunOf64IsCutAt48|RING_GROUP_RELEASES|every release alone|CHECK( p.count == 48 )
+SendRingTest.template9SlotSplitsARunAndRxIsAlone|RING_RX_ISOLATION|an RX entry joins its neighbours (one bad entry drops the frame)|CHECK( got.count == want.count )
+MappingTest.releaseEntryPer5_3|RING_RX_ISOLATION|the RX slot is not isolated|CHECK( rxSlot.form == SlotForm::RELEASE_ISOLATED )
+# 4.3 / section 6 resync machine
+ResyncMachineTest.replyBlockIsTheLastCountEntries|RESYNC_REPLY_LAST|block taken from the front of hold|CHECK( h.ringSeqs() == Seqs{ 2, 4, 6, 9 } )
+ResyncMachineTest.replyBlockIsTheLastCountEntries|RESYNC_FINAL_DROP|remaining held entries pushed (pre FIX-4)|CHECK( h.m.counters().heldResolved == 3 )
+ResyncMachineTest.shapeS1CountBounds|RESYNC_SHAPE_S1|count above hold or page accepted|CHECK( h.m.counters().shapeViolations[0] == 1 )
+ResyncMachineTest.shapeS1CountBounds|RESYNC_PROBE_COUNT|a probe answered with entries accepted (pre-S8 core undetected, F15)|CHECK( h.m.verdict() == ResyncVerdict::PRE_S8_CORE )
+ResyncMachineTest.shapeS2BlockOrderAndBounds|RESYNC_SHAPE_S2|a non-ascending or out-of-range block accepted|CHECK( h.m.counters().shapeViolations[1] == 1 )
+ResyncMachineTest.shapeS3HeldEntryAboveHeadAtTheFinalPage|RESYNC_SHAPE_S3|a held entry above head dropped silently|CHECK( h.m.counters().shapeViolations[2] == 1 )
+ResyncMachineTest.t9ReissuesWithANewIdAndItsTimerRestartsOnEveryCoreFrame|RESYNC_T9|a lost 108 is never re-issued|REQUIRE( nullptr != h.m.requestDue() )
+ResyncMachineTest.t9ReissuesWithANewIdAndItsTimerRestartsOnEveryCoreFrame|RESYNC_T9_RESTART|a reply delayed by back-pressure is re-issued|CHECK( nullptr == h.m.requestDue() )
+ResyncMachineTest.enteringD0ClearsHoldAndAbandonsTheRequest|RESYNC_D0_CLEARS_HOLD|a partial reply of the old term stays held|CHECK( h.m.holdSize() == 0 )
+ResyncMachineTest.resyncZeroInD1RestartsAndClearsRingAndHold|RESYNC_ZERO_CLEARS_RING|RESYNC(0) keeps the ring|CHECK( h.ring.empty() )
+ResyncMachineTest.liveGapIsHeldAndResyncCursorRuns|RESYNC_T5_GAP|a live gap is pushed, the missing entries never asked for|CHECK( h.m.mode() == Mode::RESYNCING )
+ResyncMachineTest.liveGapIsHeldAndResyncCursorRuns|RESYNC_GAP_HELD|the gap entry is dropped (NOTE-11)|CHECK( h.m.holdSize() == 1 )
+ResyncMachineTest.duplicatesDroppedInLive|RESYNC_DUPLICATE_DROP|an entry at or below the cursor is pushed again (the F2 guard refuses it)|CHECK( h.m.verdict() == ResyncVerdict::NONE )
+ResyncMachineTest.headProbeEveryTenSecondsInLiveOnlyWithMaxEntriesZero|RESYNC_HEAD_PROBE|no periodic head probe|REQUIRE( nullptr != h.m.requestDue() )
+ResyncMachineTest.headAboveCursorIsT7|RESYNC_T7|head above the cursor ignored|CHECK( h.m.counters().headProbeBehind == 1 )
+ResyncMachineTest.ringFullMidPageEntersD3WithTheCursorAtTheLastPushThenResyncCursorAt32768|RESYNC_D3_RESUME|D3 never resumes|CHECK( h.m.mode() == Mode::RESYNCING )
+ResyncMachineTest.resyncZeroInD3ClearsAndStartsAtOnce|RESYNC_D3_ZERO_AT_ONCE|RESYNC(0) in D3 waits for the drain (FIX-5)|CHECK( h.m.mode() == Mode::RESYNCING )
+ResyncMachineTest.pageContinuationFromTheLastReplySeq|RESYNC_CURSOR_MAX_HEAD|the final page leaves the cursor at the last reply seq|CHECK( h.m.cursor() == 100'000 )
+ResyncMachineTest.seqBelowOneIsRefusedInEveryMode|RESYNC_SEQ_BELOW_ONE|a dispatchSeq below 1 reaches the mode logic (review NOTE-2)|CHECK( h.m.counters().seqBelowOne == 2 )
+ResyncMachineTest.registrationProbesFirstThenPagesFromZero|AGENT_PROBE_AT_C3|RESYNC(0) at C3 without the head probe (F15 unchecked)|CHECK( probe.kind == RequestKind::PROBE )
+# the property test (10,000 seeds in the green run; the runner uses CT_FORWARDER_PROPERTY_SEEDS=2000)
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_REPLY_LAST|a live entry before the reply is taken for a reply entry|P1: pending seq
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_T5_GAP|a gap is pushed over, the missing entry never re-asked|P1: pending seq
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_T7|a broadcast lost after quiescence with no later traffic is never found|P1: pending seq
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_T9|a lost request wedges the resync|P6 liveness
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_ALL_TRIGGERS|the naive relay never asks the core: coverage is never established|P6 liveness
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_ZERO_CLEARS_RING|RESYNC(0) keeps stale ring entries: the stream is no longer ascending|P2 broken
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_FINAL_DROP|pushing the unreplied rest breaks the ascending invariant (F2)|REQUIRE( machine->verdict() == ResyncVerdict::NONE )
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_SEND_INVALID|classes I and C discarded (the pre-review rule): those orders stay pending|P1: pending seq
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_STALE_TERM_FILTER|without rule S a stale-term copy reaches the ring (review FIX-4: P7 by provenance)|P7: a stale-term entry was pushed
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_T2|no RESYNC(0) after an ME leader change or a new ME session: truncated offers stay lost|P8: pending seq
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_RELEASE_RELAY|RELEASE_ID entries discarded: the backlog never drains|P1: pending seq
+# 4.2 epoch binder
+EpochBinderTest.zeroIgnoredThenFirstNonZeroBinds|EPOCH_ZERO_IGNORED|meEpoch 0 binds (the ME was not FRESH)|CHECK( b.onHeartbeat(0, 1) == EpochVerdict::NONE )
+EpochBinderTest.zeroInM3IsFatal|EPOCH_ZERO_FATAL|an ME that lost its identity is accepted|CHECK( b.onHeartbeat(0, 2) == EpochVerdict::FATAL_ZERO )
+EpochBinderTest.differentEpochIsFatalInM2AndM3|EPOCH_MISMATCH_FATAL|a re-genesised ME is accepted|CHECK( b.onHeartbeat(E + 1, 2) == EpochVerdict::FATAL_MISMATCH )
+EpochBinderTest.fiveSecondsUnverifiedReconnects|EPOCH_WAIT|an unverified session waits forever|CHECK( b.tick(100 + 5 * S) == EpochVerdict::RECONNECT )
+EpochBinderTest.newSessionNeedsANewVerification|EPOCH_PER_SESSION|a new ME session inherits the old verification|CHECK_FALSE( b.verified() )
+# W16 admission watcher
+AdmissionWatcherTest.originResetsTheBaselineAndNeverTriggers|ADMISSION_ORIGIN_BASELINE|an ORIGIN reply fires T3 (NOTE-4)|CHECK_FALSE( w.onOrigin(0, OPEN, 0) )
+AdmissionWatcherTest.perMarketIgnored|ADMISSION_GLOBAL_ONLY|a per-market state fires T3 (Q9)|CHECK_FALSE( w.onBroadcast(3, SUSPENDED, ME_CAPACITY) )
+AdmissionWatcherTest.broadcastChangeInStateOrAnyReasonBitTriggers|ADMISSION_REASON_BITS|a cleared CAPACITY bit under an unchanged state is missed|CHECK( w.onBroadcast(0, SUSPENDED, BRIDGE_HALT) )
