@@ -45,8 +45,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# assets TestAuth.KEYS: one key per class (the FORWARDER key is 6:FORWARDER:66..66).
-KEYS="1:ADMIN:$(printf '11%.0s' {1..32});2:TOOL:$(printf '22%.0s' {1..32});3:BRIDGE:$(printf '33%.0s' {1..32});5:GATEWAY:$(printf '55%.0s' {1..32});6:FORWARDER:$(printf '66%.0s' {1..32})"
+# assets TestAuth.KEYS: one key per class (the FORWARDER key is 6:FORWARDER:66..66). RC2 S6 (A16): every key
+# carries the explicit any-user scope ::users=*; a key with no users field makes the AE refuse to boot.
+KEYS="1:ADMIN:$(printf '11%.0s' {1..32})::users=*;2:TOOL:$(printf '22%.0s' {1..32})::users=*;3:BRIDGE:$(printf '33%.0s' {1..32})::users=*;5:GATEWAY:$(printf '55%.0s' {1..32})::users=*;6:FORWARDER:$(printf '66%.0s' {1..32})::users=*"
 AE_BASE=22000
 ME_BASE=23000
 HOST=127.0.0.1
