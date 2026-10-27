@@ -35,5 +35,11 @@
   "me_journal_fixture_sha256sums_sha256": "127739bfb6c0b5da5d0e8cf5b5b52706e8c58ce075d8bad33ca25e696f3da5c4",
   "aeron_all_version": "1.53.1",
   "aeron_all_url": "https://repo1.maven.org/maven2/io/aeron/aeron-all/1.53.1/aeron-all-1.53.1.jar",
-  "aeron_all_sha256": "504ac8bc74ca63783a921da8e7ee96985b8422dd7cae003b9f629e75e97ae333"
+  "aeron_all_sha256": "504ac8bc74ca63783a921da8e7ee96985b8422dd7cae003b9f629e75e97ae333",
+  "feed_harness_assets_ref": "af15db5c1b7983e189b969154fe6de01fa09e520",
+  "feed_harness_url": "releases/download/harness-af15db5c1b7983e189b969154fe6de01fa09e520/assets-feed-harness.jar",
+  "feed_harness_sha256": "5ffac60083324668aad670205083a1d80ced06ba966a594b429f99171f71bf13",
+  "feed_harness_main_diff_empty_vs": "b05b8e89b129895d2b4261e0fd6361fe77abd819",
+  "me_journal_e1_match_ref": "ed984774007ccb7bac49218048749452ee7001dc",
+  "me_journal_e1_sums_sha256": "a77d4e9fd31f753f58841e127000c2510c6cafc2164c7666c239a716b281370d"
 }

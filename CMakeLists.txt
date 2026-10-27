@@ -78,6 +78,14 @@ endif()
 add_subdirectory(app/forwarder) # RC2 S12: pure parts everywhere, ct-forwarder and its agent tests with WITH_AERON
 
 if(WITH_BRIDGE)
+    # RC2 S9h 9.2 (review FIX-3): a feed harness jar given to this build must carry the lock's money schema and the
+    # pinned core's production tree, and hash as the lock pins (S9b W1 makes the jar mandatory for its graders)
+    if(DEFINED CT_FEED_HARNESS_JAR AND NOT CT_FEED_HARNESS_JAR STREQUAL "")
+        include(cmake/VerifyFeedHarness.cmake)
+        ct_verify_feed_harness("${CT_FEED_HARNESS_JAR}" "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock"
+            "${CMAKE_CURRENT_BINARY_DIR}/ct-feed-harness-guard")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CT_FEED_HARNESS_JAR}")
+    endif()
     include(cmake/AeronArchive.cmake)
     add_subdirectory(archive/aeron)
     add_subdirectory(app/journal-tail)
