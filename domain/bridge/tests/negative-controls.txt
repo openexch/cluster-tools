@@ -1,0 +1,92 @@
+# The RED column of RC2 S9b contract section 13 (light method: nothing is committed, so each rule's RED is a
+# negative control re-proved on every run). Each line: test case | rule | why | expected text. The runner
+# (archive/tests/run-negative-controls.sh) runs the test with CT_TEST_DISABLE_<rule>=1 (a seam that exists only in
+# ct_bridge_domain_seamed) and requires an ASSERTION failure carrying the expected text, then runs it once more
+# without the variable and requires it to pass.
+#
+# 13.1 CursorTableTest
+CursorTableTest.skipBelowLastNeverOffers|FORWARD_GREATER|seq > last forwards: the record after the hole is offered|CHECK( feed == 0 )
+CursorTableTest.terminalBelowCursorNeverForwarded|TERMINAL_INCLUSIVE|the Java inclusive terminal boundary re-offers the 63 at the cursor|CHECK( feed == 0 )
+CursorTableTest.bridgeRestart3xSendsNothingBelowCursor|SKIP_OFF|records at or below the cursor are offered again after a restart|CHECK_FALSE( below )
+CursorTableTest.holeIsNeverForwarded|FORWARD_GREATER|the record after a hole is offered|CHECK( offered == std::vector<std::int64_t>{ 1, 2 } )
+CursorTableTest.epochMismatchHalts|EPOCH_CHECK_OFF|records of the new epoch are offered (the core refuses them)|CHECK_FALSE( foreignOffered )
+CursorTableTest.foreignEpochOnOneSourceFailsOver|EPOCH_DIRECT_HALT|one foreign node halts EPOCH_MISMATCH (genesis only) although the other has e|CHECK( halt == BridgeHalt::NONE )
+CursorTableTest.unboundSyncAdoptsTheEpochOfSeqOne|ADOPT_OFF|no epoch is adopted, a later foreign record is offered|CHECK_FALSE( sixOffered )
+CursorTableTest.unboundSeqOneMustBeEngineConfig|HEAD_RULE_OFF|the 61 at seq 1 is offered and latches the core SOURCE_UNBOUND (genesis only)|CHECK( latch == 0 )
+CursorTableTest.invalidReportsAreRefused|REPORT_VALIDATION_OFF|an invalid report starts a sync|CHECK( state == State::SYNCING )
+# 13.2 StagingTest
+StagingTest.recordBytesReachTheEncoderUnchanged|STAGE_TRUNCATES|the staged copy loses its last byte|CHECK( seen == sent )
+StagingTest.outcomeIsForwardedAndFlushesStagedTrades|FLUSH_BEFORE_NON_TRADE_OFF|the outcome overtakes the staged trades|CHECK( templates == std::vector<std::uint16_t>{ 62, 64 } )
+StagingTest.capSixtyFourSplits|CAP_OFF|65 trades travel in one 62|CHECK( templates == std::vector<std::uint16_t>{ 62, 61 } )
+StagingTest.emptyPollFlushes|IDLE_FLUSH_OFF|a partial batch waits for the next record|CHECK( offers == 1 )
+StagingTest.flushBeforeHaltAndBeforeSwitch|PRE_SWITCH_FLUSH_OFF|the switch is released with trades staged|CHECK( held.kind == SourceCommandKind::NONE )
+StagingTest.backPressureKeepsEverythingAndAborts|BP_DROPS|back-pressure drops the staged batch|CHECK( staged == 2 )
+StagingTest.tickRetriesOnlyABackPressuredFlush|TICK_FLUSHES_ALWAYS|tick flushes a healthy partial batch (62s never exceed one poll)|CHECK( offersAfterTick == 0 )
+# 13.3 RingTest
+RingTest.memoProvesAllKinds|RING_PROOF_TRADES_ONLY|only trade runs are proved|CHECK( proved == std::vector<std::int64_t>{ 11, 13, 14, 15, 16, 17 } )
+RingTest.ringProofLandsOnItsOwnSourceOnly|RING_PROOF_CURRENT_SOURCE|a run read from B is proved on A|CHECK( onA == 0 )
+RingTest.ringOverflowStopsReading|RING_UNBOUNDED|offers continue past the ring's capacity|CHECK( offered <= 65 )
+RingTest.syncStartKeepsProofsBelowCursorDropsTheRest|RING_KEEP_TAIL|the possibly lost tail stays in the ring|CHECK( ring == 0 )
+RingTest.keyTableOverflowPauses|KEYTABLE_UNBOUNDED|a key index is reused under the ring|CHECK( accepted == 64 )
+RingTest.keyTableSurvivesStagingAcrossAPop|KEYTABLE_CLEAR_WITH_STAGING|staged trades' key indices are cleared and reused|CHECK( k1 == 51 )
+RingTest.ringFullMeansNoRoomForACappedFlush|RING_FULL_AT_ZERO|63 free slots keep reading|CHECK( limit == 0 )
+# 13.4 ReportRuleTest
+ReportRuleTest.lossBelowTheQueryFences|LOSS_RULE_OFF|an offer lost before the query is never re-sent|CHECK( losses == 1 )
+ReportRuleTest.cursorAboveLastDoesNotMoveLast|LAST_FOLLOWS_REPORT|a report above last moves last (a G1 violation)|CHECK( last == 10 )
+# 13.5 RotationTest
+RotationTest.holeOnOneSourceFailsOver|ROTATION_OFF|a hole on one source halts GAP at once|CHECK( noHalt )
+RotationTest.holeOnEverySourceHaltsGap|GAP_SEEN_MAX|GAP names the largest seen, not the earliest reach point|CHECK( fh.seen == 12 )
+RotationTest.holeFromAMemoReadIsVerifiedFirst|HOLE_VERIFY_OFF|a memo-read hole is believed: a false GAP|CHECK( noFalseGap )
+RotationTest.badFrameFailsOverFirst|ROTATION_OFF|a bad frame on one source halts at once|CHECK( halt == BridgeHalt::NONE )
+RotationTest.fragmentedFrameHalts|ROTATION_OFF|FRAGMENTED on one source halts at once|CHECK( oneSource == BridgeHalt::NONE )
+RotationTest.schema3RecordHaltsSourceSchema|REFUSAL_IGNORED|the schema 3 record is skipped like Java T5 (a GAP after it)|CHECK( fh.reason == HaltReason::SOURCE_SCHEMA )
+RotationTest.mixedRotationHaltsSourceSchema|Q2_GAP|holed + bad halts GAP|CHECK( fh.reason == HaltReason::SOURCE_SCHEMA )
+RotationTest.secondMemoFreeSeqRegressionIsBad|S6_OFF|one corrupt source loops forever|CHECK( done )
+RotationTest.unreachableSourcesNeverHalt|UNREACHABLE_AS_HOLE|unreachable sources halt GAP|CHECK( noFeedHalt )
+RotationTest.transientStrikesBecomeUnreachable|STRIKES_OFF|a failing source is retried forever|CHECK( done )
+RotationTest.foreignPlusUnreachableHaltsSchemaNotEpoch|EPOCH_REACHABLE_ONLY|EPOCH_MISMATCH (genesis only) while two sources were only unreachable|CHECK( fh.reason == HaltReason::SOURCE_SCHEMA )
+RotationTest.laneAheadPastEPreventsGapHalt|HALT_CONFIRM_OFF|GAP latched although another lane delivered e|CHECK( noFeedHalt )
+RotationTest.malformedExtentEverywhereHaltsSchema|MALFORMED_AS_UNREACHABLE|degraded forever instead of a halt|CHECK( stopped )
+RotationTest.positionRejectedIsNotAStrike|MEMO_FAULT_STRIKES|memo faults make a source unreachable|CHECK( cmd.kind == SourceCommandKind::NONE )
+RotationTest.rotationWithLaneAheadFencesInsteadOfRotating|ROTATE_PAST_CURSOR|a rotation past the cursor (a cold walk per failover)|CHECK_FALSE( switched )
+# 13.6 BehindTest
+BehindTest.deadNodeAtItsHeadFailsOverAfterDwell|BEHIND_OFF|zero forwards forever on a node at its head (the 08-12 zombie)|CHECK( done )
+BehindTest.quietFeedIsNotDegradedAndRotatesAtMostOncePerMinute|BEHIND_RESCAN_OFF|a rotation every dwell in a quiet market|CHECK( failovers <= 6 )
+BehindTest.holeWithLaggingSourceWaitsThenHalts|GRACE_OFF|a hole with a lagging source halts at once|CHECK( noHalt )
+BehindTest.allBehindParksOnTheLastLiveSource|BEHIND_PARK_FIRST_CONFIGURED|parked on the dead first node: the first post-quiet e waits for a rescan|CHECK( latency <= 10'000ms )
+BehindTest.dwellStartsAfterTheFirstProbe|DWELL_FROM_ATTACH|the previous source's backlog makes the new one BEHIND|CHECK( b == VerdictKind::UNKNOWN )
+# 13.7 HaltMachineTest
+HaltMachineTest.feedHaltFieldsObeyD3a|HALT_FIELDS_ZERO|GAP with seen == expected (the core refuses it INVALID)|CHECK( valid )
+HaltMachineTest.preHaltStagedIsFlushedFirst|HALT_FLUSH_OFF|the FeedHalt overtakes the pre-halt trades|CHECK( flushedFirst )
+HaltMachineTest.feedHaltResentAfterReconnectAndNewLeader|HALT_RESEND_OFF|a new term never sees the FeedHalt again|CHECK( halts == 3 )
+HaltMachineTest.rejectedFeedHaltFallsBackToSchemaThenExits|REJECT_EXIT_AT_ONCE|exit 70 with the gate open (no fallback acked)|CHECK( fatalBeforeFallbackAck == Fatal::NONE )
+HaltMachineTest.gapHaltRecoversWhenTheCursorPassesSeen|GAP_AUTO_RESUME_OFF|a filled hole never resumes|CHECK( state == State::STREAMING )
+HaltMachineTest.schemaAndCoreRefusedResumeWhenTheCorePassesE|SCHEMA_PARK_FOREVER|SOURCE_SCHEMA and CORE_REFUSED need an operator restart|CHECK( resumed )
+HaltMachineTest.epochHaltLeavesOnCoreRegenesis|HALTED_IGNORES_REPORT_RULES|the genesis the halt waits for is never seen|CHECK( left )
+HaltMachineTest.sessionLossWhileHaltedKeepsTheHalt|RESUME_RULE_OFF|the halted bridge streams after a reconnect|CHECK( state == State::HALTED )
+# 13.8 StormGuardTest
+StormGuardTest.resyncStormBecomesCoreRefused|STORM_GUARD_OFF|more than stormFences identical re-offers (a committed log entry each)|CHECK( offersOfSix <= 2 )
+StormGuardTest.unboundSilentCoreKeepsRetryingAndBindsOnceV3|UNBOUND_COUNTS_AS_STORM|the genesis race parks the bridge in CORE_REFUSED|CHECK( halt == BridgeHalt::NONE )
+# 13.9 FenceTest, OfferOutcomeTest, MetricsTest
+FenceTest.everyTriggerStopsOffersDropsStagingRequeriesAndRewinds|FENCE_OFF|offers continue after a fence|CHECK( limit == 0 )
+FenceTest.settleRejectedBurstIsOneFence|FENCE_PER_REJECT|one query (and one storm count) per SettleRejected|CHECK( queries == 1 )
+FenceTest.haltedFenceBelowEMinusOneRefeeds|HALT_KEEP_ALWAYS|records below e lost with the old leader are never re-sent|CHECK( state == State::STREAMING )
+FenceTest.noFeedOfferBeforeRegistration|REGISTRATION_GATE_OFF|a feed offer before the new term's registration|CHECK_FALSE( streamingBeforeRegistration )
+MetricsTest.recordingStartStepBackIsCounted|STEPBACK_COUNTER_OFF|the step-back goes uncounted|CHECK( stepbacks == 1 )
+# 13.10 BridgeDomainPropertyTest (400 seeds in this run; the expected text is the first failing run's property)
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|FORWARD_GREATER|(a)/(b): a hole is forwarded|was due
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|ROTATION_OFF|(c): a false GAP while another source has e|although a memo-free read delivers it
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|BEHIND_OFF|(d): a live process doing no work while a source has e|a clean source exists but the core stopped
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|Q2_GAP|(c): a mixed rotation halts GAP|with a bad or foreign source
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|HOLE_VERIFY_OFF|(c): a memo-read hole believed: a false GAP|although a memo-free read delivers it
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|FENCE_OFF|(b): offers continue after a lost tail|above cursor + 1
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|STORM_GUARD_OFF|(i): an unbounded re-offer loop|the refused seq was offered
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|UNBOUND_COUNTS_AS_STORM|(j): the genesis race ends in a halt|behaviour 1/2 phase
+# the 2026-10-31 review fixes
+LaggedEgressTest.holeOnEverySourceHaltsGapUnderEgressLag|CONFIRM_REQUERY|BLOCKER-1: with an egress lag the bridge re-queries on every redelivery and never halts|CHECK( halted )
+LaggedEgressTest.gapRescanUnderALongLagIssuesABoundedNumberOfQueries|CONFIRM_REQUERY|BLOCKER-1: a GAP re-scan floods the core log with queries|CHECK( queries < 300 )
+StormGuardTest.stormRetriesAnUntriedSourceOnceItsCopyArrives|STORM_TRIED_AT_SWITCH|FIX-2: a behind source counts as tried, CORE_REFUSED parks for good|CHECK( cursor == 20 )
+StormGuardTest.stormRotationNeverTargetsTheCurrentSource|STORM_TARGETS_CURRENT|NOTE-1: a SWITCH to the current source drops the rewind|CHECK( rotations == 0 )
+CursorTableTest.staleOldEpochPrefixOnEveryNodeNeverLatchesGenesisOnly|STALE_PREFIX_FOREIGN|NOTE-8: a stale prefix on every node latches the core genesis-only|CHECK( latch != static_cast<std::uint8_t>(HaltReason::EPOCH_MISMATCH) )
+RotationTest.refusalFromAMemoReadIsVerifiedFirst|REFUSAL_VERIFY_OFF|a refusal on a memo read is believed: a false SOURCE_SCHEMA|CHECK_FALSE( falseSchemaAtFifteen )
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|STALE_PREFIX_FOREIGN|(c): a stale prefix halts EPOCH_MISMATCH|without every source foreign

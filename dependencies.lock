@@ -16,7 +16,7 @@
   "money_schema_sha256": "678c9dd117b6f3ea25d5179dd6ddf19637d0e28f5b883ab1c0ef0ef5d4a0163b",
   "money_schema_id": 2,
   "money_schema_min_version": 7,
-  "money_schema_required_templates": [65, 80, 101, 104, 105, 108, 109, 110],
+  "money_schema_required_templates": [7, 17, 61, 62, 63, 64, 65, 66, 67, 68, 80, 101, 104, 105, 108, 109, 110, 114],
   "match_schema_repo": "openexch/match",
   "match_schema_ref": "68a9375b89c39c0fa9f48bd926dc232eac4f4866",
   "match_schema_path": "match-common/src/main/resources/sbe/order-schema.xml",
@@ -41,5 +41,6 @@
   "feed_harness_sha256": "5ffac60083324668aad670205083a1d80ced06ba966a594b429f99171f71bf13",
   "feed_harness_main_diff_empty_vs": "b05b8e89b129895d2b4261e0fd6361fe77abd819",
   "me_journal_e1_match_ref": "ed984774007ccb7bac49218048749452ee7001dc",
-  "me_journal_e1_sums_sha256": "a77d4e9fd31f753f58841e127000c2510c6cafc2164c7666c239a716b281370d"
+  "me_journal_e1_sums_sha256": "a77d4e9fd31f753f58841e127000c2510c6cafc2164c7666c239a716b281370d",
+  "me_journal_e1_fixtures_sha256sums_sha256": "769473339e6de557a127a6947e81b2f70e5bce53974d765db81de88cd6d8012e"
 }

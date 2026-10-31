@@ -198,8 +198,61 @@ public final class GoldenMoney {
         print("JAVA_REGISTER_SESSION_EPOCH", buf, header.encodedLength() + register.encodedLength());
     }
 
+    /** RC2 S9b 13.16: the bridge's egress decode (17 v7, 110, 114) and control encodes (7, 66). */
+    private static void bridge() {
+        final UnsafeBuffer buf = new UnsafeBuffer(new byte[1024]);
+        final com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder header =
+                new com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder();
+
+        final var report = new com.openexchange.assets.infrastructure.generated.FeedPositionReportEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x0102030405060708L)
+                .consumePosition(0x1112131415161718L)
+                .lastAppliedTradeId(0x2122232425262728L)
+                .journalEnabled(com.openexchange.assets.infrastructure.generated.BoolFlag.TRUE)
+                .meEpoch(0x3132333435363738L)
+                .lastAppliedJournalSeq(0x4142434445464748L)
+                .feedHalted(com.openexchange.assets.infrastructure.generated.BoolFlag.TRUE)
+                .haltReason(com.openexchange.assets.infrastructure.generated.FeedHaltReason.SOURCE_SCHEMA);
+        print("JAVA_FEED_POSITION_REPORT_V7", buf, header.encodedLength() + report.encodedLength());
+
+        final var rejected = new com.openexchange.assets.infrastructure.generated.SettleRejectedEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .tradeId(0x0102030405060708L)
+                .marketId(0x11121314)
+                .journalPosition(0x2122232425262728L)
+                .reason(com.openexchange.assets.infrastructure.generated.SettleRejectReason.FEED_GAP)
+                .detail(0x3132333435363738L);
+        print("JAVA_SETTLE_REJECTED", buf, header.encodedLength() + rejected.encodedLength());
+
+        final var ack = new com.openexchange.assets.infrastructure.generated.AdminAckEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x0A0B0C0D0E0F1011L)
+                .refTemplateId(66)
+                .result(com.openexchange.assets.infrastructure.generated.AdminResult.REJECTED)
+                .reason((short) 4)
+                .configVersion(0L);
+        print("JAVA_ADMIN_ACK_66", buf, header.encodedLength() + ack.encodedLength());
+
+        final var halt = new com.openexchange.assets.infrastructure.generated.FeedHaltEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x0102030405060708L)
+                .reason(com.openexchange.assets.infrastructure.generated.FeedHaltReason.GAP)
+                .meEpochSeen(0x1112131415161718L)
+                .expectedJournalSeq(0x2122232425262728L)
+                .seenJournalSeq(0x3132333435363738L)
+                .bridgeIdentity(0x4142434445464748L);
+        print("JAVA_FEED_HALT", buf, header.encodedLength() + halt.encodedLength());
+
+        final var query = new com.openexchange.assets.infrastructure.generated.QueryFeedPositionEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x5152535455565758L);
+        print("JAVA_QUERY_FEED_POSITION", buf, header.encodedLength() + query.encodedLength());
+    }
+
     public static void main(final String[] args) {
         money();
         forwarder();
+        bridge();
     }
 }

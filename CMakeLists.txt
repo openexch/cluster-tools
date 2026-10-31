@@ -51,6 +51,13 @@ ct_verify_me_journal_fixtures("${CMAKE_CURRENT_SOURCE_DIR}/archive/tests/fixture
     "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock")
 file(GLOB CT_MEJOURNAL_FIXTURE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/archive/tests/fixtures/mejournal/*")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CT_MEJOURNAL_FIXTURE_FILES}) # an edited .bin re-runs the guard (review N-6)
+# RC2 S9b W1: the E1 corpus written by the S9h harness (domain/bridge/tests/fixtures/e1) is verified in every
+# configuration too: the pure bridge tests read it in the WITH_AERON=OFF job.
+include(cmake/VerifyE1Fixtures.cmake)
+ct_verify_e1_fixtures("${CMAKE_CURRENT_SOURCE_DIR}/domain/bridge/tests/fixtures/e1"
+    "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock")
+file(GLOB_RECURSE CT_E1_FIXTURE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/domain/bridge/tests/fixtures/e1/*")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CT_E1_FIXTURE_FILES})
 
 add_subdirectory(domain)
 add_subdirectory(domain/forwarder) # RC2 S12: the forwarder's pure core (every configuration)
@@ -58,10 +65,28 @@ add_subdirectory(ports)
 add_subdirectory(adapters/json)   # no transport dependency - builds and tests everywhere
 add_subdirectory(client)          # the pure parts build everywhere; the transport parts need WITH_AERON
 add_subdirectory(archive)         # pure archive core everywhere; archive/aeron with WITH_BRIDGE
+add_subdirectory(domain/bridge)   # RC2 S9b: the bridge domain (pure, every configuration; needs ct_archive_core)
 find_package(Threads REQUIRED)
 
 if(WITH_AERON)
     set(WITH_CODECS ON)
+endif()
+
+# RC2 S9h 9.2 / S9b W1: a feed harness jar given to any build must carry the lock's money schema and the pinned core's
+# production tree, and hash as the lock pins. It is MANDATORY under WITH_BRIDGE (the bridge's translation and
+# real-core graders, S9b 13.11-13.17, take their expected bytes only from it); a WITH_CODECS build without it skips
+# the differential and oracle tests (they are listed as not built in the configure log).
+if(DEFINED CT_FEED_HARNESS_JAR AND NOT CT_FEED_HARNESS_JAR STREQUAL "")
+    include(cmake/VerifyFeedHarness.cmake)
+    ct_verify_feed_harness("${CT_FEED_HARNESS_JAR}" "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock"
+        "${CMAKE_CURRENT_BINARY_DIR}/ct-feed-harness-guard")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CT_FEED_HARNESS_JAR}")
+    set(CT_HAVE_FEED_HARNESS ON)
+elseif(WITH_BRIDGE)
+    message(FATAL_ERROR "WITH_BRIDGE=ON: CT_FEED_HARNESS_JAR is required (the S9h harness jar pinned by "
+        "feed_harness_sha256; scripts/fetch-deps.sh <cache> --harness prints the argument)")
+else()
+    set(CT_HAVE_FEED_HARNESS OFF)
 endif()
 
 if(WITH_CODECS)
@@ -78,14 +103,6 @@ endif()
 add_subdirectory(app/forwarder) # RC2 S12: pure parts everywhere, ct-forwarder and its agent tests with WITH_AERON
 
 if(WITH_BRIDGE)
-    # RC2 S9h 9.2 (review FIX-3): a feed harness jar given to this build must carry the lock's money schema and the
-    # pinned core's production tree, and hash as the lock pins (S9b W1 makes the jar mandatory for its graders)
-    if(DEFINED CT_FEED_HARNESS_JAR AND NOT CT_FEED_HARNESS_JAR STREQUAL "")
-        include(cmake/VerifyFeedHarness.cmake)
-        ct_verify_feed_harness("${CT_FEED_HARNESS_JAR}" "${CMAKE_CURRENT_SOURCE_DIR}/dependencies.lock"
-            "${CMAKE_CURRENT_BINARY_DIR}/ct-feed-harness-guard")
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CT_FEED_HARNESS_JAR}")
-    endif()
     include(cmake/AeronArchive.cmake)
     add_subdirectory(archive/aeron)
     add_subdirectory(app/journal-tail)

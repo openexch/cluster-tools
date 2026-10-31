@@ -98,25 +98,39 @@ expect_refused journal-hash-differs "dependencies.lock pins" "${SCHEMAS[@]}" \
 expect_refused no-journal-schema "is required" "${SCHEMAS[@]}" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 
 # 7b. WITH_BRIDGE (RC2 S9a contract 2.2, 9.5): money and journal pinned by EXACT sha256 and version.
+# RC2 S9b W1: WITH_BRIDGE also requires the pinned S9h harness jar (CT_GATE_FEED_HARNESS_JAR from the ctest
+# registration); without one the bridge cases cannot reach the schema checks, so they are reported as skipped.
+HARNESS=${CT_GATE_FEED_HARNESS_JAR:-}
+BRIDGE=(-DWITH_BRIDGE=ON)
+if [ -n "$HARNESS" ]; then
+    BRIDGE+=(-DCT_FEED_HARNESS_JAR="$HARNESS")
+    expect_refused bridge-without-harness "CT_FEED_HARNESS_JAR is required" "${GOOD[@]}" -DWITH_BRIDGE=ON
+    cp "$HARNESS" "$WORK/harness-other.jar"
+    printf 'x' >> "$WORK/harness-other.jar"
+    expect_refused bridge-harness-sha "feed_harness_sha256" "${GOOD[@]}" -DWITH_BRIDGE=ON \
+        -DCT_FEED_HARNESS_JAR="$WORK/harness-other.jar"
+else
+    echo "SKIP the WITH_BRIDGE cases: no CT_GATE_FEED_HARNESS_JAR"
+fi
 expect_refused bridge-without-aeron "WITH_BRIDGE=ON requires WITH_AERON=ON" "${GOOD[@]}" -DWITH_BRIDGE=ON -DWITH_AERON=OFF
-expect_refused bridge-no-journal-schema "is required" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+expect_refused bridge-no-journal-schema "is required" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 sed '0,/version="7"/s//version="7" /' "$MONEY" > "$WORK/money-edited.xml"
-expect_refused bridge-money-hash-differs "the bridge needs the exact core wire" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+expect_refused bridge-money-hash-differs "the bridge needs the exact core wire" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$WORK/money-edited.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
 sed '0,/version="7"/s//version="8"/' "$MONEY" > "$WORK/money-v8.xml"
-expect_refused bridge-money-v8 "WITH_BRIDGE=ON: MONEY_SCHEMA" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+expect_refused bridge-money-v8 "WITH_BRIDGE=ON: MONEY_SCHEMA" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$WORK/money-v8.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
 sed '0,/version="1"/s//version="2"/' "$JOURNAL" > "$WORK/journal-v2.xml"
-expect_refused bridge-journal-v2 "dependencies.lock pins" "${SCHEMAS[@]}" -DWITH_BRIDGE=ON \
+expect_refused bridge-journal-v2 "dependencies.lock pins" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$WORK/journal-v2.xml"
 if [ -n "$AERON_ALL" ]; then
     cp "$AERON_ALL" "$WORK/aeron-all-other.jar"
     printf 'x' >> "$WORK/aeron-all-other.jar"
-    expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" -DWITH_BRIDGE=ON -DCT_INTEGRATION_TESTS=ON \
+    expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" "${BRIDGE[@]}" -DCT_INTEGRATION_TESTS=ON \
         -DCT_IT_ASSETS_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
 fi
-if "$CMAKE" -S "$HERE" -B "$WORK/build-bridge" -DWITH_AERON=ON -DWITH_BRIDGE=ON -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \
+if "$CMAKE" -S "$HERE" -B "$WORK/build-bridge" -DWITH_AERON=ON "${BRIDGE[@]}" -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \
     > "$WORK/bridge.log" 2>&1; then
     pass "pinned inputs configure with WITH_BRIDGE=ON"
 else

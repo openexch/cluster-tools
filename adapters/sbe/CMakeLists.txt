@@ -70,7 +70,80 @@ target_include_directories(ct_forwarder_codec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(ct_forwarder_codec PRIVATE ct_sbe_codecs)
 target_compile_options(ct_forwarder_codec PRIVATE -Wall -Wextra)
 
+# RC2 S9b section 5: the bridge's wire (schema 4 records -> money v7 feed 61-64, 67, 68; FeedHalt 66, Query 7; the
+# egress 17 v7, 110, 114). The domain's value types and ports come from domain/bridge (headers), the frame shapes
+# from archive (FramePeek, header-only constants); consumers link the domain flavour they want.
+add_library(ct_bridge_codec STATIC src/BridgeCodec.cpp)
+add_library(cluster_tools::bridge_codec ALIAS ct_bridge_codec)
+add_dependencies(ct_bridge_codec ct_sbe_generate)
+target_include_directories(ct_bridge_codec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${PROJECT_SOURCE_DIR}/domain/bridge/include" "${PROJECT_SOURCE_DIR}/archive/include")
+target_link_libraries(ct_bridge_codec PRIVATE ct_sbe_codecs)
+target_compile_options(ct_bridge_codec PRIVATE -Wall -Wextra)
+
 if(BUILD_TESTING)
+    # the codec's negative-control seams (CODEC_*), resolved by ct_bridge_domain_seamed's TestSeams
+    add_library(ct_bridge_codec_seamed STATIC src/BridgeCodec.cpp)
+    add_dependencies(ct_bridge_codec_seamed ct_sbe_generate)
+    target_include_directories(ct_bridge_codec_seamed PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(ct_bridge_codec_seamed PUBLIC CT_TEST_SEAMS=1)
+    target_link_libraries(ct_bridge_codec_seamed PUBLIC ct_bridge_domain_seamed PRIVATE ct_sbe_codecs)
+    target_compile_options(ct_bridge_codec_seamed PRIVATE -Wall -Wextra)
+
+    add_executable(ct_bridge_codec_tests tests/TestMain.cpp tests/BridgeCodecTest.cpp)
+    target_link_libraries(ct_bridge_codec_tests PRIVATE ct_bridge_codec_seamed ct_bridge_domain_seamed ct_sbe_codecs)
+    target_include_directories(ct_bridge_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(ct_bridge_codec_tests PRIVATE
+        CT_E1_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/domain/bridge/tests/fixtures/e1"
+        CT_MEJOURNAL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/archive/tests/fixtures/mejournal")
+    target_compile_options(ct_bridge_codec_tests PRIVATE -Wall -Wextra)
+    add_test(NAME bridge.codec COMMAND ct_bridge_codec_tests)
+    add_test(NAME bridge.codec_negative_controls
+        COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh" "$<TARGET_FILE:ct_bridge_codec_tests>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/bridge-codec-negative-controls.txt")
+    set_tests_properties(bridge.codec_negative_controls PROPERTIES TIMEOUT 600)
+
+    if(CT_HAVE_FEED_HARNESS)
+        # 13.12 E2: the harness's `random` against the C++ translate (10^5 records on the dev box, 10^6 in CI via
+        # CT_DIFF_COUNT); the seed is printed in every run
+        add_executable(ct_bridge_differential_tests tests/TestMain.cpp tests/TranslatorDifferentialTest.cpp)
+        target_link_libraries(ct_bridge_differential_tests PRIVATE ct_bridge_codec_seamed ct_bridge_domain_seamed ct_sbe_codecs)
+        target_include_directories(ct_bridge_differential_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+        target_compile_definitions(ct_bridge_differential_tests PRIVATE CT_JAVA="${Java_JAVA_EXECUTABLE}"
+            CT_FEED_HARNESS_JAR="${CT_FEED_HARNESS_JAR}")
+        target_compile_options(ct_bridge_differential_tests PRIVATE -Wall -Wextra)
+        add_test(NAME bridge.e2_differential COMMAND ct_bridge_differential_tests)
+        set_tests_properties(bridge.e2_differential PROPERTIES TIMEOUT 1200)
+        add_test(NAME bridge.e2_differential_negative_controls
+            COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh"
+                "$<TARGET_FILE:ct_bridge_differential_tests>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/bridge-differential-negative-controls.txt")
+        set_tests_properties(bridge.e2_differential_negative_controls PROPERTIES TIMEOUT 1200
+            ENVIRONMENT "CT_DIFF_COUNT=20000")
+
+        # 13.17 E3 foundation: the real BridgeDomain + BridgeCodec over SimArchive sources feed the real core (`serve`)
+        add_executable(ct_bridge_oracle_tests tests/TestMain.cpp tests/oracle/RealCoreOracleTest.cpp)
+        target_link_libraries(ct_bridge_oracle_tests PRIVATE ct_bridge_codec_seamed ct_bridge_domain_seamed ct_sbe_codecs)
+        target_include_directories(ct_bridge_oracle_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests" "${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle"
+            "${PROJECT_SOURCE_DIR}/archive/tests")
+        target_compile_definitions(ct_bridge_oracle_tests PRIVATE CT_JAVA="${Java_JAVA_EXECUTABLE}"
+            CT_MEJOURNAL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/archive/tests/fixtures/mejournal"
+            CT_FEED_HARNESS_JAR="${CT_FEED_HARNESS_JAR}")
+        target_compile_options(ct_bridge_oracle_tests PRIVATE -Wall -Wextra)
+        add_test(NAME bridge.e3_real_core_oracle COMMAND ct_bridge_oracle_tests)
+        set_tests_properties(bridge.e3_real_core_oracle PROPERTIES TIMEOUT 1800 ENVIRONMENT "CT_ORACLE_RUNS=10")
+        add_test(NAME bridge.e3_real_core_oracle_negative_controls
+            COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh"
+                "$<TARGET_FILE:ct_bridge_oracle_tests>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/negative-controls.txt")
+        set_tests_properties(bridge.e3_real_core_oracle_negative_controls PROPERTIES TIMEOUT 1800
+            ENVIRONMENT "CT_ORACLE_RUNS=3")
+    else()
+        message(STATUS "RC2 S9b: no CT_FEED_HARNESS_JAR: the E2 differential and the real-core oracle are not built")
+    endif()
+
     add_executable(ct_forwarder_codec_tests tests/ForwarderCodecTest.cpp)
     target_link_libraries(ct_forwarder_codec_tests PRIVATE ct_forwarder_codec ct_forwarder_domain ct_sbe_codecs)
     target_include_directories(ct_forwarder_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -98,6 +171,7 @@ if(BUILD_TESTING)
         COMMAND bash "${PROJECT_SOURCE_DIR}/scripts/check-configure-gate.sh" "${CMAKE_COMMAND}"
             "${AERON_TARBALL}" "${SBE_CLASSPATH}" "${MONEY_SCHEMA}" "${MATCH_SCHEMA}" "${ME_JOURNAL_SCHEMA}"
             ${CT_IT_AERON_ALL_JAR})
-    set_tests_properties(build.configure_gate PROPERTIES TIMEOUT 300)
+    set_tests_properties(build.configure_gate PROPERTIES TIMEOUT 300
+        ENVIRONMENT "CT_GATE_FEED_HARNESS_JAR=${CT_FEED_HARNESS_JAR}")
     endif()
 endif()
