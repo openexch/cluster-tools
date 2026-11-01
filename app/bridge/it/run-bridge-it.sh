@@ -203,6 +203,9 @@ wait_exit() { # name timeout_s
     return 1
 }
 alive() { [ -n "${PID[$1]:-}" ] && kill -0 "${PID[$1]}" 2>/dev/null; }
+# "some input line" without `grep -q`: under pipefail an early-exiting grep -q SIGPIPEs the writer and the pipeline reads
+# as false even when the line was there (W9 local: every genesis-OPEN mark failed; negative checks could miss a line)
+has_line() { awk 'NF { f = 1 } END { exit !f }'; }
 now_s() { date +%s.%N; }
 elapsed() { python3 -I -c "import sys; print(f'{float(sys.argv[2]) - float(sys.argv[1]):.2f}')" "$1" "$2"; }
 fle() { python3 -I -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$1" "$2"; }
@@ -573,7 +576,7 @@ drill_rk2_nc() {
         t1core report > "$D/ev/report.json" 2>&1
         oracle_ok final; local orc=$?
         NOTES+=("try $tries: in-flight +$KILLED_INFLIGHT, FEED_GAP rejects $gaps, report $(tr -d '\n' < "$D/ev/report.json" | cut -c1-160), oracle rc $orc")
-        if [ "$gaps" != "0" ] || grep -q '"haltReason":1' "$D/ev/report.json" || [ $orc -ne 0 ]; then red=yes; fi
+        if [ "$gaps" != "0" ] || grep -- '"haltReason":1' > /dev/null "$D/ev/report.json" || [ $orc -ne 0 ]; then red=yes; fi
         [ $red = no ] && finish "rk2-nc-try$tries" INCONCLUSIVE
     done
     [ $red = yes ] && finish rk2-nc PASS || finish rk2-nc INCONCLUSIVE
@@ -649,8 +652,8 @@ drill_rk4() {
     local cold; cold=$(( $(bm0 'bridge_memo_resumes_total{kind="cold"}') - cold0 ))
     [ "$cold" -le 1 ] || FAILS+=("cold resumes +$cold during the refusals (a rescan from the chain start per retry)")
     alive bridge || FAILS+=("bridge died")
-    curl -s --max-time 2 "http://127.0.0.1:$BPORT/ready" | grep -q no_source_attached || FAILS+=("ready does not name no_source_attached")
-    [ "$(http_code health)" = "200" ] && health | grep -q '"halted":false' || FAILS+=("health")
+    curl -s --max-time 2 "http://127.0.0.1:$BPORT/ready" | grep -- no_source_attached > /dev/null || FAILS+=("ready does not name no_source_attached")
+    [ "$(http_code health)" = "200" ] && health | grep -- '"halted":false' > /dev/null || FAILS+=("health")
     NOTES+=("storage failures $storage in 30 s, cold +$cold, proof resumes +$(( $(bm0 'bridge_memo_resumes_total{kind="proof"}') - proof0 ))")
     # the room comes back: the next retry opens the replay; the story goes on
     rm -f "$SHM/tmpfs/filler"
@@ -1403,7 +1406,7 @@ drill_rk14_restart() { # restart|replace
         tl "kill -9 bridge0 at core $(core_cursor)"; kill -9 "${PID[bridge0]}"; wait_exit bridge0 5
         sleep 3; start_bridge bridge0 external || FAILS+=("bridge0 restart")
         local t0; t0=$(now_s); local reg=""
-        for _ in $(seq 1 300); do [ "$(bm0 bridge0 bridge_registered)" = 1 ] && health bridge0 | grep -q '"reportThisTerm":true' && { reg=$(elapsed "$t0" "$(now_s)"); break; }; sleep 0.1; done
+        for _ in $(seq 1 300); do [ "$(bm0 bridge0 bridge_registered)" = 1 ] && health bridge0 | grep -- '"reportThisTerm":true' > /dev/null && { reg=$(elapsed "$t0" "$(now_s)"); break; }; sleep 0.1; done
         NOTES+=("bridge0 restarted after kill -9: registered and reported after ${reg:-none} s; duplicate-identity retries $(bm0 bridge0 bridge_registration_duplicate_identity_retries_total); caught up after $(caught_up bridge0 60) s")
         [ -n "$reg" ] && fle "$reg" 30 || FAILS+=("restarted bridge0 not registered within 30 s")
     else
@@ -1476,7 +1479,7 @@ drill_rk14_lanehole_ahead() { # binary drill
     grep -q "verdict source 0 e $S1 HOLED seq $((S1 + 99))" "$D/ev/bridge0.log" || FAILS+=("no HOLED verdict at s1 with seen s1 + 99")
     [ "$(( $(bm0 bridge0 'bridge_fences_total{trigger="lane_ahead"}') - la0 ))" -ge 1 ] || FAILS+=("no lane_ahead fence")
     [ "$sent" = 0 ] || FAILS+=("a FeedHalt was sent ($sent)")
-    awk '$4 == 1' "$D/ev/ready-1s.txt" | grep -q . && FAILS+=("bridge0 halted at some sample")
+    awk '$4 == 1' "$D/ev/ready-1s.txt" | has_line && FAILS+=("bridge0 halted at some sample")
     [ -z "$(gate_after "$gmark")" ] || FAILS+=("gate transition: $(gate_after "$gmark" | head -1)")
     [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied")
     local not200; not200=$(awk -v t="$tfirst" '$1 > t + 2 && ($2 != 200 || $3 != 200)' "$D/ev/ready-1s.txt" | wc -l)
@@ -1579,7 +1582,7 @@ drill_rk14_twoholes() {
     for _ in $(seq 1 300); do [ "$(bm0 bridge0 bridge_halted)" = 1 ] && break; sleep 0.1; done
     sleep 2
     [ "$(core_counter assets_feed_lane_halts)" = 1 ] || FAILS+=("step 1: lane halts $(core_counter assets_feed_lane_halts)")
-    first_gate SUSPENDED BRIDGE_HALT 0 | grep -q . || FAILS+=("step 1: no SUSPENDED/BRIDGE_HALT")
+    first_gate SUSPENDED BRIDGE_HALT 0 | has_line || FAILS+=("step 1: no SUSPENDED/BRIDGE_HALT")
     # step 2 (W0 setup fix: write through s2 + 1 so source 1 is HOLED at s2 with seen s2 + 1, not BEHIND)
     jctl 60 WRITE 1 "$S1" $((s2 + 1)) >> "$D/ev/jctl.txt"
     for _ in $(seq 1 300); do [ "$(bm0 bridge1 bridge_halted)" = 1 ] && break; sleep 0.1; done
@@ -1693,20 +1696,19 @@ gate_watch_start() { # until_s
 }
 gate_watch_stop() { kill -TERM "${PID[gatewatch]}" 2>/dev/null; wait "${PID[gatewatch]}" 2>/dev/null; unset "PID[gatewatch]"; }
 # transitions after the INITIAL line: "t state names"
-gate_transitions() { awk '/^t=/{ for (i=1;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] } print v["t"], v["state"], v["names"] }' "$D/ev/gate-watch.txt"; }
+gate_transitions() { # the OPEN that clears GENESIS (INITIAL ... names=GENESIS) is setup, never a drill's transition
+    awk '/^INITIAL /{ for (i=2;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] } prev=v["names"] }
+         /^t=/{ for (i=1;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] }
+                if (v["state"] == "OPEN" && prev == "GENESIS") { prev=v["names"]; next }
+                prev=v["names"]; print v["t"], v["state"], v["names"] }' "$D/ev/gate-watch.txt"; }
 mono_ms() { python3 -I -c 'import time; print(int(time.monotonic() * 1000))'; } # CLOCK_MONOTONIC, as the watch's t
-mark_after_open() { # W9 (C14 setup fix): the genesis OPEN is retried by the setup and can land after round 0 + 1 s;
-    # the mark is taken once gate --watch has shown that first OPEN (bound 120 s; measured 35 s on the box), then 1 s
-    # later. No OPEN within the bound is a setup failure, never a silent early mark.
-    # Review F7 (2026-11-01): a caller adds "SETUP: no genesis OPEN on gate --watch" to FAILS on rc 1; a watch that is
-    # not running (never started, or died) fails at once instead of idling the 120 s bound.
-    local i; for i in $(seq 1 1200); do
-        alive gatewatch || { echo "SETUP: gate --watch is not running" >&2; echo 0; return 1; }
-        gate_transitions | awk '$2 == "OPEN"' | grep -q . && { sleep 1; mono_ms; return 0; }; sleep 0.1
-    done
-    echo "SETUP: no genesis OPEN on gate --watch within 120 s" >&2; echo 0; return 1
+mark_after_open() { # W9 (C14 setup fix): the genesis OPEN is not a transition the drills count; gate_transitions drops
+    # the OPEN that clears GENESIS (it lands when later traffic reaches the core: 35 s on the box, 308 s on the dev box,
+    # never on a schedule), so the mark is simply "now". A watch that is not running is a setup failure.
+    alive gatewatch || { echo "SETUP: gate --watch is not running" >&2; echo 0; return 1; }
+    mono_ms
 }
-MARK_FAIL="SETUP: no genesis OPEN on gate --watch within 120 s (or the watch is not running)"
+MARK_FAIL="SETUP: gate --watch is not running"
 gate_after() { gate_transitions | awk -v a="$1" '$1 > a'; } # transitions after a mono_ms mark
 gate_wall() { # t -> the wall= (epoch ms) of the transition at that mono t (empty: none)
     awk -v t="$1" '/^t=/{ for (i=1;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] } if (v["t"] == t) { print v["wall"]; exit } }' "$D/ev/gate-watch.txt"
@@ -1867,9 +1869,9 @@ drill_rk10_opsuspend() {
     sleep 2
     local after; after=$(gate_transitions | awk -v a="$t0" '$1 > a')
     NOTES+=("transitions after the fill: $(echo "$after" | tr '\n' ';')")
-    echo "$after" | grep -q ' OPEN ' && FAILS+=("OPEN while ADMIN holds")
-    echo "$after" | awk '{print $3}' | grep -q 'ADMIN' || FAILS+=("no SUSPENDED/ADMIN line after the BRIDGE_HALT clear")
-    echo "$after" | tail -1 | grep -q 'BRIDGE_HALT' && FAILS+=("BRIDGE_HALT still set after the reach-clear")
+    echo "$after" | grep -- ' OPEN ' > /dev/null && FAILS+=("OPEN while ADMIN holds")
+    echo "$after" | awk '{print $3}' | grep -- 'ADMIN' > /dev/null || FAILS+=("no SUSPENDED/ADMIN line after the BRIDGE_HALT clear")
+    echo "$after" | tail -1 | grep -- 'BRIDGE_HALT' > /dev/null && FAILS+=("BRIDGE_HALT still set after the reach-clear")
     [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("auto reopen counted while ADMIN holds")
     t1core probe-create 1 1 > "$D/ev/probe-create-after.txt" 2>&1
     grep -q 'OrderReject GATE_CLOSED' "$D/ev/probe-create-after.txt" || FAILS+=("probe-create after: $(cat "$D/ev/probe-create-after.txt")")
@@ -1973,7 +1975,7 @@ drill_tmpfs_starved() { # drill binary want(exit70|alive)
     BRDRV_OVERRIDE="$SHM/tmpfs" start_bridge bridge embedded "$binary" || FAILS+=("bridge start")
     local onset="" seconds="" i
     for i in $(seq 1 600); do
-        if curl -s --max-time 1 "http://127.0.0.1:$BPORT/ready" 2>/dev/null | grep -q storage_starved; then onset=$(now_s); break; fi
+        if curl -s --max-time 1 "http://127.0.0.1:$BPORT/ready" 2>/dev/null | grep -- storage_starved > /dev/null; then onset=$(now_s); break; fi
         alive bridge || break
         sleep 0.1
     done
@@ -2090,7 +2092,7 @@ drill_rk12_fill() { # binary
     t1core barrier "$(barrier_of "$r")" 60000 > /dev/null 2>&1; sleep 2
     [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
     [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("an automatic OPEN after SOURCE_SCHEMA")
-    gate_after "$GMARK" | awk '$2=="OPEN"' | grep -q . && FAILS+=("gate --watch shows an OPEN before the operator's open")
+    gate_after "$GMARK" | awk '$2=="OPEN"' | has_line && FAILS+=("gate --watch shows an OPEN before the operator's open")
     t1core open > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || FAILS+=("open: $(cat "$D/ev/open.txt")")
     run_story --from $((r + 1)) --timeout 120000 > "$D/ev/run-end.txt" 2>&1 || FAILS+=("rounds $((r + 1))..")
     quiescent "$N" 30000 || FAILS+=("quiescence")

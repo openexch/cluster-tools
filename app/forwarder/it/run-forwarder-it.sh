@@ -790,7 +790,7 @@ lane_c_scenario() {
         LANE_C_MOUNT=$mnt
         FWD_EMBEDDED_DIR_OVERRIDE="$mnt" start_fwd fwdA "$bin" "$FWDA_AE" "$FWDA_ME" 24001
         for _ in $(seq 1 600); do
-            if curl -s --max-time 1 http://127.0.0.1:24001/ready 2> /dev/null | grep -q storage_starved; then onset=$(now_s); break; fi
+            if curl -s --max-time 1 http://127.0.0.1:24001/ready 2> /dev/null | grep -- storage_starved > /dev/null; then onset=$(now_s); break; fi
             fwd_alive fwdA || break
             sleep 0.1
         done
