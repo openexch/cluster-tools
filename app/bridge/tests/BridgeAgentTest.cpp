@@ -599,6 +599,54 @@ TEST_CASE("BridgeAgentTest.readyBitsEachFail")
     (void)rec;
 }
 
+TEST_CASE("BridgeAgentTest.readyConfirmFenceAdvancesTheSyncCursor")
+{
+    // RC2 S10' 3.6 ("confirm fences advance the sync cursor: READY"): a lane whose only source lacks e = 11 (a hole,
+    // seq 12 present) confirms before a GAP halt; another lane delivered 11 and 12 meanwhile (the stub core's cursor,
+    // no frame through this lane), but the confirming report reaches this lane only 35 s later (held egress). The
+    // lane_ahead fence then syncs from C' = 12: no forward, a backlog claimed. The sync cursor's move is progress.
+    using namespace app::not_ready;
+    AppRig r(1);
+    SimRecording &rec = r.archive(0).record();
+    appendJournal(r.archive(0), rec, 1, 10);
+    appendJournal(r.archive(0), rec, 12, 12);
+    r.core.beforeReport = [](StubCore &c) {
+        if (c.cursor >= 10 && c.cursor < 12)
+        {
+            c.cursor = 12; // the other lane
+        }
+    };
+    r.bringUp();
+    REQUIRE(r.runUntil([&] { return r.core.cursor >= 10; }, 30 * SECOND));
+    r.holdEgress = true;
+    const std::uint64_t fences0 = r.agent->metrics().fenceCount(FenceTrigger::LANE_AHEAD);
+    const std::size_t offered0 = r.core.applied.size();
+    for (int i = 0; i < 350; ++i) // 35 s: the confirming report is late
+    {
+        r.archiveMetrics.sourceBacklogBytes.store(1'000'000);
+        r.step(100 * MS);
+    }
+    r.holdEgress = false;
+    bool readyAfterTheFence = true;
+    for (int i = 0; i < 150; ++i) // 15 s after the fence
+    {
+        r.archiveMetrics.sourceBacklogBytes.store(1'000'000);
+        r.step(100 * MS);
+        r.archiveMetrics.sourceBacklogBytes.store(1'000'000);
+        if (i > 10)
+        {
+            readyAfterTheFence = readyAfterTheFence && 0 == (r.agent->notReadyMask() & BACKLOG_WITHOUT_PROGRESS);
+        }
+    }
+    CAPTURE(r.agent->domain().view().syncCursor);
+    CHECK(r.agent->metrics().fenceCount(FenceTrigger::LANE_AHEAD) > fences0); // non-vacuity
+    CHECK(r.agent->domain().view().syncCursor == 12);
+    CHECK(r.core.applied.size() == offered0); // this lane forwarded nothing after 10
+    CHECK(BridgeHalt::NONE == r.agent->domain().view().halt);
+    CHECK(readyAfterTheFence); // READY_IGNORES_SYNC_CURSOR RED: backlog_without_progress_30s
+    (void)rec;
+}
+
 TEST_CASE("BridgeAgentTest.readySkipWalkIsProgress")
 {
     // FIX-10: a cold restart behind applied records is a skip walk at full speed and stays READY; backlog without the

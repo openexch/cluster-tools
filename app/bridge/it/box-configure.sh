@@ -3,7 +3,7 @@
 # test build and the integration inputs. Usage: app/bridge/it/box-configure.sh <build-dir> [<harness-jar>]
 # Inputs (already on the box, mirrored paths): s11-work/deps (Aeron tarball, sbe jars), the m2 (aeron-all for the
 # archive IT), the schemas at the lock's pins from assets-rc2corewt / match-melanewt, and the jars:
-#   assets-cluster.jar  RC2 S10': built from <RC> eda436e (src/main = <RC-core> fe948c1), s10p-jars/eda436e/build1
+#   assets-cluster.jar  RC2 S10': built from <RC> 7bd21f4 (src/main = <RC-core> eb687f1), s10p-jars/7bd21f4/build1
 #                       (S9c used assets-rc2corewt 6fcf66b; contract S10' 0.1)
 #   match-cluster.jar   match-melanewt ed98477 (W9 inside)
 #   the harness jar     the lock's (5ad2068, feed_harness_sha256) unless a second argument names another
@@ -11,7 +11,7 @@ set -euo pipefail
 B=/home/emre/Apps/openexchange/.runtime-handoff/20260927-r00
 WS=$B/workspace
 BUILD=${1:?build dir}
-JARS=$B/s10p-jars/eda436e/build1
+JARS=$B/s10p-jars/7bd21f4/build1
 ASSETS_TREE=${CT_ASSETS_TREE:-$WS/assets-s10pwt} # a tree holding <RC-core> (the lock's money_schema_ref)
 HARNESS=${2:-$JARS/assets-feed-harness.jar}
 CMAKE=$B/s11-work/tools/cmake-4.2.3-linux-x86_64/bin/cmake

@@ -81,4 +81,23 @@ if(BUILD_TESTING)
             -DCT_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/e1-fixture-guard
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/e1_fixture_guard_test.cmake")
     set_tests_properties(bridge.e1_fixture_guard PROPERTIES TIMEOUT 120)
+
+    # RC2 S10' 3.4 (lane C, W2b): TwoLaneDomainPropertyTest, two real BridgeDomain lanes over one stub core written to
+    # the 4R rule (per-lane halt table, overflow record, holder set). Its own binary and RED table, so the domain's
+    # suite and negative-controls.txt stay untouched; the stub-core seams are test-local CT_TEST_DISABLE_* variables.
+    add_executable(ct_bridge_twolane_tests tests/TestMain.cpp tests/TwoLaneDomainPropertyTest.cpp)
+    target_link_libraries(ct_bridge_twolane_tests PRIVATE ct_bridge_domain_seamed)
+    target_include_directories(ct_bridge_twolane_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests" "${PROJECT_SOURCE_DIR}/archive/tests")
+    target_compile_definitions(ct_bridge_twolane_tests PRIVATE
+        CT_E1_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/e1"
+        CT_MEJOURNAL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/archive/tests/fixtures/mejournal")
+    target_compile_options(ct_bridge_twolane_tests PRIVATE -Wall -Wextra)
+    add_test(NAME bridge.twolane COMMAND ct_bridge_twolane_tests)
+    set_tests_properties(bridge.twolane PROPERTIES TIMEOUT 1800 ENVIRONMENT "CT_BRIDGE_TWOLANE_RUNS=1000")
+    add_test(NAME bridge.twolane_negative_controls
+        COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh" "$<TARGET_FILE:ct_bridge_twolane_tests>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls-twolane.txt")
+    set_tests_properties(bridge.twolane_negative_controls PROPERTIES TIMEOUT 3600
+        ENVIRONMENT "CT_BRIDGE_TWOLANE_RUNS=400")
 endif()

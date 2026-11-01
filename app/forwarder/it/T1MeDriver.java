@@ -9,8 +9,19 @@
 //       prints "EPOCH <meEpoch>" from the first ClusterHeartbeat with a non-zero epoch (an ADMIN session).
 //   open-orders <aeronDir> <ingress> <outFile>
 //       ME ADMIN RequestOpenOrdersSnapshot 7: writes "orderId omsOrderId" per resting leg; prints "OPEN legs=N".
+//   resend <aeronDir> <meIngress> <frame.bin> [count]
+//       RC2 S10' 7.1 item 3 (T1-F re-sends, review F-6): opens an ME FORWARDER session on T1_ME_FORWARDER_KEY (the
+//       runner's 8:FORWARDER, a key no forwarder uses; the ADMIN session of `epoch` is NOT reused) and takes it through
+//       the forwarder's M2 -> M3 step of S12 4.2: nothing is offered until the S12 W9 epoch hello (a ClusterHeartbeat
+//       with meEpoch != 0 on THIS session) arrived. Then offers the captured frame bytes (a ct_forwarder_tc_capture
+//       <n>.bin: order schema 1, template 9 or 10, exactly as fwdA offered them) `count` times (default 1), polls 3 s
+//       and prints the ME's reply frames on this session by template. Prints "FRAME bytes=N template=T sha256=H" first
+//       (the runner compares H with the capture sidecar, N-11), "HELLO meEpoch=E after=Mms", "SENT count=C",
+//       "REPLY template=T count=K" per template (or "REPLY none"). A hello refusal exits 78 with the reason
+//       ("HELLO REFUSED <reason>": the credential rejected, or no hello within 10 s).
 //
-// Credentials: T1_ME_ADMIN_KEY (keyId:ADMIN:secretHex). Exit 0 = done, 1 = the step failed.
+// Credentials: T1_ME_ADMIN_KEY (keyId:ADMIN:secretHex), T1_ME_FORWARDER_KEY (resend). Exit 0 = done, 1 = the step
+// failed, 78 = the hello was refused (resend).
 
 import com.match.infrastructure.generated.ClusterHeartbeatDecoder;
 import com.match.infrastructure.generated.EngineConfigEncoder;
@@ -29,8 +40,12 @@ import org.agrona.concurrent.UnsafeBuffer;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
 public final class T1MeDriver {
@@ -47,8 +62,18 @@ public final class T1MeDriver {
         final MessageHeaderEncoder header = new MessageHeaderEncoder();
         long lastKeepAlive = System.currentTimeMillis();
 
-        Session(final String aeronDir, final String ingress) throws InterruptedException {
-            final ClusterCredentials credentials = ClusterCredentials.fromSpec(System.getenv("T1_ME_ADMIN_KEY"));
+        Session(final String aeronDir, final String ingress) throws InterruptedException, HelloRefused {
+            this(aeronDir, ingress, "T1_ME_ADMIN_KEY", false);
+        }
+
+        /** failFastOnAuth: an authentication rejection is a HelloRefused at once (resend), not a retried connect. */
+        Session(final String aeronDir, final String ingress, final String keyEnv, final boolean failFastOnAuth)
+                throws InterruptedException, HelloRefused {
+            final String spec = System.getenv(keyEnv);
+            if (spec == null) {
+                throw new IllegalStateException(keyEnv + " is not set");
+            }
+            final ClusterCredentials credentials = ClusterCredentials.fromSpec(spec);
             AeronCluster c = null;
             RuntimeException last = null;
             final long deadline = System.currentTimeMillis() + 60_000;
@@ -62,13 +87,19 @@ public final class T1MeDriver {
                             .aeronDirectoryName(aeronDir)
                             .ingressEndpoints(ingress)
                             .messageTimeoutNs(TimeUnit.SECONDS.toNanos(5)));
+                } catch (final io.aeron.security.AuthenticationException e) {
+                    if (failFastOnAuth) {
+                        throw new HelloRefused("the ME rejected the " + keyEnv + " credential: " + e.getMessage());
+                    }
+                    last = e;
+                    Thread.sleep(500);
                 } catch (final RuntimeException e) {
                     last = e;
                     Thread.sleep(500);
                 }
             }
             if (c == null) {
-                throw new IllegalStateException("could not connect to the ME", last);
+                throw new IllegalStateException("could not connect to the ME with " + keyEnv, last);
             }
             client = c;
         }
@@ -126,6 +157,81 @@ public final class T1MeDriver {
         @Override
         public void close() {
             client.close();
+        }
+    }
+
+    /** S10' 7.1 item 3: the hello was refused (exit 78). */
+    static final class HelloRefused extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        HelloRefused(final String reason) {
+            super(reason);
+        }
+    }
+
+    private static void resend(final String aeronDir, final String ingress, final Path frameFile, final int count)
+            throws Exception {
+        if (count < 1) {
+            throw new IllegalArgumentException("resend [count] must be >= 1, got " + count);
+        }
+        final byte[] frame = Files.readAllBytes(frameFile);
+        if (frame.length < MessageHeaderDecoder.ENCODED_LENGTH) {
+            throw new IllegalArgumentException(frameFile + ": " + frame.length + " bytes, shorter than a message header");
+        }
+        final UnsafeBuffer fb = new UnsafeBuffer(frame);
+        final MessageHeaderDecoder fh = new MessageHeaderDecoder().wrap(fb, 0);
+        if (fh.schemaId() != MessageHeaderDecoder.SCHEMA_ID || (fh.templateId() != 9 && fh.templateId() != 10)) {
+            throw new IllegalArgumentException(frameFile + ": schema " + fh.schemaId() + " template " + fh.templateId()
+                    + " is not an order-schema template 9 / 10 frame");
+        }
+        System.out.println("FRAME bytes=" + frame.length + " template=" + fh.templateId() + " version=" + fh.version()
+                + " sha256=" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(frame)));
+        try (Session fwd = new Session(aeronDir, ingress, "T1_ME_FORWARDER_KEY", true)) {
+            // M2 (S12 4.2): wait for the W9 hello on this session; nothing is offered before it
+            final long start = System.currentTimeMillis();
+            final MessageHeaderDecoder h = new MessageHeaderDecoder();
+            final ClusterHeartbeatDecoder hb = new ClusterHeartbeatDecoder();
+            long epoch = 0;
+            boolean zeroSeen = false;
+            int seen = 0;
+            while (epoch == 0 && System.currentTimeMillis() - start < 10_000) {
+                fwd.poll();
+                for (; seen < fwd.frames.size() && epoch == 0; seen++) {
+                    final UnsafeBuffer b = new UnsafeBuffer(fwd.frames.get(seen));
+                    h.wrap(b, 0);
+                    if (h.templateId() == ClusterHeartbeatDecoder.TEMPLATE_ID) {
+                        final long e = hb.wrapAndApplyHeader(b, 0, h).meEpoch();
+                        zeroSeen |= e == 0;
+                        epoch = e;
+                    }
+                }
+                Thread.onSpinWait();
+            }
+            if (epoch == 0) {
+                throw new HelloRefused("no W9 epoch hello (ClusterHeartbeat with meEpoch != 0) on the FORWARDER session within 10 s"
+                        + (zeroSeen ? " (only meEpoch 0: the ME is not FRESH)" : ""));
+            }
+            System.out.println("HELLO meEpoch=" + epoch + " after=" + (System.currentTimeMillis() - start) + "ms");
+            fwd.frames.clear();
+            fwd.out.putBytes(0, frame);
+            for (int i = 0; i < count; i++) {
+                fwd.offer(frame.length);
+            }
+            System.out.println("SENT count=" + count);
+            final long until = System.currentTimeMillis() + 3_000;
+            while (System.currentTimeMillis() < until) {
+                fwd.poll();
+                Thread.sleep(2);
+            }
+            final Map<Integer, Integer> byTemplate = new TreeMap<>();
+            for (final byte[] f : fwd.frames) {
+                h.wrap(new UnsafeBuffer(f), 0);
+                byTemplate.merge(h.templateId(), 1, Integer::sum);
+            }
+            if (byTemplate.isEmpty()) {
+                System.out.println("REPLY none");
+            }
+            byTemplate.forEach((t, n) -> System.out.println("REPLY template=" + t + " count=" + n));
         }
     }
 
@@ -209,9 +315,18 @@ public final class T1MeDriver {
                 case "open-orders":
                     openOrders(args[1], args[2], Path.of(args[3]));
                     break;
+                case "resend":
+                    if (args.length != 4 && args.length != 5) {
+                        throw new IllegalArgumentException("resend <aeronDir> <meIngress> <frame.bin> [count]");
+                    }
+                    resend(args[1], args[2], Path.of(args[3]), args.length == 5 ? Integer.parseInt(args[4]) : 1);
+                    break;
                 default:
                     throw new IllegalArgumentException("unknown command " + args[0]);
             }
+        } catch (final HelloRefused e) {
+            System.out.println("HELLO REFUSED " + e.getMessage());
+            System.exit(78);
         } catch (final Exception e) {
             System.out.println("DRIVER FAIL " + e);
             e.printStackTrace(System.out);

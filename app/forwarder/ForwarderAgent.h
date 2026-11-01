@@ -21,8 +21,16 @@
 #include "cluster_tools/domain/forwarder/SendRing.h"
 #include "cluster_tools/domain/forwarder/TestSeams.h"
 
+#include "common/StorageStarvation.h"
+
+#include "AppSeams.h"
 #include "LogRing.h"
 #include "Snapshot.h"
+#ifdef CT_FORWARDER_TC_CAPTURE
+#include <cstdlib>
+
+#include "TcCapture.h"
+#endif
 
 // ForwarderAgent - the fwd-duty agent (RC2 S12 contract sections 3, 4 and 8): one duty iteration drives both
 // ClusterClients, the CoreSessionRegistrar, the resync machine, the send ring, the epoch binder, the
@@ -46,7 +54,9 @@ inline constexpr int EXIT_OK = 0;
 inline constexpr int EXIT_SOFTWARE = 70; // EX_SOFTWARE: process health (F1-F4)
 inline constexpr int EXIT_TEMPFAIL = 75; // EX_TEMPFAIL: an inferred refusal, restart allowed (F7b)
 inline constexpr int EXIT_CONFIG = 78;   // EX_CONFIG: an observed refusal or a wrong binary (F5-F9, F15)
-// The Aeron client's driver timeout (F1): a dead media driver is a fatal conductor error after this long; T1-J asserts
+// RC2 S10' 8.2 rule 2: the Aeron client's driver timeout is FWD_DRIVER_TIMEOUT_MS now (the shared strict parser,
+// ForwarderConfig); this constant is only the value the S12 drills ran with and the TIMEOUT_CONSTANT RED's fallback.
+// The S12 text: the Aeron client's driver timeout (F1): a dead media driver is a fatal conductor error after this long; T1-J asserts
 // exit 70 within this + 2 s. Fixed, like every other S12 constant (section 9). Review NOTE-10: 5 s, so a starved host
 // does not exit on a short driver stall.
 inline constexpr std::int64_t DRIVER_TIMEOUT_MS = 5000;
@@ -64,7 +74,9 @@ struct StopReason
 
 struct AgentSettings
 {
-    std::int64_t identity = 0; // 64-bit random non-zero per start (diagnostics only, 7.1)
+    std::int64_t identity = 0; // FWD_INSTANCE_ID (RC2 S10' 8.2 rule 3; diagnostics only at the core, S12 7.1)
+    std::uint8_t driverMode = 0;           // DriverMode (S10' 8.2 rule 6): /health driverMode, forwarder_driver_mode
+    std::uint64_t driverDirReclaimed = 0;  // 1 when the embedded per-instance dir was a stale one reused at start
     client::SessionClass coreCredentialClass = client::SessionClass::FORWARDER;
     const char *version = "dev";
     std::int64_t reconnectBackoffInitialNs = 1'000'000'000LL;
@@ -96,6 +108,19 @@ public:
         {
             constructRegistrar(0); // RED shape: registers before the ME epoch is known (sourceEpoch 0)
         }
+#ifdef CT_FORWARDER_TC_CAPTURE
+        // ct_forwarder_tc_capture (RC2 S10' 7.1 item 2, never published): FWD_CAPTURE_DIR is required (78 at the first
+        // duty iteration when missing or unusable, before any session opens)
+        if (std::string error; !m_capture.open(std::getenv("FWD_CAPTURE_DIR"), error))
+        {
+            stop(EXIT_CONFIG, "F_TC_CAPTURE_DIR", "%s", error.c_str());
+        }
+        else
+        {
+            this->log(LogLevel::WARN, "ct_forwarder_tc_capture TEST BUILD: every template 9 / 10 frame offered to the ME goes to %s "
+                "(next %llu.bin, sidecar.txt)", m_capture.dir().c_str(), static_cast<unsigned long long>(m_capture.next()));
+        }
+#endif
     }
 
     ForwarderAgent(const ForwarderAgent &) = delete;
@@ -148,6 +173,7 @@ public:
         m_now = m_core.nanoTime();
         superviseCore();
         superviseMe();
+        superviseStorage();
         checkVerdicts();
         if (m_stopReason.set())
         {
@@ -182,6 +208,7 @@ public:
             mask |= not_ready::CORE_NO_LEADER;
         }
         if (m_stopRequested || m_stopReason.set()) mask |= not_ready::STOPPING;
+        if (m_storage[0].active() || m_storage[1].active()) mask |= not_ready::STORAGE_STARVED;
         return mask;
     }
 
@@ -189,6 +216,9 @@ public:
     {
         s.nowNs = m_now;
         s.identity = m_settings.identity;
+        s.driverMode = m_settings.driverMode;
+        s.driverDirReclaimed = m_settings.driverDirReclaimed;
+        s.storageStarvedSeconds = m_storageAny.starvedSeconds(m_now); // wall seconds with either publication starved
         s.meEpoch = m_binder.epoch();
         std::snprintf(s.version, sizeof(s.version), "%s", m_settings.version);
         s.notReady = notReadyMask();
@@ -269,6 +299,42 @@ private:
         std::vsnprintf(text, sizeof(text), format, args);
         va_end(args);
         m_log->push(level, m_now, "%s", text);
+    }
+
+    // RC2 S10' Q1 (coordinator decision 2026-11-01): an ingress publication refused for storage space on every attempt
+    // for STORAGE_STARVED_EXIT_NS (30 s, a constant) ends the process 70: restartable and loud, never alive-not-ready
+    // forever (the 2026-07-25 /dev/shm shape) and never 78 (a passing tmpfs squeeze must not stop it for good). Until
+    // then /ready names storage_starved and forwarder_storage_starved_seconds grows.
+    void superviseStorage()
+    {
+        const char *names[2] = { "core", "ME" };
+        const bool connected[2] = { client::ClientState::CONNECTED == m_core.state(), client::ClientState::CONNECTED == m_me.state() };
+        const bool onset[2] = { m_storageFeed0.update(m_core, connected[0], m_now, m_storage[0]),
+            m_storageFeed1.update(m_me, connected[1], m_now, m_storage[1]) };
+        if (m_storage[0].active() || m_storage[1].active())
+        {
+            m_storageAny.onStarved(m_now, "");
+        }
+        else
+        {
+            m_storageAny.onRelieved(m_now);
+        }
+        for (int c = 0; c < 2; c++)
+        {
+            if (onset[c])
+            {
+                log(LogLevel::ERROR,
+                    "%s ingress publication refused: insufficient storage space in the media driver dir (exit 70 if it lasts "
+                    "30 s): %s", names[c], m_storage[c].why());
+            }
+            if (m_storage[c].expired(m_now) && !app_seams::disabled(app_seams::Rule::STORAGE_STARVED_EXIT_OFF))
+            {
+                stop(EXIT_SOFTWARE, "F_STORAGE_STARVED",
+                    "the %s ingress publication was refused for insufficient storage space on every attempt for %lld s "
+                    "(the media driver dir's tmpfs is too small or full): %s",
+                    names[c], static_cast<long long>(m_storage[c].heldNs(m_now) / 1'000'000'000LL), m_storage[c].why());
+            }
+        }
     }
 
     void stop(int exitCode, const char *code, const char *format, ...) __attribute__((format(printf, 4, 5)))
@@ -967,6 +1033,9 @@ private:
                 }
                 break;
             }
+#ifdef CT_FORWARDER_TC_CAPTURE
+            captureFrame(plan, length); // the positive offer only: a refused frame is re-offered, not re-captured
+#endif
             const std::uint32_t popped = FrameType::COMMAND == plan.type ? 1u :
                 (plan.count < codec::RELEASE_FRAME_MAX_ENTRIES ? plan.count : codec::RELEASE_FRAME_MAX_ENTRIES);
             for (std::uint32_t i = 0; i < popped; i++)
@@ -991,6 +1060,26 @@ private:
         }
         return offers;
     }
+
+#ifdef CT_FORWARDER_TC_CAPTURE
+    // The frame in m_meFrame was just accepted by the ME publication; the ring head is still its first slot.
+    void captureFrame(const domain::forwarder::FramePlan &plan, std::size_t length)
+    {
+        const domain::forwarder::RingSlot &head = m_ring.at(0);
+        const bool command = domain::forwarder::FrameType::COMMAND == plan.type;
+        std::string error;
+        if (!m_capture.write(m_meFrame, length, command ? 9u : 10u,
+                command ? head.command.commandIdHigh : head.release.commandIdHigh,
+                command ? head.command.commandIdLow : head.release.idLowFloor,
+                command ? static_cast<unsigned>(head.command.commandKind) : static_cast<unsigned>(domain::forwarder::KIND_RELEASE_ID),
+                command ? head.seq : plan.firstSeq, error))
+        {
+            stop(EXIT_SOFTWARE, "F_TC_CAPTURE_IO", "%s", error.c_str());
+        }
+    }
+
+    TcCapture m_capture;
+#endif
 
     CoreClient &m_core;
     MeClient &m_me;
@@ -1026,6 +1115,10 @@ private:
     bool m_stopRequested = false;
     bool m_stopped = false;
     StopReason m_stopReason;
+    common::StorageStarvation m_storage[2];               // S10' Q1: [0] core, [1] ME ingress publication
+    common::StorageStarvation m_storageAny;               // either of them: forwarder_storage_starved_seconds
+    common::ClientStorageFeed<CoreClient> m_storageFeed0;
+    common::ClientStorageFeed<MeClient> m_storageFeed1;
 
     std::uint8_t m_requestFrame[64] = {};
     std::uint8_t m_meFrame[sbe_adapter::forwarder_codec::RELEASE_FRAME_MAX_LENGTH + 64] = {};

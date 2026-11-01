@@ -2,6 +2,12 @@
 
 #include <cctype>
 #include <charconv>
+#include <limits>
+#include <random>
+
+#include "common/DriverTimeout.h"
+
+#include "AppSeams.h"
 
 namespace cluster_tools { namespace app { namespace forwarder {
 
@@ -60,6 +66,37 @@ client::CoreCredentials credential(const EnvGetter &getenv, const char *name, st
     return parsed.credentials;
 }
 
+std::int64_t randomIdentity()
+{
+    std::random_device device;
+    std::uint64_t v = 0;
+    while (0 == v)
+    {
+        v = (static_cast<std::uint64_t>(device()) << 32) ^ device();
+    }
+    return static_cast<std::int64_t>(v & 0x7FFF'FFFF'FFFF'FFFFULL) | 1; // non-zero, positive (the S12 shape)
+}
+
+}
+
+const char *driverModeName(DriverMode mode) noexcept
+{
+    switch (mode)
+    {
+        case DriverMode::EMBEDDED: return "embedded";
+        case DriverMode::EXTERNAL: return "external";
+        case DriverMode::UNSET: break;
+    }
+    return "unset";
+}
+
+std::int64_t forwarderIdentity(const ForwarderConfig &config)
+{
+    if (app_seams::disabled(app_seams::Rule::IDENTITY_RANDOM))
+    {
+        return randomIdentity(); // RED shape: a random identity per start
+    }
+    return config.instanceId;
 }
 
 std::string endpointOf(const std::string &channel)
@@ -96,7 +133,7 @@ client::ClientSettings coreClientSettings(const ForwarderConfig &config)
     s.ingressChannel = config.ingressChannel;
     s.responseChannel = config.coreResponseChannel;
     s.credentials = config.coreCredentials.encode();
-    s.clientName = "ct-forwarder-core";
+    s.clientName = "ct-forwarder-core identity=" + std::to_string(forwarderIdentity(config));
     return s;
 }
 
@@ -107,7 +144,7 @@ client::ClientSettings meClientSettings(const ForwarderConfig &config)
     s.ingressChannel = config.ingressChannel;
     s.responseChannel = config.meResponseChannel;
     s.credentials = config.meCredentials.encode();
-    s.clientName = "ct-forwarder-me";
+    s.clientName = "ct-forwarder-me identity=" + std::to_string(forwarderIdentity(config));
     return s;
 }
 
@@ -123,7 +160,96 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv)
     c.meResponseChannel = required(getenv, "FWD_ME_RESPONSE_CHANNEL", e);
     c.meCredentials = credential(getenv, "ME_AUTH_CREDENTIAL", e);
     c.ingressChannel = required(getenv, "FWD_INGRESS_CHANNEL", e);
-    c.aeronDir = required(getenv, "AERON_DIR", e);
+
+    // RC2 S10' 8.2 rule 1: the driver mode first, then its keys, strict in both directions (C13)
+    const std::string mode = trimmed(getenv("FWD_DRIVER_MODE"));
+    if ("embedded" == mode)
+    {
+        c.driverMode = DriverMode::EMBEDDED;
+    }
+    else if ("external" == mode)
+    {
+        c.driverMode = DriverMode::EXTERNAL;
+    }
+    else if (mode.empty() && app_seams::disabled(app_seams::Rule::DRIVER_MODE_DEFAULT_EXTERNAL))
+    {
+        c.driverMode = DriverMode::EXTERNAL; // RED shape: a missing mode becomes external (the S12 behaviour)
+    }
+    else if (mode.empty())
+    {
+        e.push_back("FWD_DRIVER_MODE is required (no default): embedded (dev and demo) or external (prod, the host aeronmd)");
+    }
+    else
+    {
+        e.push_back("FWD_DRIVER_MODE must be exactly embedded or external, got '" + mode + "'");
+    }
+    const bool aeronDirSet = nullptr != getenv("AERON_DIR");
+    const bool driverDirSet = nullptr != getenv("FWD_DRIVER_DIR");
+    if (DriverMode::EXTERNAL == c.driverMode)
+    {
+        c.aeronDir = trimmed(getenv("AERON_DIR"));
+        if (c.aeronDir.empty())
+        {
+            e.push_back("AERON_DIR is required with FWD_DRIVER_MODE=external (the host aeronmd's directory)");
+        }
+        if (driverDirSet)
+        {
+            e.push_back("FWD_DRIVER_DIR is set but FWD_DRIVER_MODE=external uses the host aeronmd at AERON_DIR: remove it");
+        }
+    }
+    else if (DriverMode::EMBEDDED == c.driverMode)
+    {
+        c.driverDir = trimmed(getenv("FWD_DRIVER_DIR"));
+        if (c.driverDir.empty())
+        {
+            e.push_back("FWD_DRIVER_DIR is required with FWD_DRIVER_MODE=embedded (the parent of the per-instance driver dir)");
+        }
+        else if ('/' != c.driverDir.front())
+        {
+            e.push_back("FWD_DRIVER_DIR must be an absolute path, got '" + c.driverDir + "'");
+        }
+        if (aeronDirSet)
+        {
+            e.push_back("AERON_DIR is set but FWD_DRIVER_MODE=embedded starts its own driver: remove it");
+        }
+    }
+    // 8.2 rule 2: the shared strict parser (TIMEOUT_CONSTANT RED: a missing key falls back to the S12 constant 5000)
+    {
+        const char *raw = getenv("FWD_DRIVER_TIMEOUT_MS");
+        if ((nullptr == raw || trimmed(raw).empty()) && app_seams::disabled(app_seams::Rule::TIMEOUT_CONSTANT))
+        {
+            c.driverTimeoutMs = 5000; // RED shape
+        }
+        else
+        {
+            std::string error;
+            const std::string value = trimmed(raw);
+            const auto timeout = common::parseDriverTimeoutMs("FWD_DRIVER_TIMEOUT_MS", nullptr == raw ? nullptr : value.c_str(), error);
+            if (timeout)
+            {
+                c.driverTimeoutMs = *timeout;
+            }
+            else
+            {
+                e.push_back(error);
+            }
+        }
+    }
+    // 8.2 rule 3: the instance id, both modes
+    if (const std::string id = required(getenv, "FWD_INSTANCE_ID", e); !id.empty())
+    {
+        std::int64_t v = 0;
+        const auto parsed = std::from_chars(id.data(), id.data() + id.size(), v);
+        if (parsed.ec != std::errc() || parsed.ptr != id.data() + id.size() || '+' == id.front() || v < 1)
+        {
+            e.push_back("FWD_INSTANCE_ID must be an integer in 1.." + std::to_string(std::numeric_limits<std::int64_t>::max()) +
+                ", got '" + id + "'");
+        }
+        else
+        {
+            c.instanceId = v;
+        }
+    }
     const std::string bind = required(getenv, "FWD_HTTP_BIND", e);
     if (!e.empty())
     {

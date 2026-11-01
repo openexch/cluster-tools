@@ -25,6 +25,7 @@
 
 #include "common/LogRing.h"
 #include "common/StatusBoardT.h"
+#include "common/StorageStarvation.h"
 
 #include "AppSeams.h"
 #include "StopBounds.h"
@@ -296,6 +297,7 @@ public:
         // 7.
         drainVerdicts();
         trackProgress();
+        superviseStorage();
         if (domain::bridge::Fatal::NONE != m_domain.fatal())
         {
             stop(EXIT_SOFTWARE, "F5_DOMAIN_FATAL", "the domain is fatal: %s (the gate was closed by its fallback)",
@@ -316,6 +318,76 @@ public:
         archive::ArchiveMetrics::raiseMax(m_archive.dutyIterationMaxUs,
             static_cast<std::uint64_t>((m_nowNs - t0) > 0 ? (m_nowNs - t0) / 1000 : 0));
         return work;
+    }
+
+    // RC2 S10' Q1 (coordinator decision 2026-11-01): the core ingress publication refused for storage space on every
+    // connect attempt, or every replay image refused for storage (the S9a precheck or the archive's STORAGE_SPACE) with
+    // no source FOLLOWING, held for STORAGE_STARVED_EXIT_NS (30 s, a constant) ends the process 70: restartable and loud,
+    // never alive-not-ready forever (the 2026-07-25 /dev/shm shape), never 78. Until then /ready names storage_starved
+    // and bridge_storage_starved_seconds grows. A replay attempt that fails for another reason, or any source
+    // FOLLOWING, ends a replay episode; a core attempt that fails otherwise, or a connected client, ends a core one.
+    void superviseStorage()
+    {
+        if (m_coreStorageFeed.update(m_client, client::ClientState::CONNECTED == m_client.state(), m_nowNs, m_coreStorage))
+        {
+            log(common::LogLevel::ERROR, "core ingress publication refused: insufficient storage space in the media driver "
+                "dir (exit 70 if it lasts 30 s): %s", m_coreStorage.why());
+        }
+        using archive::OpenFailure;
+        const std::uint64_t storage = m_archive.openFailures(OpenFailure::STORAGE) + m_archive.openFailures(OpenFailure::STORAGE_SPACE);
+        std::uint64_t other = 0;
+        for (std::size_t f = 0; f < static_cast<std::size_t>(OpenFailure::COUNT); ++f)
+        {
+            other += m_archive.openFailures(static_cast<OpenFailure>(f));
+        }
+        other -= storage;
+        bool anyFollowing = false;
+        for (std::size_t i = 0; i < m_settings.sourceCount && i < archive::MAX_SOURCES; ++i)
+        {
+            anyFollowing = anyFollowing || 0 != archive::ArchiveMetrics::get(m_archive.sourceAttached[i]);
+        }
+        if (storage != m_seenReplayStorage)
+        {
+            m_seenReplayStorage = storage;
+            if (m_replayStorage.onStarved(m_nowNs, "a replay image needs more free space than the media driver dir has "
+                    "(REPLAY_STORAGE / STORAGE_SPACE)"))
+            {
+                log(common::LogLevel::ERROR, "replay image refused: insufficient storage space in the media driver dir "
+                    "(exit 70 if no source can follow for 30 s)");
+            }
+        }
+        else if (other != m_seenReplayOther)
+        {
+            m_replayStorage.onRelieved(m_nowNs);
+        }
+        m_seenReplayOther = other;
+        if (anyFollowing)
+        {
+            m_replayStorage.onRelieved(m_nowNs);
+        }
+        if (m_coreStorage.active() || m_replayStorage.active())
+        {
+            m_anyStorage.onStarved(m_nowNs, "");
+        }
+        else
+        {
+            m_anyStorage.onRelieved(m_nowNs);
+        }
+        if (app_seams::disabled(app_seams::Rule::STORAGE_STARVED_EXIT_OFF))
+        {
+            return;
+        }
+        for (const common::StorageStarvation *w : { &m_coreStorage, &m_replayStorage })
+        {
+            if (w->expired(m_nowNs))
+            {
+                stop(EXIT_SOFTWARE, "F_STORAGE_STARVED", "%s for %lld s on every attempt (the media driver dir's tmpfs is "
+                    "too small or full): %s", w == &m_coreStorage ? "the core ingress publication was refused for storage space"
+                    : "every replay image was refused for storage space", static_cast<long long>(w->heldNs(m_nowNs) / 1'000'000'000LL),
+                    w->why());
+                return;
+            }
+        }
     }
 
     // The invoker given to the SourceSet (S9a 3.3): runs inside a blocked archive call, after every yield of the
@@ -379,6 +451,7 @@ public:
         s.registrar.resends = rc.resends;
         s.registrar.sends = rc.sends;
         s.app = m_counters;
+        s.app.storageStarvedSeconds = m_anyStorage.starvedSeconds(m_nowNs); // wall seconds with either starved
         s.app.sourceFaults = m_tap.faults();
         s.app.ackMapSkips = m_ackMap.skips();
         s.app.ackUnknown = m_ackMap.unknown();
@@ -394,6 +467,7 @@ public:
         in.view = m_domain.view();
         in.now = m_now;
         in.progressAt = m_consumedChangedAt > in.view.lastForwardAt ? m_consumedChangedAt : in.view.lastForwardAt;
+        in.progressAt = m_syncCursorChangedAt > in.progressAt ? m_syncCursorChangedAt : in.progressAt; // 3.6
         in.forwardAt = TimePoint{} == in.view.lastForwardAt ? m_startedAt : in.view.lastForwardAt;
         in.backlogBytes = m_archive.sourceBacklogBytes.load(std::memory_order_relaxed);
         for (std::size_t i = 0; i < m_settings.sourceCount && i < archive::MAX_SOURCES; ++i)
@@ -402,6 +476,7 @@ public:
                 0 != archive::ArchiveMetrics::get(m_archive.sourceAttached[i]);
         }
         in.stopping = m_stopRequested || m_stop.set();
+        in.storageStarved = m_coreStorage.active() || m_replayStorage.active();
         in.reportInterval = m_domainSettings.reportInterval;
         in.reportIntervalHalted = m_domainSettings.reportIntervalHalted;
         return notReadyBits(in);
@@ -1205,6 +1280,13 @@ private:
             m_lastConsumed = consumed;
             m_consumedChangedAt = m_now;
         }
+        // RC2 S10' 3.6: a confirm / lane_ahead fence moves the sync cursor (another lane delivered): progress
+        const std::int64_t syncCursor = m_domain.view().syncCursor;
+        if (syncCursor != m_lastSyncCursor && !app_seams::disabled(app_seams::Rule::READY_IGNORES_SYNC_CURSOR))
+        {
+            m_lastSyncCursor = syncCursor;
+            m_syncCursorChangedAt = m_now;
+        }
     }
 
     CoreClient &m_client;
@@ -1215,6 +1297,12 @@ private:
     common::LogRing *m_log;
     common::DutyHeartbeat *m_heartbeat;
     AppCounters m_counters;
+    common::StorageStarvation m_coreStorage;   // S10' Q1
+    common::StorageStarvation m_replayStorage;
+    common::StorageStarvation m_anyStorage;    // either of them: bridge_storage_starved_seconds
+    common::ClientStorageFeed<CoreClient> m_coreStorageFeed;
+    std::uint64_t m_seenReplayStorage = 0;
+    std::uint64_t m_seenReplayOther = 0;
     domain::bridge::BridgeMetrics m_metrics;
     CorePortAdapter<CoreClient> m_port;
     domain::bridge::BridgeSettings m_domainSettings;
@@ -1253,6 +1341,8 @@ private:
     std::int64_t m_lastInvokeNs = 0;
     std::int64_t m_offerEpochMs = 0;
     std::int64_t m_lastConsumed = -1;
+    std::int64_t m_lastSyncCursor = 0; // RC2 S10' 3.6
+    TimePoint m_syncCursorChangedAt{};
     TimePoint m_consumedChangedAt{};
 };
 

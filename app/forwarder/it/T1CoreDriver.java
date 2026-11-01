@@ -17,6 +17,19 @@
 //       the tap: a FORWARDER session registered with dispatch (sourceEpoch = the bound epoch), RequestPendingDispatch
 //       pages of 4096 from 0 until a short page; writes "seq idHigh idLow kind" per pending dispatch; prints
 //       "PENDING count=N head=H".
+//   capture <aeronDir> <ingress> <outDir> <seconds> <sourceEpoch>
+//       RC2 S10' 7.1 item 1 (O-F5, T1-G): the tap of `pending` (a FORWARDER session registered with dispatch, sourceEpoch =
+//       the bound epoch) that sends NO request and records every BROADCAST MeDispatch / MeDispatchBatch entry for <seconds>
+//       into <outDir>/dispatch.map, one line "dispatchSeq commandIdHigh commandIdLow kind receiveMs" (receiveMs = this
+//       JVM's wall clock at the egress poll that delivered it) in arrival order. The broadcast is emitted at mint (S12
+//       D-S12-6, dense), so the map is taken WHILE the commands are pending. Prints "CAPTURE armed sourceEpoch=E" once
+//       registered, then "CAPTURE count=N firstSeq=F lastSeq=L"; exit 0 when the seqs are dense over [F, L], exit 1 at a
+//       gap ("CAPTURE GAP ..."; a non-dense map is not joined). A seq seen twice is counted and kept once.
+//   events <aeronDir> <ingress> <outFile> <seconds>
+//       RC2 S10' 7.2 T1-G (the reject reason by name: `t1-core dump --orders` prints none): a GATEWAY session (orders
+//       channel) records every BROADCAST OrderEvent for <seconds> (0 = until SIGTERM), one flushed line
+//       "orderId userId eventKind status reason meReason receiveMs" (enum names, UNKNOWN_<raw> for a value the schema
+//       does not name). Prints "EVENTS armed" once registered, "EVENTS count=N" at the end.
 //
 // What this T1 run does NOT have: the RC2 S9 Java bridge (contract assumption 2). At assets b05b8e8 the bridge still
 // speaks the v5 settlement journal (schemaId 3: Settle / TerminalRelease), which a behaviour-3 core refuses, so no ME
@@ -34,8 +47,10 @@ import com.openexchange.assets.infrastructure.generated.AdminAckDecoder;
 import com.openexchange.assets.infrastructure.generated.BoolFlag;
 import com.openexchange.assets.infrastructure.generated.ConfigDecision;
 import com.openexchange.assets.infrastructure.generated.CoreConfigEncoder;
+import com.openexchange.assets.infrastructure.generated.CoreRejectReason;
 import com.openexchange.assets.infrastructure.generated.CreateOrderEncoder;
 import com.openexchange.assets.infrastructure.generated.DepositEncoder;
+import com.openexchange.assets.infrastructure.generated.EventKind;
 import com.openexchange.assets.infrastructure.generated.GateReason;
 import com.openexchange.assets.infrastructure.generated.GateState;
 import com.openexchange.assets.infrastructure.generated.MeDispatchBatchDecoder;
@@ -44,6 +59,9 @@ import com.openexchange.assets.infrastructure.generated.MeEngineConfigEncoder;
 import com.openexchange.assets.infrastructure.generated.MessageHeaderDecoder;
 import com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder;
 import com.openexchange.assets.infrastructure.generated.OrderEntryGateEncoder;
+import com.openexchange.assets.infrastructure.generated.OrderEventBatchDecoder;
+import com.openexchange.assets.infrastructure.generated.OrderEventDecoder;
+import com.openexchange.assets.infrastructure.generated.OrderStatus;
 import com.openexchange.assets.infrastructure.generated.OrderRejectDecoder;
 import com.openexchange.assets.infrastructure.generated.OrderType;
 import com.openexchange.assets.infrastructure.generated.PendingDispatchEndDecoder;
@@ -63,6 +81,7 @@ import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -368,6 +387,124 @@ public final class T1CoreDriver {
         }
     }
 
+    private static void capture(final String aeronDir, final String ingress, final Path outDir, final int seconds,
+                                final long sourceEpoch) throws Exception {
+        if (seconds < 1) {
+            throw new IllegalArgumentException("capture <seconds> must be >= 1, got " + seconds);
+        }
+        Files.createDirectories(outDir);
+        final Path map = outDir.resolve("dispatch.map");
+        try (Session tap = new Session(aeronDir, ingress, "T1_TAP_KEY");
+             PrintWriter w = new PrintWriter(Files.newBufferedWriter(map))) {
+            tap.register(0x8300, SessionClass.FORWARDER, true, sourceEpoch);
+            System.out.println("CAPTURE armed sourceEpoch=" + sourceEpoch);
+            System.out.flush();
+            final MessageHeaderDecoder h = new MessageHeaderDecoder();
+            final MeDispatchDecoder one = new MeDispatchDecoder();
+            final MeDispatchBatchDecoder batch = new MeDispatchBatchDecoder();
+            final BitSet seen = new BitSet();
+            long first = Long.MAX_VALUE;
+            long last = Long.MIN_VALUE;
+            long count = 0;
+            long repeats = 0;
+            // the register reply and everything before it is not a broadcast of the window
+            tap.frames.clear();
+            final long until = System.currentTimeMillis() + 1000L * seconds;
+            while (System.currentTimeMillis() < until) {
+                tap.poll();
+                final long receiveMs = System.currentTimeMillis();
+                for (final byte[] f : tap.frames) {
+                    final UnsafeBuffer b = new UnsafeBuffer(f);
+                    h.wrap(b, 0);
+                    final List<long[]> entries = new ArrayList<>();
+                    if (h.templateId() == MeDispatchDecoder.TEMPLATE_ID) {
+                        one.wrapAndApplyHeader(b, 0, h);
+                        entries.add(new long[] {one.dispatchSeq(), one.commandIdHigh(), one.commandIdLow(), one.kindRaw()});
+                    } else if (h.templateId() == MeDispatchBatchDecoder.TEMPLATE_ID) {
+                        for (final MeDispatchBatchDecoder.DispatchesDecoder d : batch.wrapAndApplyHeader(b, 0, h).dispatches()) {
+                            entries.add(new long[] {d.dispatchSeq(), d.commandIdHigh(), d.commandIdLow(), d.kindRaw()});
+                        }
+                    }
+                    for (final long[] e : entries) {
+                        if (e[0] < 1 || e[0] > Integer.MAX_VALUE) {
+                            throw new IllegalStateException("dispatchSeq " + e[0] + " outside 1.." + Integer.MAX_VALUE);
+                        }
+                        if (seen.get((int) e[0])) {
+                            repeats++;
+                            continue;
+                        }
+                        seen.set((int) e[0]);
+                        w.println(e[0] + " " + e[1] + " " + e[2] + " " + e[3] + " " + receiveMs);
+                        count++;
+                        first = Math.min(first, e[0]);
+                        last = Math.max(last, e[0]);
+                    }
+                }
+                tap.frames.clear();
+                Thread.sleep(1);
+            }
+            w.flush();
+            if (count == 0) {
+                System.out.println("CAPTURE count=0 firstSeq=- lastSeq=- repeats=" + repeats);
+                return;
+            }
+            final int gap = seen.nextClearBit((int) first);
+            System.out.println("CAPTURE count=" + count + " firstSeq=" + first + " lastSeq=" + last + " repeats=" + repeats);
+            if (gap <= last) {
+                final int resume = seen.nextSetBit(gap);
+                System.out.println("CAPTURE GAP after seq " + (gap - 1) + " next " + resume + " (missing " + (resume - gap)
+                        + "): the map is not dense");
+                System.exit(1);
+            }
+        }
+    }
+
+    private static String nameOf(final Enum<?> e, final int raw) {
+        return e == null || "NULL_VAL".equals(e.name()) ? "UNKNOWN_" + raw : e.name();
+    }
+
+    private static void events(final String aeronDir, final String ingress, final Path outFile, final int seconds)
+            throws Exception {
+        try (Session gw = new Session(aeronDir, ingress, "T1_GATEWAY_KEY");
+             PrintWriter w = new PrintWriter(Files.newBufferedWriter(outFile), true)) {
+            gw.register(0x8400, SessionClass.GATEWAY, false, 0);
+            gw.frames.clear();
+            System.out.println("EVENTS armed");
+            System.out.flush();
+            final MessageHeaderDecoder h = new MessageHeaderDecoder();
+            final OrderEventDecoder d = new OrderEventDecoder();
+            final OrderEventBatchDecoder batch = new OrderEventBatchDecoder();
+            long count = 0;
+            final long until = seconds == 0 ? Long.MAX_VALUE : System.currentTimeMillis() + 1000L * seconds;
+            while (System.currentTimeMillis() < until) {
+                gw.poll();
+                final long receiveMs = System.currentTimeMillis();
+                for (final byte[] f : gw.frames) {
+                    final UnsafeBuffer b = new UnsafeBuffer(f);
+                    h.wrap(b, 0);
+                    // Under load the core coalesces OrderEvents into OrderEventBatch (SessionEgressQueue); read both.
+                    if (h.templateId() == OrderEventDecoder.TEMPLATE_ID) {
+                        d.wrapAndApplyHeader(b, 0, h);
+                        w.println(d.orderId() + " " + d.userId() + " " + nameOf(EventKind.get(d.eventKindRaw()), d.eventKindRaw()) + " "
+                                + nameOf(OrderStatus.get(d.statusRaw()), d.statusRaw()) + " "
+                                + nameOf(CoreRejectReason.get(d.reasonRaw()), d.reasonRaw()) + " " + d.meReason() + " " + receiveMs);
+                        count++;
+                    } else if (h.templateId() == OrderEventBatchDecoder.TEMPLATE_ID) {
+                        for (final OrderEventBatchDecoder.EventsDecoder e : batch.wrapAndApplyHeader(b, 0, h).events()) {
+                            w.println(e.orderId() + " " + e.userId() + " " + nameOf(EventKind.get(e.eventKindRaw()), e.eventKindRaw()) + " "
+                                    + nameOf(OrderStatus.get(e.statusRaw()), e.statusRaw()) + " "
+                                    + nameOf(CoreRejectReason.get(e.reasonRaw()), e.reasonRaw()) + " " + e.meReason() + " " + receiveMs);
+                            count++;
+                        }
+                    }
+                }
+                gw.frames.clear();
+                Thread.sleep(2);
+            }
+            System.out.println("EVENTS count=" + count);
+        }
+    }
+
     public static void main(final String[] args) throws Exception {
         try {
             switch (args[0]) {
@@ -381,6 +518,18 @@ public final class T1CoreDriver {
                     break;
                 case "pending":
                     pending(args[1], args[2], Path.of(args[3]), Long.decode(args[4]));
+                    break;
+                case "capture":
+                    if (args.length != 6) {
+                        throw new IllegalArgumentException("capture <aeronDir> <ingress> <outDir> <seconds> <sourceEpoch>");
+                    }
+                    capture(args[1], args[2], Path.of(args[3]), Integer.parseInt(args[4]), Long.decode(args[5]));
+                    break;
+                case "events":
+                    if (args.length != 5) {
+                        throw new IllegalArgumentException("events <aeronDir> <ingress> <outFile> <seconds>");
+                    }
+                    events(args[1], args[2], Path.of(args[3]), Integer.parseInt(args[4]));
                     break;
                 default:
                     throw new IllegalArgumentException("unknown command " + args[0]);

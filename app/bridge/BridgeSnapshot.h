@@ -47,7 +47,8 @@ inline constexpr std::uint32_t NO_SOURCE_BEYOND_E = 1u << 11;
 inline constexpr std::uint32_t HOLE_GRACE = 1u << 12;
 inline constexpr std::uint32_t STOPPING = 1u << 13;
 inline constexpr std::uint32_t STALLED = 1u << 14; // main's view, added by the HTTP route
-inline constexpr int BITS = 15;
+inline constexpr std::uint32_t STORAGE_STARVED = 1u << 15; // S10' Q1: our publication / replay image refused for storage
+inline constexpr int BITS = 16;
 }
 const char *notReadyBitName(int bit) noexcept;
 
@@ -62,6 +63,7 @@ struct ReadyInputs
     std::int64_t backlogBytes = 0;     // bridge_source_backlog_bytes
     bool anySourceAttached = false;
     bool stopping = false;
+    bool storageStarved = false;       // S10' Q1: the core ingress or every replay image refused for storage space
     std::chrono::milliseconds reportInterval{ 10'000 };
     std::chrono::milliseconds reportIntervalHalted{ 5'000 };
 };
@@ -194,6 +196,7 @@ struct AppCounters
     std::uint64_t connectClusterErrors = 0;                   // bridge_connect_cluster_error_total
     std::uint64_t connectCycles = 0;                          // bridge_connect_cycles_total (cycles started)
     std::uint64_t connectCyclesFailed = 0;                    // cycles that ended FAILED (retried)
+    std::uint64_t storageStarvedSeconds = 0;                  // bridge_storage_starved_seconds (S10' Q1)
     std::uint64_t coreStaleTerm = 0;                          // bridge_core_stale_term_total
     std::uint64_t coreFutureTerm = 0;                         // bridge_core_future_term_total
     std::uint64_t coreMalformed = 0;                          // a core frame shorter than a money header

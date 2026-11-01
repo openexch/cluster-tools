@@ -38,6 +38,7 @@ enum class Rule : unsigned
     LATENCY_RECORDS_GARBAGE,    // a future / negative trade timestamp is recorded
     READY_IGNORES_REPORT_AGE,   // /ready has no report-age bit
     READY_COUNTS_FORWARDS_ONLY, // backlog progress = forwards only (a skip walk reads not ready)
+    READY_IGNORES_SYNC_CURSOR,  // RC2 S10' 3.6: a confirm fence's sync cursor move is not progress (a lane-ahead lane 503)
     TAP_SWALLOWS,               // the observer tap counts a fault but does not forward it
     RESEND_NEW_CORRELATION,     // the app re-registers (new correlation id) when an ack is late
     DUPLICATE_IDENTITY_EXITS,   // RC2 S10': a REJECTED DUPLICATE_IDENTITY (44) exits 78 at once (no bounded retry)
@@ -49,6 +50,7 @@ enum class Rule : unsigned
     EMBEDDED_INSTANCE_LOCK,     // no instance lock: two same-id embedded starts both reclaim the dir (Q3)
     CONDUCTOR_REVALIDATE_OFF,   // the heartbeat record is not re-validated: a reclaimed, re-used slot reads healthy
     STOP_DETACH_WHEN_LATE,      // a late stop still runs stopReplay: a blocked call + stopReplay pass the 7 s join bound
+    STORAGE_STARVED_EXIT_OFF,   // S10' Q1: storage starvation never ends the process (alive and not ready forever)
     // test builds (never a test RED): ct_bridge_negctl
     NEGCTL_DROP_RECORDS_2_3,    // record templates 2 and 3 are dropped before the domain (the A02-T2 control)
     COUNT

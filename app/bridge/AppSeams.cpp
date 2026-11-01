@@ -36,6 +36,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::LATENCY_RECORDS_GARBAGE: return "LATENCY_RECORDS_GARBAGE";
         case Rule::READY_IGNORES_REPORT_AGE: return "READY_IGNORES_REPORT_AGE";
         case Rule::READY_COUNTS_FORWARDS_ONLY: return "READY_COUNTS_FORWARDS_ONLY";
+        case Rule::READY_IGNORES_SYNC_CURSOR: return "READY_IGNORES_SYNC_CURSOR";
         case Rule::TAP_SWALLOWS: return "TAP_SWALLOWS";
         case Rule::RESEND_NEW_CORRELATION: return "RESEND_NEW_CORRELATION";
         case Rule::DUPLICATE_IDENTITY_EXITS: return "DUPLICATE_IDENTITY_EXITS";
@@ -46,6 +47,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::EMBEDDED_INSTANCE_LOCK: return "EMBEDDED_INSTANCE_LOCK";
         case Rule::CONDUCTOR_REVALIDATE_OFF: return "CONDUCTOR_REVALIDATE_OFF";
         case Rule::STOP_DETACH_WHEN_LATE: return "STOP_DETACH_WHEN_LATE";
+        case Rule::STORAGE_STARVED_EXIT_OFF: return "STORAGE_STARVED_EXIT_OFF";
         case Rule::NEGCTL_DROP_RECORDS_2_3: return "NEGCTL_DROP_RECORDS_2_3";
         case Rule::COUNT: break;
     }

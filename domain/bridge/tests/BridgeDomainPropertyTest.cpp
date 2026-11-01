@@ -436,6 +436,12 @@ struct Stats
     int successorAttaches = 0, stepBacks = 0, schemaRescanRecoveries = 0, successorRecoveries = 0;
 };
 Stats g_stats;
+// S10' lane A (2026-11-01, carried finding): the S9b row-3 shape where a BEHIND verdict on a source the domain no
+// longer follows goes stale (its successor recording appears during hole_grace) and the grace-expiry decision halts
+// although a memo-free read now delivers e. Set only by staleBehindHaltRecoversByTheReScan: the halt-time "delivers"
+// check is recorded instead of failed there, and the run must still end complete (every record once, in order).
+bool g_staleBehindHaltTolerated = false;
+int g_staleBehindHalts = 0;
 
 // The duty loop of section 3 with a checking core port in front of the stub.
 struct Property : CorePort
@@ -841,6 +847,11 @@ std::string runScenario(std::uint64_t seed)
             {
                 const Truth t = snapshot[s];
                 truths += std::string(" src") + std::to_string(s) + "=" + truthName(t);
+                if (Truth::DELIVERS == t && g_staleBehindHaltTolerated)
+                {
+                    ++g_staleBehindHalts; // recorded; the class checks below judge the other sources
+                    continue;
+                }
                 if (Truth::DELIVERS == t)
                 {
                     return fail(std::string("halt ") + bridgeHaltName(v.halt) + " at " + std::to_string(e) +
@@ -1187,4 +1198,32 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
         CHECK(g_stats.schemaRescanRecoveries > 0);
         CHECK(g_stats.successorRecoveries > 0);
     }
+}
+
+TEST_CASE("BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan")
+{
+    // S10' lane A (W9 item 3): the four S9b seeds (bases 31337, 99999999, 555000, 8675309) that fail the halt-time check
+    // "halt ... although a memo-free read delivers it" on 2039454 and on the S10' tree. Cause (pre-halt, S9b 8.3 row 3,
+    // not R0-R2): during hole_grace the domain parks on the first BEHIND source; another BEHIND source's successor
+    // recording appears meanwhile and is never read, so the grace-expiry decision counts it HOLED-without-seen and
+    // halts SOURCE_SCHEMA / GAP. Carried (README lane A). Pinned here: with F-1 (R0 schema re-scan, R1 re-list) the halt
+    // is transient, the run completes with every record once and in order, and the halt is counted recovered.
+    g_staleBehindHaltTolerated = true;
+    g_staleBehindHalts = 0;
+    g_stats = Stats{};
+    std::string failure;
+    for (const std::uint64_t seed : { 31441ULL, 100001135ULL, 556400ULL, 8676632ULL })
+    {
+        const std::string r = runScenario(seed);
+        if (!r.empty() && failure.empty())
+        {
+            failure = r;
+        }
+    }
+    g_staleBehindHaltTolerated = false;
+    INFO(failure);
+    CHECK(failure.empty());
+    CHECK(g_stats.completed == 4);
+    CHECK(g_stats.recovered >= 4);
+    CHECK(g_staleBehindHalts == 4); // the shape is still reached: when it drops to 0 the carry is fixed upstream
 }

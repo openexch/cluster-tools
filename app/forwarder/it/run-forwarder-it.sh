@@ -35,6 +35,28 @@
 # ledger-size rows; the ledger row cannot fail, see the scenario). Both REDs leave the core polluted: run them last,
 # each on its own topology. The load's users hit the core's per-user open-order cap (reject reason 32) after about 12.7k
 # resting orders: a run of every scenario on one topology saturates it before nc-noresync, so split long runs.
+#
+# RC2 S10' W6 (contract section 7, the S9c FIX-3 gate rows; all need IT_BRIDGE): IT_HARNESS=<feed-harness.jar> (the
+# assets harness, review F-12) runs `t1-core dump --orders` / `invariants` / `probe-cancel` against this core
+# (T1_CORE_INGRESS / T1_AERON_DIR set from the runner's ingress and driver). Rows:
+#   t1f (extended)  fwdA = ct_forwarder_tc_capture (FWD_CAPTURE_DIR), fwdB normal; after the barrier one captured late
+#                   release frame and one captured late CREATE of a released order are re-sent once on the ME FORWARDER
+#                   key 8 (T1MeDriver resend): the release is an all-NOOP frame (noop frames +1, next journal seq
+#                   unchanged); the CREATE journals one record 3 RELEASED 7 (no new leg, O-F3 unchanged, bridge 64 +1,
+#                   order faults unchanged, nothing pending, release backlog 0 within 10 s); every captured release entry
+#                   has exactly one APPLIED record 4 entry
+#   t1g (extended)  + T1CoreDriver capture / events during the load: every corrupted CREATE (orderId % 50 == 0, the
+#                   tc_corrupt rule, ids from the capture map) is absent from `dump --orders` (terminal), its last
+#                   OrderEvent is REJECTED reason ME_INVALID by name, its users' rows of `invariants` OK; then
+#                   `probe-cancel` of one live order: ACCEPTED, CANCELLED through the ME and the bridge, gone from the dump,
+#                   `invariants` PASS. nc-refuse (the RED) must FAIL the per-order line "status LIVE, hold present"
+#   of5             N = 2, capture from 2 s before the load to after it, ct-journal-tail --hex over the ME leader's
+#                   archive, of5-check.py: 0 inversions, every captured template-9 id has a record 3, count >= sent -
+#                   rejects
+#   of5-meleader    the same under the me-leader fault: checked outside the declared window [SIGSTOP - 2 s, both
+#                   forwarders ready again + 2 s], the inside count printed; RED half (of5-meleader-nc): without the
+#                   window the check must find inversions > 0 (else INCONCLUSIVE: the election truncated nothing)
+#   of5-shuffle     RED: of5-check.py --shuffle over of5's files (run of5 first in the same invocation): inversions > 0
 set -uo pipefail
 
 if [ $# -lt 3 ]; then
@@ -68,6 +90,7 @@ cleanup() {
     local orphan
     for orphan in $(jobs -p); do kill -9 "$orphan" 2>/dev/null || true; done
     wait 2>/dev/null || true
+    declare -F lane_c_cleanup > /dev/null && lane_c_cleanup # RC2 S10' lane C: the tmpfs-min mounts
     rm -rf "$SHM"
     if [ "${IT_KEEP:-0}" != "1" ]; then rm -rf "$W"; else echo "work dir kept: $W"; fi
 }
@@ -81,6 +104,8 @@ AE_KEYS="1:ADMIN:$(hex 11)::users=*;2:TOOL:$(hex 22)::users=*;3:BRIDGE:$(hex 33)
 ME_KEYS="4:ADMIN:$(hex 44)::users=*;6:FORWARDER:$(hex 6a)::users=*;7:FORWARDER:$(hex 7a)::users=*;8:FORWARDER:$(hex 8a)::users=*"
 export T1_ADMIN_KEY="1:ADMIN:$(hex 11)" T1_TOOL_KEY="2:TOOL:$(hex 22)" T1_BRIDGE_KEY="3:BRIDGE:$(hex 33)"
 export T1_GATEWAY_KEY="5:GATEWAY:$(hex 55)" T1_TAP_KEY="8:FORWARDER:$(hex 88)" T1_ME_ADMIN_KEY="4:ADMIN:$(hex 44)"
+# RC2 S10' 7.1 item 3 (review F-6): T1MeDriver resend opens an ME FORWARDER session on key 8, which no forwarder uses
+export T1_ME_FORWARDER_KEY="8:FORWARDER:$(hex 8a)"
 FWDA_AE="6:FORWARDER:$(hex 66)"; FWDA_ME="6:FORWARDER:$(hex 6a)"
 FWDB_AE="7:FORWARDER:$(hex 77)"; FWDB_ME="7:FORWARDER:$(hex 7a)"
 
@@ -125,11 +150,23 @@ start_me() { # node
     PID[me$i]=$!
 }
 
-start_fwd() { # name binary aeKey meKey httpPort [aeronDir]
-    local name=$1 bin=$2 ae=$3 me=$4 port=$5 dir=${6:-$DRIVER_DIR}
+# RC2 S10' section 8 (C13): IT_FWD_MODE=external (default; the runner's aeronmd, or the dir given as the 6th argument)
+# or embedded (each forwarder's own driver under FWD_EMBEDDED_PARENT, ct-forwarder-<id>); FWD_INSTANCE_ID is fixed per
+# name (fwdA 101, fwdB 102) so a restart keeps its identity; FWD_DRIVER_TIMEOUT_MS 5000 (the S12 value).
+FWD_MODE=${IT_FWD_MODE:-external}
+FWD_EMBEDDED_PARENT="$SHM/fwd-embedded"
+fwd_instance_id() { case "$1" in fwdA) echo 101 ;; fwdB) echo 102 ;; *) echo 109 ;; esac; }
+start_fwd() { # name binary aeKey meKey httpPort [aeronDir: forces external on that driver]
+    local name=$1 bin=$2 ae=$3 me=$4 port=$5 driverEnv capEnv=()
+    # RC2 S10' 7.1 item 2: ct_forwarder_tc_capture reads FWD_CAPTURE_DIR (set by the caller for that start only)
+    [ -n "${FWD_CAPTURE_DIR:-}" ] && capEnv=(FWD_CAPTURE_DIR="$FWD_CAPTURE_DIR")
+    if [ -n "${6:-}" ] || [ "$FWD_MODE" = external ]; then driverEnv=(FWD_DRIVER_MODE=external AERON_DIR="${6:-$DRIVER_DIR}")
+    else mkdir -p "${FWD_EMBEDDED_DIR_OVERRIDE:-$FWD_EMBEDDED_PARENT}"
+        driverEnv=(FWD_DRIVER_MODE=embedded FWD_DRIVER_DIR="${FWD_EMBEDDED_DIR_OVERRIDE:-$FWD_EMBEDDED_PARENT}"); fi
     env -i PATH="$PATH" FWD_CORE_INGRESS="$AE_INGRESS" FWD_CORE_RESPONSE_CHANNEL="aeron:udp?endpoint=127.0.0.1:0" \
         AE_AUTH_CREDENTIAL="$ae" FWD_ME_INGRESS="$ME_INGRESS" FWD_ME_RESPONSE_CHANNEL="aeron:udp?endpoint=127.0.0.1:0" \
-        ME_AUTH_CREDENTIAL="$me" FWD_INGRESS_CHANNEL="aeron:udp?term-length=4m|mtu=8192" AERON_DIR="$dir" \
+        ME_AUTH_CREDENTIAL="$me" FWD_INGRESS_CHANNEL="aeron:udp?term-length=4m|mtu=8192" "${driverEnv[@]}" \
+        FWD_DRIVER_TIMEOUT_MS=5000 FWD_INSTANCE_ID="$(fwd_instance_id "$name")" "${capEnv[@]}" \
         FWD_HTTP_BIND="127.0.0.1:$port" taskset -c 0-11 "$bin" >> "$W/$name.log" 2>&1 &
     PID[$name]=$!
 }
@@ -470,16 +507,21 @@ run_scenario() {
         c0=$(ae_counter assets_me_invalid_total)
         kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3
         start_fwd fwdA "$tc" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        # RC2 S10' 7.2 T1-G: the core's OrderEvents (the reject reason by name) and the dispatch map (the corrupted ids)
+        w6_events_bg t1g; w6_capture_bg t1g $((SECONDS_LOAD + 10))
         load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        w6_capture_wait t1g # before the oracle: its `pending` tap uses the same FORWARDER key
         local inv i1 b1; inv=$(curl -s http://127.0.0.1:24001/metrics | awk '$1 ~ /^forwarder_invalid_dispatch_total\{/ { s += $2 } END { print s + 0 }')
         EXPECT_INVALID_TIF=$(( ${i0:-0} + inv ))
         local ok=0; oracle t1g 24001 || ok=1
         i1=$(me_counter match_durable_invalid_tif_total); b1=$(bridge_metric 'bridge_forwarded_records_total{kind="64"}')
         local c1; c1=$(ae_counter assets_me_invalid_total)
+        local po=0; w6_per_order t1g "$W/capture-t1g/dispatch.map" "$W/events-t1g.txt" 1 || po=1
+        w6_events_stop
         kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3; start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
-        if [ $ok -eq 0 ] && [ "$inv" -gt 0 ] && [ $((i1 - i0)) = "$inv" ] && [ $((b1 - b0)) -ge "$inv" ] && [ $((c1 - c0)) = "$inv" ]; then
-            result t1g ok "invalid dispatches $inv = ME invalid_tif +$((i1 - i0)) = core ME_INVALID terminals +$((c1 - c0)); bridge 64 records +$((b1 - b0)); $ORACLE_DETAIL"
-        else result t1g fail "invalid $inv ME +$((i1 - i0)) core ME_INVALID +$((c1 - c0)) bridge 64s +$((b1 - b0)); $ORACLE_DETAIL"; fi ;;
+        if [ $ok -eq 0 ] && [ "$inv" -gt 0 ] && [ $((i1 - i0)) = "$inv" ] && [ $((b1 - b0)) -ge "$inv" ] && [ $((c1 - c0)) = "$inv" ] && [ $po -eq 0 ]; then
+            result t1g ok "invalid dispatches $inv = ME invalid_tif +$((i1 - i0)) = core ME_INVALID terminals +$((c1 - c0)); bridge 64 records +$((b1 - b0)); per-order: $PO_DETAIL; $ORACLE_DETAIL"
+        else result t1g fail "invalid $inv ME +$((i1 - i0)) core ME_INVALID +$((c1 - c0)) bridge 64s +$((b1 - b0)); per-order (rc $po): $PO_DETAIL; $ORACLE_DETAIL"; fi ;;
     nc-refuse) # S9c 12.5 negative control on T1-G: the refusal preset (classes I and C discarded) over the test corruption
         # must FAIL O-F4: exactly the corrupted CREATEs stay pending at the core, nothing reaches the ME as INVALID
         local tc; tc=$(find "$BUILD" -name ct_forwarder_nc_refuse_tc -type f | head -1)
@@ -487,15 +529,21 @@ run_scenario() {
         local i0; i0=$(me_counter match_durable_invalid_tif_total)
         kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3
         start_fwd fwdA "$tc" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        w6_events_bg nc-refuse; w6_capture_bg nc-refuse $((SECONDS_LOAD + 10)) # RC2 S10' 7.2: the per-order RED
         load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        w6_capture_wait nc-refuse
         local inv; inv=$(curl -s http://127.0.0.1:24001/metrics | awk '$1 ~ /^forwarder_invalid_dispatch_total\{/ { s += $2 } END { print s + 0 }')
         local ok=0; oracle nc-refuse 24001 || ok=1
         local i1 pc; i1=$(me_counter match_durable_invalid_tif_total)
         pc=$(awk '$4 == 0 { n++ } END { print n + 0 }' "$W/pending-nc-refuse.txt" 2>/dev/null)
+        # the T1-G per-order row must FAIL on its named line (the refused CREATEs stay live, their holds kept)
+        local po=0; w6_per_order nc-refuse "$W/capture-nc-refuse/dispatch.map" "$W/events-nc-refuse.txt" 0 || po=1
+        w6_events_stop
         kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3; start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
-        if [ $ok -eq 1 ] && [ "$inv" -gt 0 ] && [ "$pc" = "$inv" ] && [ "$i1" = "$i0" ]; then
-            result nc-refuse ok "RED as required: O-F4 FAIL, pending CREATEs $pc = refused corrupted dispatches $inv, ME invalid_tif unchanged; $ORACLE_DETAIL"
-        else result nc-refuse fail "oracle rc $ok pending CREATEs $pc refused $inv ME invalid $i0 -> $i1; $ORACLE_DETAIL"; fi ;;
+        if [ $ok -eq 1 ] && [ "$inv" -gt 0 ] && [ "$pc" = "$inv" ] && [ "$i1" = "$i0" ] && [ $po -eq 1 ] &&
+            [[ "$PO_DETAIL" == *"status LIVE, hold present"* ]]; then
+            result nc-refuse ok "RED as required: O-F4 FAIL, pending CREATEs $pc = refused corrupted dispatches $inv, ME invalid_tif unchanged; the T1-G per-order line FAILS: $PO_DETAIL; $ORACLE_DETAIL"
+        else result nc-refuse fail "oracle rc $ok pending CREATEs $pc refused $inv ME invalid $i0 -> $i1; per-order rc $po (must FAIL on 'status LIVE, hold present'): $PO_DETAIL; $ORACLE_DETAIL"; fi ;;
     nc-norelease) # S9c 12.5 negative control on T1-F: both forwarders discard every RELEASE_ID entry; must FAIL O-F4's
         # backlog row and leave the releases pending at the core. The ledger-size row is recorded, not required to fail
         # (measured 2026-10-31: a release that never reaches the ME is applied on neither side, so the core's model and
@@ -512,13 +560,18 @@ run_scenario() {
         start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
         local pr; pr=$(awk '$4 != 0 { n++ } END { print n + 0 }' "$W/pending-nc-norelease.txt" 2>/dev/null)
         if [ $ok -eq 1 ] && [ "${backlog:-0}" -gt 0 ] && [ "${pr:-0}" -gt 0 ]; then
-            result nc-norelease ok "RED as required: release backlog $backlog, releases pending at the core $pr (ledger core $aeL, ME $meL: both keep the unreleased entries); $ORACLE_DETAIL"
+            result nc-norelease ok "RED as required: the T1-F line 'assets_release_backlog 0 within 10 s' FAILS: release backlog $backlog, releases pending at the core $pr (ledger core $aeL, ME $meL: both keep the unreleased entries); $ORACLE_DETAIL"
         else result nc-norelease fail "oracle rc $ok backlog $backlog pending releases $pr ledger core $aeL ME $meL; $ORACLE_DETAIL"; fi
         oracle nc-norelease-healed 24001 && log "healed by the real forwarder: $ORACLE_DETAIL" || log "NOT healed: $ORACLE_DETAIL" ;;
-    t1f) # S9c 12.5 T1-F releaseRelayedAtN2, the parts this driver can drive: N = 2 forwarders relay every release; the ME
-        # applies each release once (exactly one APPLIED entry per release in record 4, read by ct-journal-tail), the second
-        # copy is a no-op frame, the core's release backlog drains, the bridge forwarded the 67s. (The re-send of a captured
-        # CREATE of a released order and of a captured release frame needs a capture verb in T1CoreDriver: NOT RUN.)
+    t1f) # S9c 12.5 T1-F releaseRelayedAtN2: N = 2 forwarders relay every release; the ME applies each release once (exactly
+        # one APPLIED entry per release in record 4, read by ct-journal-tail), the second copy is a no-op frame, the core's
+        # release backlog drains, the bridge forwarded the 67s. RC2 S10' 7.2: fwdA is ct_forwarder_tc_capture, and after the
+        # barrier one captured late release frame and one captured late CREATE of a released order are re-sent (t1f_resend)
+        local tcc; tcc=$(find "$BUILD" -name ct_forwarder_tc_capture -type f | head -1)
+        [ -x "$tcc" ] || { result t1f fail "ct_forwarder_tc_capture not built"; return; }
+        local cap="$W/capture-fwdA-t1f"; rm -rf "$cap"; mkdir -p "$cap"
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3
+        FWD_CAPTURE_DIR="$cap" start_fwd fwdA "$tcc" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60 || log "fwdA (tc_capture) not ready"
         start_fwd fwdB "$FWD" "$FWDB_AE" "$FWDB_ME" 24002; wait_ready 24002 60 || log "fwdB not ready"
         local n0; n0=$(me_counter match_release_noop_frames_total)
         load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
@@ -555,10 +608,12 @@ PY
 )
         local arc=$?
         local b67; b67=$(bridge_metric 'bridge_forwarded_records_total{kind="67"}')
+        local rs=0; t1f_resend "$cap" "$W/t1f-me$l.txt" || rs=1
         kill -TERM "${PID[fwdB]}"; wait_exit fwdB 3
-        if [ $ok -eq 0 ] && [ $arc -eq 0 ] && [ "$backlog" = 0 ] && [ "$n1" -gt "$n0" ] && [ "${b67:-0}" -ge 1 ]; then
-            result t1f ok "$applied; noop frames $n0 -> $n1; release backlog 0; bridge 67 records $b67; $ORACLE_DETAIL"
-        else result t1f fail "$applied (rc $arc); noop $n0 -> $n1; backlog $backlog; bridge 67 $b67; $ORACLE_DETAIL"; fi ;;
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3; start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        if [ $ok -eq 0 ] && [ $arc -eq 0 ] && [ "$backlog" = 0 ] && [ "$n1" -gt "$n0" ] && [ "${b67:-0}" -ge 1 ] && [ $rs -eq 0 ]; then
+            result t1f ok "$applied; noop frames $n0 -> $n1; release backlog 0; bridge 67 records $b67; re-sends: $T1F_RESEND_DETAIL; $ORACLE_DETAIL"
+        else result t1f fail "$applied (rc $arc); noop $n0 -> $n1; backlog $backlog; bridge 67 $b67; re-sends (rc $rs): $T1F_RESEND_DETAIL; $ORACLE_DETAIL"; fi ;;
     of2) # S9c 12.5 O-F2: the ME journal replayed through the C++ reader (ct-journal-tail --hex) over each ME archive: one
         # record 3 per command id; the ME's suppressed duplicates are not journalled twice
         local l next; l=$(leader_of me); next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
@@ -590,8 +645,553 @@ PY
             detail="$detail me$i($rc): $v;"
         done
         [ $all_ok -eq 0 ] && result of2 ok "$detail suppressed $(me_counter match_durable_duplicates_suppressed_total)" || result of2 fail "$detail" ;;
-    *) result "$s" fail "unknown scenario" ;;
+    *) { declare -F w6_scenario > /dev/null && w6_scenario "$s"; } || { declare -F lane_c_scenario > /dev/null && lane_c_scenario "$s"; } ||
+        result "$s" fail "unknown scenario" ;;
     esac
+}
+
+# ---------------------------------------------------------------- RC2 S10' lane C: the forwarder's driver modes (section 8)
+# Scenarios (dispatched from run_scenario's default arm; IT_FWD_MODE picks the mode of the whole run):
+#   mode-check      8.2 rule 6: /health driverMode, forwarder_driver_mode{mode}, forwarder_info identity = FWD_INSTANCE_ID;
+#                   embedded: the per-instance dir ct-forwarder-101 and its lock exist (its size recorded); external: none
+#   identity        8.2 rule 3: three restarts of fwdA (SIGTERM, SIGTERM, kill -9) keep identity 101; embedded: the
+#                   kill -9 leaves the dir, the restart reclaims it (forwarder_driver_dir_reclaimed_total 1)
+#   fatal-embedded  8.3 (IT_FWD_MODE=embedded): kill -STOP fwdA 15 s, CONT, a load: exit 70, or a reconnect with progress
+#                   (ready and last_sent advancing) within 30 s; alive without progress for 30 s = FAIL
+#   tmpfs-min       8.2 rule 6 / review N-7 (IT_FWD_MODE=embedded, sudo): fwdA restarted on a tmpfs of each size in
+#                   IT_TMPFS_SIZES (MB, default "128 96 64 48 32 24 16"), load + oracle per size; the minimum is the
+#                   smallest size that passes with every larger size passing; a failing size records its exit code
+#   storage-starved S10' Q1 (IT_FWD_MODE=embedded, sudo): fwdA on a 48 MB tmpfs (below the 64 MB minimum: the ME ingress
+#                   publication is refused for storage space): /ready names storage_starved and
+#                   forwarder_storage_starved_seconds grows, then exit 70 within 30 s + one check of that onset, the
+#                   reason in the log. storage-starved-nc: ct_forwarder_nc_storagekeep (STORAGE_STARVED_EXIT_OFF) must
+#                   FAIL that rule's line "alive 45 s after the storage_starved onset"
+# The external kill (`fatal-aeron`, kill -9 of fwdA's own aeronmd: exit 70 within the timeout + 2 s) is the S12 row above.
+LANE_C_MOUNT=""
+lane_c_cleanup() {
+    if [ -n "$LANE_C_MOUNT" ]; then sudo -n umount "$LANE_C_MOUNT" 2> /dev/null || sudo -n umount -l "$LANE_C_MOUNT" 2> /dev/null; LANE_C_MOUNT=""; fi
+}
+fwd_identity() { curl -s --max-time 2 "http://127.0.0.1:$1/metrics" 2> /dev/null | sed -n 's/^forwarder_info{identity="\([0-9]*\)".*/\1/p' | head -1; }
+fwd_alive() { local p=${PID[$1]:-} st; [ -n "$p" ] || return 1; st=$(ps -o stat= -p "$p" 2> /dev/null); [ -n "$st" ] && [[ "$st" != Z* ]]; }
+lane_c_scenario() {
+    local s=$1
+    case "$s" in
+    mode-check)
+        local m id h dirs=""
+        m=$(fwd_metric 24001 "forwarder_driver_mode{mode=\"$FWD_MODE\"}"); id=$(fwd_identity 24001)
+        h=$(curl -s --max-time 2 http://127.0.0.1:24001/health)
+        local ok=0
+        [ "$m" = 1 ] && [ "$id" = 101 ] && [[ "$h" == *"\"driverMode\":\"$FWD_MODE\""* ]] || ok=1
+        if [ "$FWD_MODE" = embedded ]; then
+            [ -f "$FWD_EMBEDDED_PARENT/ct-forwarder-101/cnc.dat" ] && [ -f "$FWD_EMBEDDED_PARENT/ct-forwarder-101.lock" ] || ok=1
+            dirs="; embedded dir $(du -sk "$FWD_EMBEDDED_PARENT/ct-forwarder-101" 2> /dev/null | cut -f1) KB (du), files: $(ls "$FWD_EMBEDDED_PARENT/ct-forwarder-101" 2> /dev/null | tr '\n' ' ')"
+        else
+            [ ! -e "$FWD_EMBEDDED_PARENT/ct-forwarder-101" ] || ok=1
+            dirs="; runner driver dir $(du -sk "$DRIVER_DIR" 2> /dev/null | cut -f1) KB (du, shared by every client)"
+        fi
+        if [ $ok -eq 0 ]; then result mode-check ok "forwarder_driver_mode{mode=\"$FWD_MODE\"} $m, identity $id, /health driverMode $FWD_MODE$dirs"
+        else result mode-check fail "mode $FWD_MODE: metric '$m' identity '$id' health $h$dirs"; fi ;;
+    identity)
+        local i ids="" ok=0 rc reclaimed
+        for i in 1 2 3; do
+            if [ $i -lt 3 ]; then kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5; rc=$WAIT_RC; [ "$rc" = 0 ] || ok=1
+            else kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; rc=kill9; fi
+            [ "$FWD_MODE" = embedded ] && [ $i -eq 3 ] && { [ -f "$FWD_EMBEDDED_PARENT/ct-forwarder-101/cnc.dat" ] || ok=1; }
+            start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001
+            wait_ready 24001 60 || ok=1
+            local id; id=$(fwd_identity 24001); [ "$id" = 101 ] || ok=1
+            reclaimed=$(fwd_metric 24001 forwarder_driver_dir_reclaimed_total)
+            ids="$ids restart $i (stop $rc): identity $id reclaimed $reclaimed;"
+        done
+        local want=0; [ "$FWD_MODE" = embedded ] && want=1
+        [ "$reclaimed" = "$want" ] || ok=1
+        load_bg 5; wait "$LOAD_PID"
+        oracle identity 24001 || ok=1
+        [ $ok -eq 0 ] && result identity ok "$ids $ORACLE_DETAIL" || result identity fail "$ids (reclaimed after the kill -9 must be $want) $ORACLE_DETAIL" ;;
+    fatal-embedded)
+        [ "$FWD_MODE" = embedded ] || { result fatal-embedded fail "needs IT_FWD_MODE=embedded"; return 0; }
+        local sent0 c0 m0 t0 outcome="" rc="" took sent c1 m1
+        sent0=$(fwd_metric 24001 'forwarder_dispatch_seq{point="last_sent"}')
+        c0=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="core"}'); m0=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="me"}')
+        log "SIGSTOP fwdA (driver and client) 15 s"
+        kill -STOP "${PID[fwdA]}"; sleep 15; t0=$(now_s); kill -CONT "${PID[fwdA]}"
+        load_bg "$SECONDS_LOAD"
+        for _ in $(seq 1 60); do
+            if ! fwd_alive fwdA; then wait_exit fwdA 2; rc=$WAIT_RC; outcome=exit; break; fi
+            sent=$(fwd_metric 24001 'forwarder_dispatch_seq{point="last_sent"}')
+            if ready 24001 && [ -n "$sent" ] && [ -n "$sent0" ] && [ "$sent" -gt "$sent0" ]; then outcome=progress; break; fi
+            sleep 0.5
+        done
+        took=$(elapsed "$t0" "$(now_s)")
+        wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        case "$outcome" in
+        exit)
+            start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+            if [ "$rc" = 70 ] && oracle fatal-embedded 24001; then result fatal-embedded ok "exit 70 ${took} s after CONT ($(grep -h 'exit 70\|stale\|timeout' "$W/fwdA.log" | tail -1)); restarted; $ORACLE_DETAIL"
+            else result fatal-embedded fail "exit $rc ${took} s after CONT; $ORACLE_DETAIL"; fi ;;
+        progress)
+            c1=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="core"}'); m1=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="me"}')
+            if oracle fatal-embedded 24001; then result fatal-embedded ok "alive and progressing ${took} s after CONT (last_sent $sent0 -> $sent, reconnects core $c0 -> $c1, me $m0 -> $m1); $ORACLE_DETAIL"
+            else result fatal-embedded fail "progressing but the oracle failed: $ORACLE_DETAIL"; fi ;;
+        *)
+            result fatal-embedded fail "FORBIDDEN: alive without progress for 30 s after CONT (ready $(ready 24001 && echo 1 || echo 0), last_sent $sent0 -> $sent)" ;;
+        esac ;;
+    tmpfs-min)
+        [ "$FWD_MODE" = embedded ] || { result tmpfs-min fail "needs IT_FWD_MODE=embedded"; return 0; }
+        sudo -n true 2> /dev/null || { result tmpfs-min fail "NOT RUN: no passwordless sudo for the tmpfs mount"; return 0; }
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5
+        local mb rows="" passing=() failing=()
+        for mb in ${IT_TMPFS_SIZES:-128 96 64 48 32 24 16}; do
+            local mnt="$SHM/fwd-tmpfs-$mb" ok=0 peak=0 used why=""
+            mkdir -p "$mnt"
+            sudo -n mount -t tmpfs -o "size=${mb}m,uid=$(id -u),gid=$(id -g),mode=0755" tmpfs "$mnt" || { rows="$rows ${mb}MB: mount failed;"; continue; }
+            LANE_C_MOUNT=$mnt
+            FWD_EMBEDDED_DIR_OVERRIDE="$mnt" start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001
+            if wait_ready 24001 60; then
+                load_bg 5
+                while kill -0 "$LOAD_PID" 2> /dev/null; do
+                    used=$(df -k --output=used "$mnt" | tail -1 | tr -d ' '); [ "$used" -gt "$peak" ] && peak=$used; sleep 0.5
+                done
+                wait "$LOAD_PID"
+                oracle "tmpfs-$mb" 24001 || { ok=1; why="oracle: $ORACLE_DETAIL"; }
+                used=$(df -k --output=used "$mnt" | tail -1 | tr -d ' '); [ "$used" -gt "$peak" ] && peak=$used
+                fwd_alive fwdA || { ok=1; why="$why exited"; }
+            else
+                ok=1; why="never ready: $(grep -h -i 'error\|exit\|insufficient\|space' "$W/fwdA.log" | tail -2 | tr '\n' ' ')"
+            fi
+            if fwd_alive fwdA; then kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5 || { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
+            else wait_exit fwdA 1; why="$why (exited $WAIT_RC)"; fi
+            sudo -n umount "$mnt" 2> /dev/null || sudo -n umount -l "$mnt"; LANE_C_MOUNT=""
+            if [ $ok -eq 0 ]; then passing+=("$mb"); rows="$rows ${mb}MB PASS peak ${peak} KB;"
+            else failing+=("$mb"); rows="$rows ${mb}MB FAIL ($why) peak ${peak} KB;"; fi
+            log "tmpfs ${mb} MB: $([ $ok -eq 0 ] && echo PASS || echo FAIL) peak ${peak} KB $why"
+        done
+        start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        # the minimum: the smallest passing size with no failing size above it
+        local min="" f highestFail=0
+        for f in "${failing[@]}"; do [ "$f" -gt "$highestFail" ] && highestFail=$f; done
+        for mb in "${passing[@]}"; do [ "$mb" -gt "$highestFail" ] && { [ -z "$min" ] || [ "$mb" -lt "$min" ]; } && min=$mb; done
+        if [ -n "$min" ]; then result tmpfs-min ok "minimum ${min} MB (largest failing ${highestFail} MB);$rows"
+        else result tmpfs-min fail "no size passed;$rows"; fi ;;
+    storage-starved|storage-starved-nc)
+        [ "$FWD_MODE" = embedded ] || { result "$s" fail "needs IT_FWD_MODE=embedded"; return 0; }
+        sudo -n true 2> /dev/null || { result "$s" fail "NOT RUN: no passwordless sudo for the tmpfs mount"; return 0; }
+        local bin=$FWD
+        if [ "$s" = storage-starved-nc ]; then bin=$(find "$BUILD" -name ct_forwarder_nc_storagekeep -type f | head -1)
+            [ -x "$bin" ] || { result "$s" fail "ct_forwarder_nc_storagekeep not built"; return 0; }; fi
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5
+        local mnt="$SHM/fwd-tmpfs-starved" onset="" seconds="" took rc ok=0 detail
+        mkdir -p "$mnt"
+        sudo -n mount -t tmpfs -o "size=48m,uid=$(id -u),gid=$(id -g),mode=0755" tmpfs "$mnt" || { result "$s" fail "mount failed"; return 0; }
+        LANE_C_MOUNT=$mnt
+        FWD_EMBEDDED_DIR_OVERRIDE="$mnt" start_fwd fwdA "$bin" "$FWDA_AE" "$FWDA_ME" 24001
+        for _ in $(seq 1 600); do
+            if curl -s --max-time 1 http://127.0.0.1:24001/ready 2> /dev/null | grep -q storage_starved; then onset=$(now_s); break; fi
+            fwd_alive fwdA || break
+            sleep 0.1
+        done
+        if [ -z "$onset" ]; then
+            ok=1; detail="no storage_starved on /ready within 60 s"
+        elif [ "$s" = storage-starved ]; then
+            sleep 2; seconds=$(fwd_metric 24001 forwarder_storage_starved_seconds)
+            wait_exit fwdA 40; rc=$WAIT_RC; took=$(elapsed "$onset" "$(now_s)")
+            [ "$rc" = 70 ] || ok=1
+            python3 -I -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 31.0 else 1)" "$took" || ok=1
+            [ -n "$seconds" ] && [ "$seconds" -ge 1 ] && [ "$seconds" -le 3 ] || ok=1 # wall seconds, 2 s after the onset
+            grep -q F_STORAGE_STARVED "$W/fwdA.log" && grep -q "insufficient storage space" "$W/fwdA.log" || ok=1
+            detail="48 MB: exit $rc ${took} s after the storage_starved onset (bound 30 s + one check); forwarder_storage_starved_seconds $seconds 2 s in; $(grep -h -o 'STOP F_STORAGE_STARVED.\{0,170\}' "$W/fwdA.log" | tail -1)"
+        else
+            sleep 45
+            if fwd_alive fwdA; then detail="RED as required: the rule's line FAILS: alive 45 s after the storage_starved onset (forwarder_storage_starved_seconds $(fwd_metric 24001 forwarder_storage_starved_seconds))"
+                kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5 || { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
+            else wait_exit fwdA 1; ok=1; detail="the nc build exited $WAIT_RC: the seam did not hold the process (INCONCLUSIVE RED)"; fi
+        fi
+        fwd_alive fwdA && { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
+        sudo -n umount "$mnt" 2> /dev/null || sudo -n umount -l "$mnt"; LANE_C_MOUNT=""
+        start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        [ $ok -eq 0 ] && result "$s" ok "$detail" || result "$s" fail "$detail" ;;
+    *) return 1 ;;
+    esac
+    return 0
+}
+
+# ---------------------------------------------------------------- RC2 S10' W6: the S9c FIX-3 gate rows (contract section 7)
+# Helpers for the extended t1f / t1g / nc-refuse arms above and the of5 rows below (dispatched from run_scenario's default
+# arm). The harness (IT_HARNESS, review F-12) runs against this core with the runner's own keys.
+HARNESS=${IT_HARNESS:-}
+[ -n "$HARNESS" ] && HARNESS=$(cd "$(dirname "$HARNESS")" && pwd)/$(basename "$HARNESS")
+T1ENV=(T1_CORE_INGRESS="$AE_INGRESS" T1_AERON_DIR="$DRIVER_DIR" T1_ADMIN_KEY="$T1_ADMIN_KEY" T1_TOOL_KEY="$T1_TOOL_KEY"
+    T1_GATEWAY_KEY="$T1_GATEWAY_KEY" T1_TREASURY_KEY="9:TREASURY:$(hex 99)" T1_FORWARDER_KEY="$T1_TAP_KEY")
+t1core() { env "${T1ENV[@]}" java "${JAVA_OPTS[@]}" -Xmx1g -jar "$HARNESS" t1-core "$@" < /dev/null | sed '/^feed-harness /d'; }
+now_ms() { date +%s%3N; }
+
+# T1CoreDriver capture in the background (the JVM itself, so the PID is the JVM's); returns once it is registered.
+w6_capture_bg() { # label seconds
+    local dir="$W/capture-$1"
+    rm -rf "$dir"; mkdir -p "$dir"
+    java "${JAVA_OPTS[@]}" -cp "$AE_JAR" "$HERE/T1CoreDriver.java" capture "$DRIVER_DIR" "$AE_INGRESS" "$dir" "$2" "$GENESIS" \
+        > "$dir/capture.log" 2>&1 &
+    PID[capture-$1]=$!
+    for _ in $(seq 1 600); do
+        grep -q "^CAPTURE armed" "$dir/capture.log" 2> /dev/null && return 0
+        kill -0 "${PID[capture-$1]}" 2> /dev/null || break
+        sleep 0.1
+    done
+    log "capture $1 not armed: $(tail -3 "$dir/capture.log" | tr '\n' ' ')"
+    return 1
+}
+W6_CAPTURE_RC=0
+W6_CAPTURE_LINE=""
+w6_capture_wait() { # label -> W6_CAPTURE_RC (0 dense, 1 gap or failure), W6_CAPTURE_LINE
+    wait_exit "capture-$1" 180; W6_CAPTURE_RC=$WAIT_RC
+    W6_CAPTURE_LINE=$(grep -h -E "^CAPTURE (count|GAP)|^DRIVER FAIL" "$W/capture-$1/capture.log" 2> /dev/null | tr '\n' ' ')
+    log "capture $1: exit $W6_CAPTURE_RC $W6_CAPTURE_LINE"
+}
+# T1CoreDriver events (GATEWAY OrderEvent recorder) until w6_events_stop.
+w6_events_bg() { # label
+    rm -f "$W/events-$1.txt"
+    java "${JAVA_OPTS[@]}" -cp "$AE_JAR" "$HERE/T1CoreDriver.java" events "$DRIVER_DIR" "$AE_INGRESS" "$W/events-$1.txt" 0 \
+        > "$W/events-$1.log" 2>&1 &
+    PID[events]=$!
+    for _ in $(seq 1 600); do
+        grep -q "^EVENTS armed" "$W/events-$1.log" 2> /dev/null && return 0
+        kill -0 "${PID[events]}" 2> /dev/null || break
+        sleep 0.1
+    done
+    log "events $1 not armed: $(tail -3 "$W/events-$1.log" | tr '\n' ' ')"
+    return 1
+}
+w6_events_stop() {
+    [ -n "${PID[events]:-}" ] || return 0
+    kill -TERM "${PID[events]}" 2> /dev/null; wait_exit events 10 || { kill -9 "${PID[events]}" 2> /dev/null; wait_exit events 3; }
+}
+# ct-journal-tail --hex over the ME leader's archive, seq from..next-1 (W6_JNEXT = the leader's next journal seq).
+W6_JNEXT=""
+w6_journal() { # outFile replayStream fromSeq
+    local l; l=$(leader_of me) || { W6_JNEXT=""; return 1; }
+    W6_JNEXT=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+    [ -n "$W6_JNEXT" ] && [ "$W6_JNEXT" -gt "$3" ] || { : > "$1"; return 0; }
+    "$JTAIL" --aeron-dir "$DRIVER_DIR" --archive "localhost:$((ME_BASE + 100 * l + 10))" --control-stream 4010 \
+        --journal-stream 4001 --channel aeron:ipc --replay-stream "$2" --local-host localhost --journal-mtu 1408 \
+        --from-seq "$3" --to-seq $((W6_JNEXT - 1)) --hex --timeout-ms 120000 > "$1" 2> "$1.err"
+}
+# the bridge fed every ME record: bridge_core_cursor == next journal seq - 1 (and the seq moved past `from` when given)
+w6_bridge_caught_up() { # [fromSeq]
+    local l next cursor
+    for _ in $(seq 1 30); do
+        l=$(leader_of me) && next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+        cursor=$(bridge_metric bridge_core_cursor)
+        [ -n "${next:-}" ] && [ -n "$cursor" ] && [ "$cursor" = "$((next - 1))" ] && [ "$next" -gt "${1:-0}" ] && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# 7.2 T1-F re-sends (after the t1f barrier): the picker over fwdA's capture and the ME journal, then the late release and
+# the late CREATE on the ME FORWARDER key. Sets T1F_RESEND_DETAIL; 0 when every line passes.
+T1F_RESEND_DETAIL=""
+t1f_resend() { # captureDir journalHex(seq 1..)
+    local cap=$1 jr=$2 picks prc
+    picks=$(python3 -I - "$cap" "$jr" <<'PY'
+import collections, hashlib, os, sys
+cap, jr = sys.argv[1], sys.argv[2]
+le = lambda b, o, w: int.from_bytes(b[o:o + w], "little", signed=True)
+side = []
+try:
+    for line in open(os.path.join(cap, "sidecar.txt")):
+        p = line.split()
+        if len(p) != 7:
+            print("SIDECAR malformed line %r" % line.strip()); sys.exit(1)
+        side.append((int(p[0]), int(p[1]), int(p[2]), int(p[3]), int(p[4]), int(p[5]), p[6]))
+except OSError as e:
+    print("SIDECAR unreadable: %s" % e); sys.exit(1)
+frames, bad = {}, []
+for n, t, h, l, k, seq, sha in side:
+    b = open(os.path.join(cap, "%d.bin" % n), "rb").read()
+    frames[n] = b
+    if hashlib.sha256(b).hexdigest() != sha:
+        bad.append(n)
+first3 = {}                                  # (high, low) -> result of the first record 3
+applied4 = collections.Counter()             # (high, floor, scope) -> APPLIED entries in record 4
+by_high = collections.defaultdict(list)
+for line in open(jr):
+    if not line.startswith("FRAME "):
+        continue
+    kv = dict(x.split("=", 1) for x in line.split()[1:] if "=" in x)
+    if "hex" not in kv:
+        continue
+    b = bytes.fromhex(kv["hex"])
+    if kv.get("template") == "3" and len(b) >= 161:
+        first3.setdefault((le(b, 32, 8), le(b, 40, 8)), le(b, 136, 4))
+    elif kv.get("template") == "4":
+        g = 8 + 44
+        block = int.from_bytes(b[g:g + 2], "little"); cnt = int.from_bytes(b[g + 2:g + 4], "little")
+        for i in range(cnt):
+            e = b[g + 4 + block * i:g + 4 + block * (i + 1)]
+            if e[17] == 0:  # APPLIED (after commandIdHigh 8, idLowFloor 8, scope 1)
+                key = (le(e, 0, 8), le(e, 8, 8), e[16])
+                applied4[key] += 1
+                by_high[key[0]].append((key[1], key[2]))
+def entries10(b):  # header 8, releaseSeq 8, group header 4 at 16, entries of the group block from 20
+    block = int.from_bytes(b[16:18], "little"); cnt = int.from_bytes(b[18:20], "little")
+    return [(le(b, 20 + block * i, 8), le(b, 28 + block * i, 8), b[36 + block * i]) for i in range(cnt)]
+def released(h, l):  # an APPLIED release covers (h, l): UP_TO with floor >= l, or ORDER
+    return any((sc == 0 and fl >= l) or sc == 1 for fl, sc in by_high.get(h, []))
+create, rel, entries = None, None, set()
+t9 = t10 = 0
+for n, t, h, l, k, seq, sha in side:
+    if t == 9:
+        t9 += 1
+        if create is None and k == 0 and first3.get((h, l)) == 0 and released(h, l):
+            create = (n, h, l, le(frames[n], 8 + 24, 8))
+    elif t == 10:
+        t10 += 1
+        es = entries10(frames[n])
+        entries.update(es)
+        if es and all(applied4[e] >= 1 for e in es):
+            rel = (n, seq, len(es))  # the last fully applied one: its re-send is all NOOP
+once = sum(1 for e in entries if applied4[e] == 1)
+none = [e for e in entries if applied4[e] == 0]
+twice = [e for e in entries if applied4[e] > 1]
+print("CAPTURE fwdA frames template9=%d template10=%d sha256-mismatch=%d" % (t9, t10, len(bad)))
+print("RELEASES captured entries=%d with-one-APPLIED=%d none=%d twice=%d%s" % (len(entries), once, len(none), len(twice),
+      (" e.g. none %s" % none[:3]) if none else ""))
+if create:
+    print("PICK create n=%d id=%d/%d oms=%d" % create)
+if rel:
+    print("PICK release n=%d releaseSeq=%d entries=%d" % rel)
+sys.exit(0 if not bad and create and rel and entries and not none and not twice else 1)
+PY
+)
+    prc=$?
+    T1F_RESEND_DETAIL=$(tr '\n' ' ' <<< "$picks")
+    local cn ch cl crel
+    cn=$(sed -n 's/^PICK create n=\([0-9]*\) .*/\1/p' <<< "$picks")
+    ch=$(sed -n 's/^PICK create n=[0-9]* id=\(-\{0,1\}[0-9]*\)\/.*/\1/p' <<< "$picks")
+    cl=$(sed -n 's/^PICK create n=[0-9]* id=[-0-9]*\/\(-\{0,1\}[0-9]*\) .*/\1/p' <<< "$picks")
+    crel=$(sed -n 's/^PICK release n=\([0-9]*\) .*/\1/p' <<< "$picks")
+    if [ $prc -ne 0 ] || [ -z "$cn" ] || [ -z "$crel" ]; then T1F_RESEND_DETAIL="picker FAIL: $T1F_RESEND_DETAIL"; return 1; fi
+    local ok=0 rc sha want
+    # the late release: an all-NOOP frame journals nothing and consumes no journalSeq (S12 7 rule 3, S4 A1)
+    local s0 s1 n0 n1
+    s0=$(me_counter match_engine_next_journal_seq); n0=$(me_counter match_release_noop_frames_total)
+    me_driver resend "$DRIVER_DIR" "$ME_INGRESS" "$cap/$crel.bin" 1 > "$W/t1f-resend-release.log" 2>&1; rc=$?
+    sha=$(sed -n 's/^FRAME .* sha256=\([0-9a-f]*\)$/\1/p' "$W/t1f-resend-release.log"); want=$(awk -v n="$crel" '$1 == n { print $7 }' "$cap/sidecar.txt")
+    sleep 1
+    s1=$(me_counter match_engine_next_journal_seq); n1=$(me_counter match_release_noop_frames_total)
+    local relLine="late release $crel.bin (exit $rc, $(grep -h '^HELLO\|^REPLY\|^HELLO REFUSED' "$W/t1f-resend-release.log" | tr '\n' ' ')): match_release_noop_frames_total $n0 -> $n1 (+1), match_engine_next_journal_seq $s0 -> $s1 (unchanged), sha256 $([ -n "$sha" ] && [ "$sha" = "$want" ] && echo pinned || echo "MISMATCH $sha != $want")"
+    [ "$rc" = 0 ] && [ -n "$sha" ] && [ "$sha" = "$want" ] && [ -n "$n0" ] && [ "$n1" = $((n0 + 1)) ] && [ -n "$s0" ] && [ "$s1" = "$s0" ] || ok=1
+    # the late CREATE of a released order: B2 RELEASED, one record 3 with result 7, no leg
+    me_driver open-orders "$DRIVER_DIR" "$ME_INGRESS" "$W/t1f-open-before.txt" > /dev/null 2>&1
+    local b0 b1 f0 f1 pend backlog=""
+    b0=$(bridge_metric 'bridge_forwarded_records_total{kind="64"}'); f0=$(ae_counter assets_order_faults_total)
+    s0=$(me_counter match_engine_next_journal_seq)
+    me_driver resend "$DRIVER_DIR" "$ME_INGRESS" "$cap/$cn.bin" 1 > "$W/t1f-resend-create.log" 2>&1; rc=$?
+    sha=$(sed -n 's/^FRAME .* sha256=\([0-9a-f]*\)$/\1/p' "$W/t1f-resend-create.log"); want=$(awk -v n="$cn" '$1 == n { print $7 }' "$cap/sidecar.txt")
+    w6_bridge_caught_up "$s0" || log "t1f: the bridge did not feed the late CREATE's record within 30 s"
+    w6_journal "$W/t1f-late-create.txt" 9140 "$s0"
+    local late; late=$(python3 -I - "$W/t1f-late-create.txt" "$ch" "$cl" <<'PY'
+import sys
+path, h, l = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+le = lambda b, o, w: int.from_bytes(b[o:o + w], "little", signed=True)
+mine, other = [], 0
+for line in open(path):
+    if not line.startswith("FRAME "):
+        continue
+    kv = dict(x.split("=", 1) for x in line.split()[1:] if "=" in x)
+    if "hex" not in kv:
+        continue
+    b = bytes.fromhex(kv["hex"])
+    if kv.get("template") == "3" and (le(b, 32, 8), le(b, 40, 8)) == (h, l):
+        mine.append(le(b, 136, 4))
+    else:
+        other += 1
+print("records 3 for %d/%d after the re-send: %d results %s (other records %d)" % (h, l, len(mine), mine, other))
+sys.exit(0 if mine == [7] else 1)
+PY
+)
+    local lrc=$?
+    me_driver open-orders "$DRIVER_DIR" "$ME_INGRESS" "$W/t1f-open-after.txt" > /dev/null 2>&1
+    local legs="O-F3 legs unchanged"
+    if ! [ -s "$W/t1f-open-before.txt" ] || ! cmp -s <(sort "$W/t1f-open-before.txt") <(sort "$W/t1f-open-after.txt"); then legs="O-F3 legs CHANGED"; ok=1; fi
+    for _ in $(seq 1 20); do backlog=$(ae_counter assets_release_backlog); [ "$backlog" = 0 ] && break; sleep 0.5; done
+    b1=$(bridge_metric 'bridge_forwarded_records_total{kind="64"}'); f1=$(ae_counter assets_order_faults_total)
+    pend=$(ae_counter assets_pending_commands)
+    local b67; b67=$(bridge_metric 'bridge_forwarded_records_total{kind="67"}')
+    T1F_RESEND_DETAIL="$T1F_RESEND_DETAIL| $relLine | late CREATE $cn.bin (exit $rc, sha256 $([ -n "$sha" ] && [ "$sha" = "$want" ] && echo pinned || echo "MISMATCH $sha != $want")): $late; $legs; assets_release_backlog $backlog within 10 s; bridge {kind=\"67\"} $b67 (>= 1), {kind=\"64\"} $b0 -> $b1 (+1); assets_order_faults_total $f0 -> $f1 (unchanged); assets_pending_commands $pend"
+    [ "$rc" = 0 ] && [ -n "$sha" ] && [ "$sha" = "$want" ] && [ $lrc -eq 0 ] && [ "$backlog" = 0 ] && [ "${b67:-0}" -ge 1 ] &&
+        [ -n "$b0" ] && [ "$b1" = $((b0 + 1)) ] && [ -n "$f0" ] && [ "$f1" = "$f0" ] && [ "$pend" = 0 ] || ok=1
+    return $ok
+}
+
+# 7.2 T1-G per-order: the corrupted CREATEs are the tc_corrupt rule's ids (kind 0, orderId % 50 == 0) in the capture map
+# (fwdA's log names only the first and every 1000th per rule). Sets PO_DETAIL; 0 when every per-order line passes.
+PO_DETAIL=""
+w6_per_order() { # label mapFile eventsFile withCancel(0|1)
+    local label=$1 map=$2 ev=$3 cancel=$4
+    PO_DETAIL=""
+    [ -n "$HARNESS" ] || { PO_DETAIL="NOT RUN: IT_HARNESS (the assets feed-harness jar, review F-12) is not set"; return 1; }
+    [ -s "$map" ] || { PO_DETAIL="no dispatch map ($map)"; return 1; }
+    local ids="$W/po-$label.ids" one="$W/po-$label.one"
+    awk '$4 == 0 && $2 > 0 && $2 % 50 == 0 { print $2 }' "$map" | sort -n -u > "$ids"
+    local n; n=$(wc -l < "$ids")
+    [ "$n" -gt 0 ] || { PO_DETAIL="no corrupted CREATE (kind 0, orderId % 50 == 0) in the capture map"; return 1; }
+    # one call (lane R, <RC> 7bd21f4): `ABSENT <id>` for an id not in the store, the rest continue, then
+    # `DUMP orders=<n> absent=<k> lines=<m>`
+    local ok=0 id out absent=0 live=0 firstLive="" all
+    all=$(t1core dump --orders "$ids" 2>&1); echo "$all" > "$W/po-$label-dump.txt"
+    local summary; summary=$(grep -m1 '^DUMP orders=' <<< "$all")
+    [ -n "$summary" ] || { PO_DETAIL="dump --orders gave no DUMP line: $(head -c 200 <<< "$all" | tr '\n' ' ')"; return 1; }
+    [ "$(sed -n 's/^DUMP orders=\([0-9]*\) .*/\1/p' <<< "$summary")" = "$n" ] || { PO_DETAIL="dump --orders: '$summary' for $n ids"; return 1; }
+    while read -r id; do
+        if grep -q "^ABSENT $id\$" <<< "$all"; then
+            absent=$((absent + 1))
+            grep -q "^H $id " <<< "$all" && { ok=1; [ -z "$firstLive" ] && firstLive="order $id: ABSENT but an H line"; }
+            continue
+        fi
+        out=$(grep "^[OH] $id " <<< "$all")
+        live=$((live + 1)); ok=1
+        if [ -z "$firstLive" ]; then
+            local o h; o=$(grep "^O $id " <<< "$out" | head -1); h=$(grep "^H $id " <<< "$out" | head -1)
+            if [ -n "$h" ]; then firstLive="order $id: status LIVE, hold present ($o; $h)"
+            elif [ -n "$o" ]; then firstLive="order $id: status LIVE, no hold ($o)"
+            else firstLive="order $id: dump --orders unreadable: $(head -c 200 <<< "$out" | tr '\n' ' ')"; fi
+        fi
+    done < "$ids"
+    local why; why=$(python3 -I - "$ids" "$ev" <<'PY'
+import sys
+ids = [int(l) for l in open(sys.argv[1]) if l.strip()]
+last = {}
+try:
+    for line in open(sys.argv[2]):
+        p = line.split()
+        if len(p) == 7:
+            last[int(p[0])] = p
+except OSError as e:
+    print("events unreadable: %s" % e); sys.exit(1)
+good = [i for i in ids if i in last and last[i][3] == "REJECTED" and last[i][4] == "ME_INVALID"]
+bad = [i for i in ids if i not in good]
+users = sorted({int(last[i][1]) for i in ids if i in last})
+print("last OrderEvent REJECTED reason ME_INVALID: %d of %d%s" % (len(good), len(ids),
+      (" (e.g. %s)" % ", ".join("%d %s" % (i, "/".join(last[i][2:5]) if i in last else "no event") for i in bad[:3])) if bad else ""))
+print("USERS " + " ".join(str(u) for u in users))
+sys.exit(0 if not bad else 1)
+PY
+)
+    local wrc=$?; [ $wrc -eq 0 ] || ok=1
+    local users; users=$(sed -n 's/^USERS //p' <<< "$why")
+    why=$(grep -v '^USERS' <<< "$why")
+    t1core invariants > "$W/po-$label-invariants.txt" 2>&1; local irc=$?
+    local u bad=""
+    for u in $users; do
+        grep -q "^I $u " "$W/po-$label-invariants.txt" || bad="$bad $u(no rows)"
+        grep -q "^I $u .* FAIL$" "$W/po-$label-invariants.txt" && bad="$bad $u(FAIL)"
+    done
+    [ $irc -eq 0 ] && [ -z "$bad" ] || ok=1
+    PO_DETAIL="corrupted CREATEs $n ($summary): ABSENT from dump --orders (terminal, no O / H line) $absent, live $live${firstLive:+ (first: $firstLive)}; $why; invariants exit $irc ($(grep -h '^INVARIANTS' "$W/po-$label-invariants.txt" | head -1)) users of those orders $(wc -w <<< "$users")${bad:+ FAIL:$bad}"
+    [ "$cancel" = 1 ] || return $ok
+    # contract 4.1 rule 2 at T1-FB: probe-cancel of one live order, its terminal through the ME and the bridge
+    local victim; victim=$(python3 -I - "$ids" "$ev" <<'PY'
+import sys
+ids = {int(l) for l in open(sys.argv[1]) if l.strip()}
+last = {}
+for line in open(sys.argv[2]):
+    p = line.split()
+    if len(p) == 7:
+        last[int(p[0])] = p
+live = [o for o, p in last.items() if o not in ids and p[3] in ("NEW", "PARTIALLY_FILLED")]
+print(max(live) if live else "")
+PY
+)
+    [ -n "$victim" ] || { PO_DETAIL="$PO_DETAIL; probe-cancel: no live order in the events"; return 1; }
+    echo "$victim" > "$one"
+    local before after pc r0 r1 term=""
+    before=$(t1core dump --orders "$one" 2>&1)
+    r0=$(bridge_sum bridge_forwarded_records_total)
+    pc=$(t1core probe-cancel "$victim" 2>&1 | grep -E '^Order(Ack|Reject)' | head -1)
+    for _ in $(seq 1 30); do
+        term=$(awk -v o="$victim" '$1 == o { s = $4 } END { print s }' "$ev")
+        [ "$term" = CANCELLED ] && break
+        sleep 1
+    done
+    after=$(t1core dump --orders "$one" 2>&1)
+    r1=$(bridge_sum bridge_forwarded_records_total)
+    t1core invariants > "$W/po-$label-invariants-2.txt" 2>&1; irc=$?
+    local hb ha="gone"; hb=$(grep -c "^H $victim " <<< "$before"); grep -q "^ABSENT $victim\$" <<< "$after" || ha="STILL THERE"
+    PO_DETAIL="$PO_DETAIL; probe-cancel $victim: ${pc:-no reply} (H lines before $hb), last OrderEvent ${term:-none}, its O / H lines $ha, bridge records $r0 -> $r1, invariants exit $irc"
+    [[ "$pc" == OrderAck* ]] && [ "$hb" -ge 1 ] && [ "$term" = CANCELLED ] && [ "$ha" = gone ] && [ "$r1" -gt "$r0" ] && [ $irc -eq 0 ] || ok=1
+    return $ok
+}
+
+# 7.2 O-F5: capture across the load (fault: none | me-leader), the barrier, the ME leader's journal, of5-check.py.
+W6_OF5_OUT=""
+W6_OF5_RC=1
+W6_OF5_WINDOW=()
+w6_of5() { # label fault
+    local label=$1 fault=$2
+    W6_OF5_OUT=""; W6_OF5_RC=1; W6_OF5_WINDOW=()
+    start_fwd fwdB "$FWD" "$FWDB_AE" "$FWDB_ME" 24002; wait_ready 24002 60 || log "fwdB not ready"
+    w6_capture_bg "$label" $((SECONDS_LOAD + 15)) || { W6_OF5_OUT="capture never armed"; kill -TERM "${PID[fwdB]}"; wait_exit fwdB 3; return 1; }
+    sleep 2 # the capture runs from 2 s before the load
+    load_bg "$SECONDS_LOAD"
+    local ml="" wstart wend
+    if [ "$fault" = me-leader ]; then # T1-C's fault: SIGSTOP the ME leader 3 s under load, then SIGKILL
+        local a0 b0; a0=$(fwd_metric 24001 'forwarder_resync_total{reason="T2"}'); b0=$(fwd_metric 24002 'forwarder_resync_total{reason="T2"}')
+        sleep 3; ml=$(leader_of me); wstart=$(( $(now_ms) - 2000 ))
+        log "SIGSTOP ME leader $ml"; kill -STOP "${PID[me$ml]}"; sleep 3
+        log "SIGKILL ME leader $ml"; kill -9 "${PID[me$ml]}"; unset "PID[me$ml]"
+        local nl=""
+        for _ in $(seq 1 60); do nl=$(leader_of me) && [ "$nl" != "$ml" ] && break; sleep 0.5; done
+        for _ in $(seq 1 120); do
+            [ "$(fwd_metric 24001 'forwarder_resync_total{reason="T2"}')" -gt "${a0:-0}" ] 2> /dev/null &&
+                [ "$(fwd_metric 24002 'forwarder_resync_total{reason="T2"}')" -gt "${b0:-0}" ] 2> /dev/null && break
+            sleep 0.5
+        done
+        wait_ready 24001 60; wait_ready 24002 60
+        wend=$(( $(now_ms) + 2000 ))
+        W6_OF5_WINDOW=(--window "$wstart" "$wend")
+        log "new ME leader ${nl:-none}; declared window $wstart..$wend ms"
+    fi
+    wait "$LOAD_PID"; local loadLine; loadLine=$(grep -h "^LOAD " "$W/load$LOAD_TAG.log" | tail -1); log "$loadLine"
+    [ -n "$ml" ] && start_me "$ml"
+    w6_capture_wait "$label"
+    local orc=0; oracle "$label" 24001 24002 || orc=1
+    w6_journal "$W/$label-journal.txt" $([ "$fault" = me-leader ] && echo 9142 || echo 9141) 1; local jrc=$?
+    W6_OF5_OUT=$(python3 -I "$HERE/of5-check.py" "$W/capture-$label/dispatch.map" "$W/$label-journal.txt" --load "$loadLine" \
+        "${W6_OF5_WINDOW[@]}" 2>&1)
+    W6_OF5_RC=$?
+    W6_OF5_OUT="capture exit $W6_CAPTURE_RC ($W6_CAPTURE_LINE); journal exit $jrc (seq 1..$((W6_JNEXT - 1))); oracle rc $orc; $(tr '\n' ' ' <<< "$W6_OF5_OUT"); $ORACLE_DETAIL"
+    kill -TERM "${PID[fwdB]}"; wait_exit fwdB 3
+    [ "$W6_CAPTURE_RC" = 0 ] && [ $jrc -eq 0 ] && [ $orc -eq 0 ] && [ $W6_OF5_RC -eq 0 ]
+}
+
+w6_scenario() {
+    local s=$1
+    case "$s" in
+    of5)
+        [ -n "$BRIDGE_BIN" ] || { result of5 fail "needs IT_BRIDGE (no outcome reaches the core without it)"; return 0; }
+        if w6_of5 of5 none; then result of5 ok "$W6_OF5_OUT"; else result of5 fail "$W6_OF5_OUT"; fi ;;
+    of5-meleader)
+        [ -n "$BRIDGE_BIN" ] || { result of5-meleader fail "needs IT_BRIDGE"; return 0; }
+        if w6_of5 of5-meleader me-leader; then result of5-meleader ok "$W6_OF5_OUT"; else result of5-meleader fail "$W6_OF5_OUT"; fi
+        # the RED half: the same files without the declared window must FAIL "0 inversions" (the window is needed)
+        local red rrc
+        red=$(python3 -I "$HERE/of5-check.py" "$W/capture-of5-meleader/dispatch.map" "$W/of5-meleader-journal.txt" 2>&1); rrc=$?
+        red=$(tr '\n' ' ' <<< "$red")
+        if [ $rrc -eq 1 ] && [[ "$red" == *"OF5 FAIL: "*"0 inversions"* ]]; then result of5-meleader-nc ok "RED as required: without the window: $red"
+        elif [ $rrc -eq 0 ]; then result of5-meleader-nc fail "INCONCLUSIVE: no inversion inside the window (the ME leader change truncated nothing): $red"
+        else result of5-meleader-nc fail "failed for another reason (rc $rrc): $red"; fi ;;
+    of5-shuffle)
+        local map="$W/capture-of5/dispatch.map" jr="$W/of5-journal.txt" out rc inv
+        [ -s "$map" ] && [ -s "$jr" ] || { result of5-shuffle fail "NOT RUN: run of5 first in the same invocation (no $map / $jr)"; return 0; }
+        out=$(python3 -I "$HERE/of5-check.py" "$map" "$jr" --shuffle 2>&1); rc=$?
+        out=$(tr '\n' ' ' <<< "$out"); inv=$(sed -n 's/.* inversions=\([0-9]*\) .*/\1/p' <<< "$out")
+        if [ $rc -eq 1 ] && [[ "$out" == *"OF5 FAIL: "*"0 inversions"* ]] && [ "${inv:-0}" -gt 0 ]; then
+            result of5-shuffle ok "RED as required: the '0 inversions' line FAILS ($inv inversions): $out"
+        else result of5-shuffle fail "the shuffled map did not fail the '0 inversions' line (rc $rc): $out"; fi ;;
+    *) return 1 ;;
+    esac
+    return 0
 }
 
 for s in "${SCENARIOS[@]}"; do run_scenario "$s"; done

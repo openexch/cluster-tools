@@ -23,3 +23,7 @@ AgentPropertyTest.agentOverLaggedCoreRecoversHalts|FENCE_OFF|no fence at a lossy
 # Not listed: AgentPropertyTest with REGISTRATION_GATE_OFF (the contract names it): the FIFO ingress puts the RegisterSession before the query, so the stub core registers first and the property cannot see the gate; the gate RED is registerThenQueryThenStream.
 StopPathTest.sigtermDuringABlockedCallOnASlowArchiveReturns0|STOP_DETACH_WHEN_LATE|a late stop still runs stopReplay: the blocked call plus stopReplay pass the 7 s join bound (70)|CHECK( returned0 )
 BridgeAgentTest.duplicateIdentityRetriesUntilTheOldSessionTimesOut|DUPLICATE_IDENTITY_EXITS|RC2 S10': REJECTED DUPLICATE_IDENTITY exits 78 at once: a restart after kill -9 dies|CHECK( registeredAfterDuplicate )
+# RC2 S10' Q1 (coordinator decision 2026-11-01): 30 s of storage starvation end ct-bridge 70
+BridgeAgentTest.coreIngressStarvedOfStorageExits70|STORAGE_STARVED_EXIT_OFF|the core ingress publication starved of storage space never ends the process (alive and not ready forever)|alive after 30 s of storage starvation
+BridgeAgentTest.replayStarvedOfStorageExits70|STORAGE_STARVED_EXIT_OFF|every replay image refused for storage never ends the process (the 240 MB T1 shape: alive, 61 REPLAY_STORAGE faults)|alive after 30 s of storage starvation
+BridgeAgentTest.readyConfirmFenceAdvancesTheSyncCursor|READY_IGNORES_SYNC_CURSOR|RC2 S10' 3.6: a confirm / lane_ahead fence's sync cursor move is not progress: a lane that confirmed past a hole reads 503 backlog_without_progress_30s|CHECK( readyAfterTheFence )

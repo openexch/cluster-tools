@@ -10,6 +10,18 @@
 // Non-vacuity over the run: lossy elections > 0, restarts > 0. RED: FENCE_OFF ("CORE STATE:"; REGISTRATION_GATE_OFF cannot
 // fail here, see negative-controls-e3.txt).
 // CT_BRIDGE_E3_APP_STORIES stories (ctest 100; 10^3 once on the build box).
+//
+// RC2 S10' section 9 (S9c review NOTE-6): the SECOND-SESSION variant. A cold restart opens a NEW BRIDGE session on
+// serve (OPEN_BRIDGE: the cluster's session open; the agent's own RegisterSession then answers DUPLICATE) under a new
+// identity (serve has no session close, so the dead session stays registered: under the S10' 4R rule a second live
+// session of one identity is REJECTED DUPLICATE_IDENTITY, the deployment closes the old one first; a new identity is the
+// R-B5-2 replace shape). The restart happens while a feed frame is in flight, and the dead session's uncommitted tail
+// is NOT dropped: it is sequenced on the old session (ingress the leader had not yet read) 0..50 iterations AFTER the
+// new session's first feed frame was sequenced (at the latest 400 iterations after the restart, or before the next
+// round), so the core gets the same records from both sessions: duplicates across two sessions. Asserts per story: feedDuplicateMismatchCount == 0, the CanonicalDump sha equal to the clean model's (review
+// F-11: not snapshotSha256, whose session section differs with two sessions), cursor N, the latch line `L false 0`,
+// invariantsHold. Non-vacuity: reopenings > 0 and duplicates > 0. RED: FENCE_OFF ("CORE STATE:"). The same-session
+// variant above is unchanged (feedDuplicateCount == 0, the snapshot hash).
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"
 
@@ -182,9 +194,11 @@ struct Outcome
 {
     std::string failure;
     int restarts = 0, elections = 0, lostFrames = 0, registrations = 0;
+    int reopenings = 0, lateTailFrames = 0; // the second-session variant
+    std::int64_t duplicates = 0;
 };
 
-Outcome story(std::uint64_t seed, const std::string &work)
+Outcome story(std::uint64_t seed, const std::string &work, bool secondSession = false)
 {
     Outcome out;
     auto fail = [&](const std::string &why) {
@@ -234,8 +248,15 @@ Outcome story(std::uint64_t seed, const std::string &work)
     std::int64_t term = 3, clientSession = 900;
     std::int32_t image = 900, leader = 0;
     std::set<std::int64_t> answered;
-    auto process = std::make_unique<Process>(t, archives, ready.identity, rng);
+    std::int64_t session = ready.bridgeSession, identity = ready.identity; // the core session the agent's frames land on
+    std::int64_t nextSession = ready.bridgeSession + 1000;
+    auto process = std::make_unique<Process>(t, archives, identity, rng);
     std::deque<ct_oracle::Bytes> inflight;           // offered, not committed
+    std::deque<ct_oracle::Bytes> oldTail;            // second-session variant: the dead session's unsequenced tail
+    std::int64_t oldTailSession = 0;
+    int oldTailAt = -1;
+    bool tailWaitsForNewFeed = false; // the tail is sequenced after the new session's first feed frame
+    bool restartPending = false;
     std::deque<std::pair<long, ct_oracle::Bytes>> egress; // committed answers, by iteration
     std::map<std::size_t, std::size_t> scanned;
     const int lag = 1 + static_cast<int>(rng() % 8);
@@ -253,23 +274,47 @@ Outcome story(std::uint64_t seed, const std::string &work)
             if (isRegisterSession(f.data(), f.size()))
             {
                 out.registrations++;
-                for (auto &e : serve.frame(ready.bridgeSession, f.data(), f.size()))
+                for (auto &e : serve.frame(session, f.data(), f.size()))
                 {
                     egress.emplace_back(it, std::move(e));
                 }
             }
             else if (T_QUERY_FEED_POSITION == tid)
             {
-                egress.emplace_back(it, serve.query(ready.bridgeSession, rd64le(f.data() + 8)));
+                egress.emplace_back(it, serve.query(session, rd64le(f.data() + 8)));
             }
             else
             {
-                for (auto &e : serve.frame(ready.bridgeSession, f.data(), f.size()))
+                for (auto &e : serve.frame(session, f.data(), f.size()))
                 {
                     egress.emplace_back(it, std::move(e));
                 }
+                if (tailWaitsForNewFeed && !oldTail.empty())
+                {
+                    tailWaitsForNewFeed = false;
+                    oldTailAt = static_cast<int>(it) + static_cast<int>(rng() % 51);
+                }
             }
         }
+    };
+    // the dead session's tail, sequenced late on its own session; its egress goes to a session nobody reads
+    auto flushOldTail = [&]() {
+        while (!oldTail.empty())
+        {
+            const ct_oracle::Bytes f = oldTail.front();
+            oldTail.pop_front();
+            if (T_QUERY_FEED_POSITION == rd16(f.data() + 2))
+            {
+                (void)serve.query(oldTailSession, rd64le(f.data() + 8));
+            }
+            else
+            {
+                out.lateTailFrames += isRegisterSession(f.data(), f.size()) ? 0 : 1;
+                (void)serve.frame(oldTailSession, f.data(), f.size());
+            }
+        }
+        oldTailAt = -1;
+        tailWaitsForNewFeed = false;
     };
     auto deliver = [&](long it, bool all) {
         while (!egress.empty() && (all || egress.front().first + lag <= it))
@@ -306,25 +351,70 @@ Outcome story(std::uint64_t seed, const std::string &work)
             }
             inflight.clear();
             egress.clear();
+            for (const auto &f : oldTail)
+            {
+                out.lostFrames += (!isRegisterSession(f.data(), f.size()) && T_QUERY_FEED_POSITION != rd16(f.data() + 2)) ? 1 : 0;
+            }
+            oldTail.clear(); // still unsequenced: lost with the term
+            oldTailAt = -1;
             ++term;
             leader = (leader + 1) % 3;
             t.pushNewLeader(clientSession, term, leader, CORE_ENDPOINTS, image);
+        }
+        if (it == oldTailAt)
+        {
+            flushOldTail();
         }
         if (rng() % 10 < 6)
         {
             commit(it);
         }
-        // a cold restart: a new client and agent over the same serve session (registration DUPLICATE)
-        if (rng() % 1500 == 0)
+        // a cold restart: a new client and agent over the same serve session (registration DUPLICATE); in the
+        // second-session variant over a NEW serve session, the old session's tail sequenced later
+        bool restartNow = rng() % 1500 == 0;
+        if (secondSession)
         {
+            // the variant restarts only while a feed frame is in flight, so the dead session leaves a tail
+            restartPending = restartPending || restartNow;
+            restartNow = restartPending && std::any_of(inflight.begin(), inflight.end(), [](const ct_oracle::Bytes &f) {
+                return !isRegisterSession(f.data(), f.size()) && T_QUERY_FEED_POSITION != rd16(f.data() + 2);
+            }); // after this iteration's commit: what is still in flight now
+        }
+        if (restartNow)
+        {
+            restartPending = false;
             ++out.restarts;
-            commit(it);
-            deliver(it, true);
+            if (!secondSession)
+            {
+                commit(it);
+                deliver(it, true);
+            }
             process->agent->requestStop();
             process->agent->doWork();
-            inflight.clear(); // the old session's close and keepalives carry nothing for serve
+            if (secondSession)
+            {
+                flushOldTail(); // an earlier dead session's tail is older than this one's
+                oldTail.clear();
+                for (const auto &f : inflight)
+                {
+                    oldTail.push_back(f);
+                }
+                oldTailSession = session;
+                oldTailAt = it + 400; // the bound; the first new feed frame brings it forward
+                tailWaitsForNewFeed = true;
+                inflight.clear();
+                egress.clear(); // addressed to the dead session
+                session = nextSession++;
+                identity = ready.identity + out.restarts;
+                (void)serve.openBridge(session, identity);
+                ++out.reopenings;
+            }
+            else
+            {
+                inflight.clear(); // the old session's close and keepalives carry nothing for serve
+            }
             process.reset();
-            process = std::make_unique<Process>(t, archives, ready.identity, rng);
+            process = std::make_unique<Process>(t, archives, identity, rng);
             offerSync = ~0ULL; // a new domain counts its syncs from 0 again: the next offer opens a new sync
         }
         deliver(it, false);
@@ -380,6 +470,7 @@ Outcome story(std::uint64_t seed, const std::string &work)
             const bool barrier = 0 == nextRound || v.cursor >= ready.barriers[nextRound - 1];
             if (barrier)
             {
+                flushOldTail(); // a round is written only once everything offered before it is sequenced
                 commit(it);
                 deliver(it, true);
                 (void)serve.round(static_cast<std::uint32_t>(nextRound));
@@ -399,15 +490,29 @@ Outcome story(std::uint64_t seed, const std::string &work)
             break;
         }
     }
+    flushOldTail();
     commit(maxIterations);
     const std::string result = serve.finish();
-    const ct_oracle::ServeClient::Dump dump = serve.dump();
+    const ct_oracle::ServeClient::Dump dump = secondSession ? serve.dump(ready.n) : serve.dump();
     if (ct_oracle::jsonField(result, "lastAppliedJournalSeq") != std::to_string(ready.n))
     {
         return coreFail("lastAppliedJournalSeq " + ct_oracle::jsonField(result, "lastAppliedJournalSeq") + " of " +
             std::to_string(ready.n));
     }
-    if (ct_oracle::jsonField(result, "snapshotSha256") != ready.cleanSha)
+    if (secondSession)
+    {
+        // review F-11: two registered sessions change the snapshot's session section; the money state is the dump
+        if (dump.liveSha != dump.modelSha)
+        {
+            return coreFail("the CanonicalDump sha " + dump.liveSha.substr(0, 12) + " differs from the clean model's " +
+                dump.modelSha.substr(0, 12));
+        }
+        if (ct_oracle::jsonField(result, "feedDuplicateMismatchCount") != "0")
+        {
+            return coreFail("feedDuplicateMismatchCount " + ct_oracle::jsonField(result, "feedDuplicateMismatchCount"));
+        }
+    }
+    else if (ct_oracle::jsonField(result, "snapshotSha256") != ready.cleanSha)
     {
         return coreFail("snapshotSha256 differs from the clean run's");
     }
@@ -419,9 +524,10 @@ Outcome story(std::uint64_t seed, const std::string &work)
     {
         return coreFail("invariantsHold false");
     }
-    if (ct_oracle::duplicateCount(result) != 0)
+    out.duplicates = ct_oracle::duplicateCount(result);
+    if (!secondSession && out.duplicates != 0)
     {
-        return coreFail("feedDuplicateCount " + std::to_string(ct_oracle::duplicateCount(result)));
+        return coreFail("feedDuplicateCount " + std::to_string(out.duplicates));
     }
     if (!offerFailure.empty())
     {
@@ -465,4 +571,43 @@ TEST_CASE("BridgeE3AppTest.theRealCoreEndsInTheCleanStateThroughTheAppWiring")
     CHECK(lost > 0);
     CHECK(restarts > 0);
     CHECK(registrations > n); // the app's registrar registered through FRAME (one per session, plus re-registrations)
+}
+
+TEST_CASE("BridgeE3AppTest.aSecondSessionAfterARestartEndsInTheCleanDump")
+{
+    // RC2 S10' section 9: the restarted bridge on a NEW core session, the dead session's tail sequenced late
+    const char *env = std::getenv("CT_BRIDGE_E3_APP_STORIES");
+    const int n = nullptr == env ? 100 : std::atoi(env);
+    const fs::path work = fs::temp_directory_path() / "ct-bridge-e3-app-2s";
+    fs::create_directories(work);
+    int failures = 0, restarts = 0, reopenings = 0, elections = 0, lost = 0, late = 0;
+    std::int64_t duplicates = 0;
+    std::string first;
+    for (int i = 0; i < n; ++i)
+    {
+        const Outcome o = story(0xe3a9ULL + 0x10000ULL + static_cast<std::uint64_t>(i), work.string(), true);
+        restarts += o.restarts;
+        reopenings += o.reopenings;
+        elections += o.elections;
+        lost += o.lostFrames;
+        late += o.lateTailFrames;
+        duplicates += o.duplicates;
+        if (!o.failure.empty() && failures++ < 3)
+        {
+            MESSAGE(o.failure);
+            if (first.empty())
+            {
+                first = o.failure;
+            }
+        }
+    }
+    MESSAGE("E3 second session: " << n << " stories, restarts " << restarts << " = new sessions " << reopenings
+        << ", late dead-session tail frames " << late << ", feed duplicates " << duplicates << ", elections " << elections
+        << " (lost frames " << lost << "), failures " << failures);
+    INFO(first);
+    const bool clean = 0 == failures;
+    CHECK(clean); // FENCE_OFF RED: "CORE STATE:"
+    CHECK(reopenings > 0);
+    CHECK(duplicates > 0); // two sessions over one story must meet each other's records (0 = the tail never overlapped)
+    CHECK(lost > 0);
 }

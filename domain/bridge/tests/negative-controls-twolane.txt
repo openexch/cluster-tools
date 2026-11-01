@@ -1,0 +1,14 @@
+# The RED column of RC2 S10' contract 3.4 (TwoLaneDomainPropertyTest, light method: re-proved on every run). Each line:
+# test case | rule | why | expected text; run by archive/tests/run-negative-controls.sh against ct_bridge_twolane_tests
+# (linked with ct_bridge_domain_seamed): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass
+# without it. HALT_CONFIRM_OFF, ROTATE_PAST_CURSOR and FENCE_OFF are the domain's seams (TestSeams.h); STALE_RULE_OFF,
+# SINGLE_SLOT and OVERFLOW_READS_CLEARED are the test's own stub-core seams (the 4R rule switched off in the stub, read
+# from the same CT_TEST_DISABLE_* variables by the test itself). The ctest run uses CT_BRIDGE_TWOLANE_RUNS=400; the
+# failing seeds are deterministic (seed base 0x2a4e5eed).
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|HALT_CONFIRM_OFF|(c): no confirming report: a lane halts GAP after the other lane delivered e|GAP record written while the other lane could deliver e
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|ROTATE_PAST_CURSOR|(e): a rotation past the cursor instead of the lane_ahead fence: a cold walk the fence would not take|cold walks per lane_ahead fence > 1
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|FENCE_OFF|(a): offers continue after an election lost the tail: entries above cursor + 1 once the lane was told|frame below cursor + 1 after a restart
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|STALE_RULE_OFF|(c): the stub core latches a GAP FeedHalt although cursor >= seen - 1|a stale FeedHalt latched
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|SINGLE_SLOT|(f): today's single slot forgets the second lane's record and reopens at the first reach-clear|the bit cleared with a record open
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|OVERFLOW_READS_CLEARED|(f): the overflow record clears by reach: the gate reopens without the operator|the bit cleared under overflow
+TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReopensOnlyWhenEveryHoleCleared|RESCAN_EXIT_A_OFF|9.4 exit (a): a re-scan report with C' >= seen - 1 does not leave the halt at a quiet head (lane C's W2b finding)|a halted lane kept its GAP halt after the cursor passed seen - 1
