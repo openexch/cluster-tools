@@ -1,4 +1,4 @@
-#include "EmbeddedDriver.h"
+#include "common/EmbeddedDriver.h"
 
 #include <fcntl.h>
 #include <sys/file.h>
@@ -16,10 +16,9 @@ extern "C" {
 #include "aeronmd.h"
 }
 
-#include "AppSeams.h"
 #include "common/DriverTimeout.h"
 
-namespace cluster_tools { namespace app { namespace bridge {
+namespace cluster_tools { namespace app { namespace common {
 
 namespace {
 
@@ -33,7 +32,7 @@ namespace {
 //   - then sample for LIVE_DRIVER_SAMPLE_MS (longer than one timer interval): LIVE when any sample is fresher than
 //     LIVE_DRIVER_AGE_MS (a live driver beats inside every timer interval).
 constexpr std::uint64_t DRIVER_TIMER_INTERVAL_NS =
-    static_cast<std::uint64_t>(common::DRIVER_TIMER_INTERVAL_MS) * 1'000'000ULL; // the floor of BRIDGE_DRIVER_TIMEOUT_MS spans two
+    static_cast<std::uint64_t>(DRIVER_TIMER_INTERVAL_MS) * 1'000'000ULL; // the floor of every *_DRIVER_TIMEOUT_MS spans two
 constexpr std::int64_t LIVE_DRIVER_AGE_MS = 1'500;
 constexpr std::int64_t LIVE_DRIVER_MARGIN_MS = 100;
 constexpr std::int64_t LIVE_DRIVER_SAMPLE_MS = 1'500;
@@ -57,21 +56,22 @@ std::string lastAeronError(const char *step)
 
 }
 
-std::string EmbeddedDriver::dirFor(const std::string &parent, std::int64_t instanceId)
+std::string EmbeddedDriver::dirFor(const std::string &parent, std::int64_t instanceId, const EmbeddedDriverOptions &options)
 {
     std::string base = parent;
     while (base.size() > 1 && '/' == base.back())
     {
         base.pop_back();
     }
-    if (app_seams::disabled(app_seams::Rule::EMBEDDED_DIR_PER_PID))
+    if (options.dirPerPid)
     {
-        return base + "/ct-bridge-" + std::to_string(static_cast<long long>(::getpid())); // RED shape (pre FIX-1)
+        return base + "/" + options.dirPrefix + std::to_string(static_cast<long long>(::getpid())); // RED shape (pre FIX-1)
     }
-    return base + "/ct-bridge-" + std::to_string(instanceId);
+    return base + "/" + options.dirPrefix + std::to_string(instanceId);
 }
 
-EmbeddedDriver::EmbeddedDriver(HookAction onTerminate) : m_onTerminate(std::move(onTerminate))
+EmbeddedDriver::EmbeddedDriver(EmbeddedDriverOptions options, HookAction onTerminate) :
+    m_options(std::move(options)), m_onTerminate(std::move(onTerminate))
 {
 }
 
@@ -100,7 +100,7 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
 {
     m_dir = dir;
     m_manual = manualMainLoop;
-    if (!app_seams::disabled(app_seams::Rule::EMBEDDED_INSTANCE_LOCK))
+    if (m_options.instanceLock)
     {
         const std::string lockPath = dir + ".lock";
         const int fd = ::open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
@@ -114,12 +114,12 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
             const int err = errno;
             ::close(fd);
             error = EWOULDBLOCK == err
-                ? "another ct-bridge holds the instance lock " + lockPath +
-                    " (a second ct-bridge with this BRIDGE_INSTANCE_ID on this host?): refusing to start"
+                ? "another " + m_options.processName + " holds the instance lock " + lockPath + " (a second " +
+                    m_options.processName + " with this " + m_options.instanceKey + " on this host?): refusing to start"
                 : "embedded driver instance lock " + lockPath + ": " + std::strerror(err);
             return false;
         }
-        m_lockFd = fd; // held until this object goes (the process lifetime in ct-bridge)
+        m_lockFd = fd; // held until this object goes (the process lifetime in both processes)
     }
     struct stat st{};
     if (0 == ::stat(dir.c_str(), &st))
@@ -140,8 +140,8 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
         }
         if (live)
         {
-            error = "a LIVE media driver is already in " + dir +
-                " (a second ct-bridge with this BRIDGE_INSTANCE_ID on this host?): refusing to start";
+            error = "a LIVE media driver is already in " + dir + " (a second " + m_options.processName + " with this " +
+                m_options.instanceKey + " on this host?): refusing to start"; // a live driver dir is never deleted
             return false;
         }
         m_reclaimed = true; // a stale dir of an earlier run of this instance: reused and cleaned (delete on start)

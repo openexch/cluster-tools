@@ -59,3 +59,16 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: "no ME egress frame for more than 5 s"
+      - alert: ForwarderEmbeddedDriver
+        # RC2 S10' 8.2 rule 6 / checklist C13: the embedded media driver is for dev and demo only; the prod profile runs
+        # FWD_DRIVER_MODE=external on the host aeronmd that admin / cloud-console manage
+        expr: forwarder_driver_mode{mode="embedded"} == 1
+        labels: { severity: info }
+        annotations:
+          summary: "ct-forwarder runs its own embedded media driver (dev/demo only; prod is FWD_DRIVER_MODE=external)"
+      - alert: ForwarderStorageStarved
+        # RC2 S10' Q1: an ingress publication refused for storage space; exit 70 after 30 s (restartable, loud)
+        expr: increase(forwarder_storage_starved_seconds[1m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "ct-forwarder starved of storage in the media driver dir (it exits 70 after 30 s): grow or clean the tmpfs"

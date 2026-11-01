@@ -24,7 +24,8 @@ inline constexpr std::uint32_t RING_DEEP = 1u << 5;
 inline constexpr std::uint32_t STOPPING = 1u << 6;
 inline constexpr std::uint32_t RING_HEAD_STALE = 1u << 7; // review NOTE-3: the head waited 30 s for the ME
 inline constexpr std::uint32_t CORE_NO_LEADER = 1u << 8;  // review NOTE-3: the core client awaits a new leader
-inline constexpr unsigned COUNT = 9;
+inline constexpr std::uint32_t STORAGE_STARVED = 1u << 9; // S10' Q1: an ingress publication refused for storage space
+inline constexpr unsigned COUNT = 10;
 }
 
 inline const char *notReadyName(unsigned bit) noexcept
@@ -40,6 +41,7 @@ inline const char *notReadyName(unsigned bit) noexcept
         case 6: return "stopping";
         case 7: return "ring_head_unsent_30s";
         case 8: return "core_no_leader";
+        case 9: return "storage_starved";
     }
     return "?";
 }
@@ -116,6 +118,13 @@ struct ForwarderSnapshot
     std::uint64_t aeronErrors = 0;
     std::uint64_t dutyMaxCycleUs = 0;
     std::uint64_t logDropped = 0;
+
+    // RC2 S10' 8.2 rule 6: the media driver in force (DriverMode: 1 embedded, 2 external) and whether the embedded
+    // per-instance dir was a stale one reused and cleaned at start
+    std::uint8_t driverMode = 0;
+    std::uint64_t driverDirReclaimed = 0;
+    // S10' Q1: seconds an ingress publication has been refused for storage space (closed episodes + the current one)
+    std::uint64_t storageStarvedSeconds = 0;
 };
 
 static_assert(std::is_trivially_copyable_v<ForwarderSnapshot>);

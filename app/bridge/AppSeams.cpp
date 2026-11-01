@@ -45,6 +45,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::EMBEDDED_INSTANCE_LOCK: return "EMBEDDED_INSTANCE_LOCK";
         case Rule::CONDUCTOR_REVALIDATE_OFF: return "CONDUCTOR_REVALIDATE_OFF";
         case Rule::STOP_DETACH_WHEN_LATE: return "STOP_DETACH_WHEN_LATE";
+        case Rule::STORAGE_STARVED_EXIT_OFF: return "STORAGE_STARVED_EXIT_OFF";
         case Rule::NEGCTL_DROP_RECORDS_2_3: return "NEGCTL_DROP_RECORDS_2_3";
         case Rule::COUNT: break;
     }

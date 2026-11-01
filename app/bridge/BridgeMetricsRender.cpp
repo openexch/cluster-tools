@@ -43,6 +43,7 @@ const char *notReadyBitName(int bit) noexcept
         case 12: return "hole_grace";
         case 13: return "stopping";
         case 14: return "stalled";
+        case 15: return "storage_starved";
         default: return "?";
     }
 }
@@ -113,6 +114,10 @@ std::uint32_t notReadyBits(const ReadyInputs &in) noexcept
     if (in.stopping)
     {
         bits |= STOPPING;
+    }
+    if (in.storageStarved)
+    {
+        bits |= STORAGE_STARVED;
     }
     return bits;
 }
@@ -401,6 +406,9 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
     p.counter("bridge_sighup_ignored_total", "SIGHUPs counted (no operator resync exists)", x.sighupIgnored);
     p.counter("bridge_driver_dir_reclaimed_total", "Embedded mode: a stale per-instance driver dir reused and cleaned at start",
         x.driverDirReclaimed);
+    p.counter("bridge_storage_starved_seconds",
+        "Seconds the core ingress publication or every replay image was refused for storage space (exit 70 after 30 s, S10' Q1)",
+        s.app.storageStarvedSeconds);
 
     // ---- the domain (S9b 12)
     p.gauge("bridge_halted", "1 while a halt is recorded (also a kept halt while DOWN)", BridgeMetrics::value(m.halted));

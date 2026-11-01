@@ -71,6 +71,7 @@ ForwarderSnapshot fixed()
     s.counters.meBackPressure = 4;
     s.aeronErrors = 0;
     s.dutyMaxCycleUs = 85;
+    s.driverMode = 2; // RC2 S10' 8.2 rule 6: external
     return s;
 }
 

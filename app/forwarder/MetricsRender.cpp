@@ -52,6 +52,11 @@ void perCluster(std::string &out, const char *name, const char *kind, std::uint6
     line(out, "%s{cluster=\"me\"} %" PRIu64, name, me);
 }
 
+const char *driverModeLabel(std::uint8_t mode)
+{
+    return 1 == mode ? "embedded" : 2 == mode ? "external" : "unset";
+}
+
 const char *kindLabel(unsigned bucket)
 {
     static const char *labels[] = { "0", "1", "2", "3", "other" };
@@ -80,6 +85,10 @@ std::string renderPrometheus(const ForwarderSnapshot &s)
     line(out, "forwarder_info{identity=\"%" PRId64 "\",version=\"%s\",me_epoch=\"%" PRId64 "\"} 1", s.identity, s.version,
         s.meEpoch);
     gauge(out, "forwarder_ready", s.ready ? 1 : 0);
+    type(out, "forwarder_driver_mode", "gauge"); // RC2 S10' 8.2 rule 6: the mode in force
+    line(out, "forwarder_driver_mode{mode=\"%s\"} 1", driverModeLabel(s.driverMode));
+    counter(out, "forwarder_driver_dir_reclaimed_total", s.driverDirReclaimed);
+    counter(out, "forwarder_storage_starved_seconds", s.storageStarvedSeconds); // S10' Q1: exit 70 after 30 s of it
     perCluster(out, "forwarder_session_state", "gauge", s.core.clientState, s.me.clientState);
     perCluster(out, "forwarder_session_new_leader_total", "counter", s.core.newLeaderEvents, s.me.newLeaderEvents);
     perCluster(out, "forwarder_session_reconnect_total", "counter", s.core.sessionsOpened > 0 ? s.core.sessionsOpened - 1 : 0,
@@ -181,11 +190,11 @@ std::string renderHealthJson(const ForwarderSnapshot &s, bool stalled)
         "{\"status\":\"%s\",\"aeConnected\":%s,\"meConnected\":%s,\"registered\":%s,\"meEpoch\":%" PRId64
         ",\"mode\":\"%s\",\"lastDispatchSeq\":%" PRId64 ",\"lastSentSeq\":%" PRId64 ",\"coreHead\":%" PRId64
         ",\"resyncs\":%" PRIu64 ",\"lastResyncEndSeq\":%" PRId64 ",\"ringDepth\":%" PRIu64 ",\"invalidDispatches\":%" PRIu64
-        ",\"identity\":%" PRId64 ",\"ready\":%s}",
+        ",\"identity\":%" PRId64 ",\"driverMode\":\"%s\",\"ready\":%s}",
         stalled ? "STALLED" : "UP", s.coreLink >= static_cast<std::uint8_t>(CoreLink::UNREGISTERED) ? "true" : "false",
         s.meLink >= static_cast<std::uint8_t>(MeLink::UNVERIFIED) ? "true" : "false", s.registered ? "true" : "false",
         s.meEpoch, modeName(s.mode), s.cursor, s.lastSentSeq, s.coreHead, resyncs, s.lastResyncEndSeq, s.ringDepth,
-        s.counters.invalid.total(), s.identity, s.ready ? "true" : "false");
+        s.counters.invalid.total(), s.identity, driverModeLabel(s.driverMode), s.ready ? "true" : "false");
     return out;
 }
 

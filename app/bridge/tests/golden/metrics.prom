@@ -188,6 +188,9 @@ bridge_sighup_ignored_total 2
 # HELP bridge_driver_dir_reclaimed_total Embedded mode: a stale per-instance driver dir reused and cleaned at start
 # TYPE bridge_driver_dir_reclaimed_total counter
 bridge_driver_dir_reclaimed_total 0
+# HELP bridge_storage_starved_seconds Seconds the core ingress publication or every replay image was refused for storage space (exit 70 after 30 s, S10' Q1)
+# TYPE bridge_storage_starved_seconds counter
+bridge_storage_starved_seconds 0
 # HELP bridge_halted 1 while a halt is recorded (also a kept halt while DOWN)
 # TYPE bridge_halted gauge
 bridge_halted 0

@@ -22,3 +22,6 @@ StopPathTest.invokerBeatsDuringABlockedArchiveCall|INVOKER_NO_BEAT|the invoker d
 AgentPropertyTest.agentOverLaggedCoreRecoversHalts|FENCE_OFF|no fence at a lossy election: an entry above cursor + 1 reaches the core|CHECK( noViolation )
 # Not listed: AgentPropertyTest with REGISTRATION_GATE_OFF (the contract names it): the FIFO ingress puts the RegisterSession before the query, so the stub core registers first and the property cannot see the gate; the gate RED is registerThenQueryThenStream.
 StopPathTest.sigtermDuringABlockedCallOnASlowArchiveReturns0|STOP_DETACH_WHEN_LATE|a late stop still runs stopReplay: the blocked call plus stopReplay pass the 7 s join bound (70)|CHECK( returned0 )
+# RC2 S10' Q1 (coordinator decision 2026-11-01): 30 s of storage starvation end ct-bridge 70
+BridgeAgentTest.coreIngressStarvedOfStorageExits70|STORAGE_STARVED_EXIT_OFF|the core ingress publication starved of storage space never ends the process (alive and not ready forever)|alive after 30 s of storage starvation
+BridgeAgentTest.replayStarvedOfStorageExits70|STORAGE_STARVED_EXIT_OFF|every replay image refused for storage never ends the process (the 240 MB T1 shape: alive, 61 REPLAY_STORAGE faults)|alive after 30 s of storage starvation

@@ -48,6 +48,7 @@ enum class Rule : unsigned
     EMBEDDED_INSTANCE_LOCK,     // no instance lock: two same-id embedded starts both reclaim the dir (Q3)
     CONDUCTOR_REVALIDATE_OFF,   // the heartbeat record is not re-validated: a reclaimed, re-used slot reads healthy
     STOP_DETACH_WHEN_LATE,      // a late stop still runs stopReplay: a blocked call + stopReplay pass the 7 s join bound
+    STORAGE_STARVED_EXIT_OFF,   // S10' Q1: storage starvation never ends the process (alive and not ready forever)
     // test builds (never a test RED): ct_bridge_negctl
     NEGCTL_DROP_RECORDS_2_3,    // record templates 2 and 3 are dropped before the domain (the A02-T2 control)
     COUNT

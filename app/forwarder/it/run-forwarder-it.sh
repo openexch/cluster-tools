@@ -68,6 +68,7 @@ cleanup() {
     local orphan
     for orphan in $(jobs -p); do kill -9 "$orphan" 2>/dev/null || true; done
     wait 2>/dev/null || true
+    declare -F lane_c_cleanup > /dev/null && lane_c_cleanup # RC2 S10' lane C: the tmpfs-min mounts
     rm -rf "$SHM"
     if [ "${IT_KEEP:-0}" != "1" ]; then rm -rf "$W"; else echo "work dir kept: $W"; fi
 }
@@ -125,11 +126,21 @@ start_me() { # node
     PID[me$i]=$!
 }
 
-start_fwd() { # name binary aeKey meKey httpPort [aeronDir]
-    local name=$1 bin=$2 ae=$3 me=$4 port=$5 dir=${6:-$DRIVER_DIR}
+# RC2 S10' section 8 (C13): IT_FWD_MODE=external (default; the runner's aeronmd, or the dir given as the 6th argument)
+# or embedded (each forwarder's own driver under FWD_EMBEDDED_PARENT, ct-forwarder-<id>); FWD_INSTANCE_ID is fixed per
+# name (fwdA 101, fwdB 102) so a restart keeps its identity; FWD_DRIVER_TIMEOUT_MS 5000 (the S12 value).
+FWD_MODE=${IT_FWD_MODE:-external}
+FWD_EMBEDDED_PARENT="$SHM/fwd-embedded"
+fwd_instance_id() { case "$1" in fwdA) echo 101 ;; fwdB) echo 102 ;; *) echo 109 ;; esac; }
+start_fwd() { # name binary aeKey meKey httpPort [aeronDir: forces external on that driver]
+    local name=$1 bin=$2 ae=$3 me=$4 port=$5 driverEnv
+    if [ -n "${6:-}" ] || [ "$FWD_MODE" = external ]; then driverEnv=(FWD_DRIVER_MODE=external AERON_DIR="${6:-$DRIVER_DIR}")
+    else mkdir -p "${FWD_EMBEDDED_DIR_OVERRIDE:-$FWD_EMBEDDED_PARENT}"
+        driverEnv=(FWD_DRIVER_MODE=embedded FWD_DRIVER_DIR="${FWD_EMBEDDED_DIR_OVERRIDE:-$FWD_EMBEDDED_PARENT}"); fi
     env -i PATH="$PATH" FWD_CORE_INGRESS="$AE_INGRESS" FWD_CORE_RESPONSE_CHANNEL="aeron:udp?endpoint=127.0.0.1:0" \
         AE_AUTH_CREDENTIAL="$ae" FWD_ME_INGRESS="$ME_INGRESS" FWD_ME_RESPONSE_CHANNEL="aeron:udp?endpoint=127.0.0.1:0" \
-        ME_AUTH_CREDENTIAL="$me" FWD_INGRESS_CHANNEL="aeron:udp?term-length=4m|mtu=8192" AERON_DIR="$dir" \
+        ME_AUTH_CREDENTIAL="$me" FWD_INGRESS_CHANNEL="aeron:udp?term-length=4m|mtu=8192" "${driverEnv[@]}" \
+        FWD_DRIVER_TIMEOUT_MS=5000 FWD_INSTANCE_ID="$(fwd_instance_id "$name")" \
         FWD_HTTP_BIND="127.0.0.1:$port" taskset -c 0-11 "$bin" >> "$W/$name.log" 2>&1 &
     PID[$name]=$!
 }
@@ -590,8 +601,173 @@ PY
             detail="$detail me$i($rc): $v;"
         done
         [ $all_ok -eq 0 ] && result of2 ok "$detail suppressed $(me_counter match_durable_duplicates_suppressed_total)" || result of2 fail "$detail" ;;
-    *) result "$s" fail "unknown scenario" ;;
+    *) declare -F lane_c_scenario > /dev/null && lane_c_scenario "$s" || result "$s" fail "unknown scenario" ;;
     esac
+}
+
+# ---------------------------------------------------------------- RC2 S10' lane C: the forwarder's driver modes (section 8)
+# Scenarios (dispatched from run_scenario's default arm; IT_FWD_MODE picks the mode of the whole run):
+#   mode-check      8.2 rule 6: /health driverMode, forwarder_driver_mode{mode}, forwarder_info identity = FWD_INSTANCE_ID;
+#                   embedded: the per-instance dir ct-forwarder-101 and its lock exist (its size recorded); external: none
+#   identity        8.2 rule 3: three restarts of fwdA (SIGTERM, SIGTERM, kill -9) keep identity 101; embedded: the
+#                   kill -9 leaves the dir, the restart reclaims it (forwarder_driver_dir_reclaimed_total 1)
+#   fatal-embedded  8.3 (IT_FWD_MODE=embedded): kill -STOP fwdA 15 s, CONT, a load: exit 70, or a reconnect with progress
+#                   (ready and last_sent advancing) within 30 s; alive without progress for 30 s = FAIL
+#   tmpfs-min       8.2 rule 6 / review N-7 (IT_FWD_MODE=embedded, sudo): fwdA restarted on a tmpfs of each size in
+#                   IT_TMPFS_SIZES (MB, default "128 96 64 48 32 24 16"), load + oracle per size; the minimum is the
+#                   smallest size that passes with every larger size passing; a failing size records its exit code
+#   storage-starved S10' Q1 (IT_FWD_MODE=embedded, sudo): fwdA on a 48 MB tmpfs (below the 64 MB minimum: the ME ingress
+#                   publication is refused for storage space): /ready names storage_starved and
+#                   forwarder_storage_starved_seconds grows, then exit 70 within 30 s + one check of that onset, the
+#                   reason in the log. storage-starved-nc: ct_forwarder_nc_storagekeep (STORAGE_STARVED_EXIT_OFF) must
+#                   FAIL that rule's line "alive 45 s after the storage_starved onset"
+# The external kill (`fatal-aeron`, kill -9 of fwdA's own aeronmd: exit 70 within the timeout + 2 s) is the S12 row above.
+LANE_C_MOUNT=""
+lane_c_cleanup() {
+    if [ -n "$LANE_C_MOUNT" ]; then sudo -n umount "$LANE_C_MOUNT" 2> /dev/null || sudo -n umount -l "$LANE_C_MOUNT" 2> /dev/null; LANE_C_MOUNT=""; fi
+}
+fwd_identity() { curl -s --max-time 2 "http://127.0.0.1:$1/metrics" 2> /dev/null | sed -n 's/^forwarder_info{identity="\([0-9]*\)".*/\1/p' | head -1; }
+fwd_alive() { local p=${PID[$1]:-} st; [ -n "$p" ] || return 1; st=$(ps -o stat= -p "$p" 2> /dev/null); [ -n "$st" ] && [[ "$st" != Z* ]]; }
+lane_c_scenario() {
+    local s=$1
+    case "$s" in
+    mode-check)
+        local m id h dirs=""
+        m=$(fwd_metric 24001 "forwarder_driver_mode{mode=\"$FWD_MODE\"}"); id=$(fwd_identity 24001)
+        h=$(curl -s --max-time 2 http://127.0.0.1:24001/health)
+        local ok=0
+        [ "$m" = 1 ] && [ "$id" = 101 ] && [[ "$h" == *"\"driverMode\":\"$FWD_MODE\""* ]] || ok=1
+        if [ "$FWD_MODE" = embedded ]; then
+            [ -f "$FWD_EMBEDDED_PARENT/ct-forwarder-101/cnc.dat" ] && [ -f "$FWD_EMBEDDED_PARENT/ct-forwarder-101.lock" ] || ok=1
+            dirs="; embedded dir $(du -sk "$FWD_EMBEDDED_PARENT/ct-forwarder-101" 2> /dev/null | cut -f1) KB (du), files: $(ls "$FWD_EMBEDDED_PARENT/ct-forwarder-101" 2> /dev/null | tr '\n' ' ')"
+        else
+            [ ! -e "$FWD_EMBEDDED_PARENT/ct-forwarder-101" ] || ok=1
+            dirs="; runner driver dir $(du -sk "$DRIVER_DIR" 2> /dev/null | cut -f1) KB (du, shared by every client)"
+        fi
+        if [ $ok -eq 0 ]; then result mode-check ok "forwarder_driver_mode{mode=\"$FWD_MODE\"} $m, identity $id, /health driverMode $FWD_MODE$dirs"
+        else result mode-check fail "mode $FWD_MODE: metric '$m' identity '$id' health $h$dirs"; fi ;;
+    identity)
+        local i ids="" ok=0 rc reclaimed
+        for i in 1 2 3; do
+            if [ $i -lt 3 ]; then kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5; rc=$WAIT_RC; [ "$rc" = 0 ] || ok=1
+            else kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; rc=kill9; fi
+            [ "$FWD_MODE" = embedded ] && [ $i -eq 3 ] && { [ -f "$FWD_EMBEDDED_PARENT/ct-forwarder-101/cnc.dat" ] || ok=1; }
+            start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001
+            wait_ready 24001 60 || ok=1
+            local id; id=$(fwd_identity 24001); [ "$id" = 101 ] || ok=1
+            reclaimed=$(fwd_metric 24001 forwarder_driver_dir_reclaimed_total)
+            ids="$ids restart $i (stop $rc): identity $id reclaimed $reclaimed;"
+        done
+        local want=0; [ "$FWD_MODE" = embedded ] && want=1
+        [ "$reclaimed" = "$want" ] || ok=1
+        load_bg 5; wait "$LOAD_PID"
+        oracle identity 24001 || ok=1
+        [ $ok -eq 0 ] && result identity ok "$ids $ORACLE_DETAIL" || result identity fail "$ids (reclaimed after the kill -9 must be $want) $ORACLE_DETAIL" ;;
+    fatal-embedded)
+        [ "$FWD_MODE" = embedded ] || { result fatal-embedded fail "needs IT_FWD_MODE=embedded"; return 0; }
+        local sent0 c0 m0 t0 outcome="" rc="" took sent c1 m1
+        sent0=$(fwd_metric 24001 'forwarder_dispatch_seq{point="last_sent"}')
+        c0=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="core"}'); m0=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="me"}')
+        log "SIGSTOP fwdA (driver and client) 15 s"
+        kill -STOP "${PID[fwdA]}"; sleep 15; t0=$(now_s); kill -CONT "${PID[fwdA]}"
+        load_bg "$SECONDS_LOAD"
+        for _ in $(seq 1 60); do
+            if ! fwd_alive fwdA; then wait_exit fwdA 2; rc=$WAIT_RC; outcome=exit; break; fi
+            sent=$(fwd_metric 24001 'forwarder_dispatch_seq{point="last_sent"}')
+            if ready 24001 && [ -n "$sent" ] && [ -n "$sent0" ] && [ "$sent" -gt "$sent0" ]; then outcome=progress; break; fi
+            sleep 0.5
+        done
+        took=$(elapsed "$t0" "$(now_s)")
+        wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        case "$outcome" in
+        exit)
+            start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+            if [ "$rc" = 70 ] && oracle fatal-embedded 24001; then result fatal-embedded ok "exit 70 ${took} s after CONT ($(grep -h 'exit 70\|stale\|timeout' "$W/fwdA.log" | tail -1)); restarted; $ORACLE_DETAIL"
+            else result fatal-embedded fail "exit $rc ${took} s after CONT; $ORACLE_DETAIL"; fi ;;
+        progress)
+            c1=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="core"}'); m1=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="me"}')
+            if oracle fatal-embedded 24001; then result fatal-embedded ok "alive and progressing ${took} s after CONT (last_sent $sent0 -> $sent, reconnects core $c0 -> $c1, me $m0 -> $m1); $ORACLE_DETAIL"
+            else result fatal-embedded fail "progressing but the oracle failed: $ORACLE_DETAIL"; fi ;;
+        *)
+            result fatal-embedded fail "FORBIDDEN: alive without progress for 30 s after CONT (ready $(ready 24001 && echo 1 || echo 0), last_sent $sent0 -> $sent)" ;;
+        esac ;;
+    tmpfs-min)
+        [ "$FWD_MODE" = embedded ] || { result tmpfs-min fail "needs IT_FWD_MODE=embedded"; return 0; }
+        sudo -n true 2> /dev/null || { result tmpfs-min fail "NOT RUN: no passwordless sudo for the tmpfs mount"; return 0; }
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5
+        local mb rows="" passing=() failing=()
+        for mb in ${IT_TMPFS_SIZES:-128 96 64 48 32 24 16}; do
+            local mnt="$SHM/fwd-tmpfs-$mb" ok=0 peak=0 used why=""
+            mkdir -p "$mnt"
+            sudo -n mount -t tmpfs -o "size=${mb}m,uid=$(id -u),gid=$(id -g),mode=0755" tmpfs "$mnt" || { rows="$rows ${mb}MB: mount failed;"; continue; }
+            LANE_C_MOUNT=$mnt
+            FWD_EMBEDDED_DIR_OVERRIDE="$mnt" start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001
+            if wait_ready 24001 60; then
+                load_bg 5
+                while kill -0 "$LOAD_PID" 2> /dev/null; do
+                    used=$(df -k --output=used "$mnt" | tail -1 | tr -d ' '); [ "$used" -gt "$peak" ] && peak=$used; sleep 0.5
+                done
+                wait "$LOAD_PID"
+                oracle "tmpfs-$mb" 24001 || { ok=1; why="oracle: $ORACLE_DETAIL"; }
+                used=$(df -k --output=used "$mnt" | tail -1 | tr -d ' '); [ "$used" -gt "$peak" ] && peak=$used
+                fwd_alive fwdA || { ok=1; why="$why exited"; }
+            else
+                ok=1; why="never ready: $(grep -h -i 'error\|exit\|insufficient\|space' "$W/fwdA.log" | tail -2 | tr '\n' ' ')"
+            fi
+            if fwd_alive fwdA; then kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5 || { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
+            else wait_exit fwdA 1; why="$why (exited $WAIT_RC)"; fi
+            sudo -n umount "$mnt" 2> /dev/null || sudo -n umount -l "$mnt"; LANE_C_MOUNT=""
+            if [ $ok -eq 0 ]; then passing+=("$mb"); rows="$rows ${mb}MB PASS peak ${peak} KB;"
+            else failing+=("$mb"); rows="$rows ${mb}MB FAIL ($why) peak ${peak} KB;"; fi
+            log "tmpfs ${mb} MB: $([ $ok -eq 0 ] && echo PASS || echo FAIL) peak ${peak} KB $why"
+        done
+        start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        # the minimum: the smallest passing size with no failing size above it
+        local min="" f highestFail=0
+        for f in "${failing[@]}"; do [ "$f" -gt "$highestFail" ] && highestFail=$f; done
+        for mb in "${passing[@]}"; do [ "$mb" -gt "$highestFail" ] && { [ -z "$min" ] || [ "$mb" -lt "$min" ]; } && min=$mb; done
+        if [ -n "$min" ]; then result tmpfs-min ok "minimum ${min} MB (largest failing ${highestFail} MB);$rows"
+        else result tmpfs-min fail "no size passed;$rows"; fi ;;
+    storage-starved|storage-starved-nc)
+        [ "$FWD_MODE" = embedded ] || { result "$s" fail "needs IT_FWD_MODE=embedded"; return 0; }
+        sudo -n true 2> /dev/null || { result "$s" fail "NOT RUN: no passwordless sudo for the tmpfs mount"; return 0; }
+        local bin=$FWD
+        if [ "$s" = storage-starved-nc ]; then bin=$(find "$BUILD" -name ct_forwarder_nc_storagekeep -type f | head -1)
+            [ -x "$bin" ] || { result "$s" fail "ct_forwarder_nc_storagekeep not built"; return 0; }; fi
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5
+        local mnt="$SHM/fwd-tmpfs-starved" onset="" seconds="" took rc ok=0 detail
+        mkdir -p "$mnt"
+        sudo -n mount -t tmpfs -o "size=48m,uid=$(id -u),gid=$(id -g),mode=0755" tmpfs "$mnt" || { result "$s" fail "mount failed"; return 0; }
+        LANE_C_MOUNT=$mnt
+        FWD_EMBEDDED_DIR_OVERRIDE="$mnt" start_fwd fwdA "$bin" "$FWDA_AE" "$FWDA_ME" 24001
+        for _ in $(seq 1 600); do
+            if curl -s --max-time 1 http://127.0.0.1:24001/ready 2> /dev/null | grep -q storage_starved; then onset=$(now_s); break; fi
+            fwd_alive fwdA || break
+            sleep 0.1
+        done
+        if [ -z "$onset" ]; then
+            ok=1; detail="no storage_starved on /ready within 60 s"
+        elif [ "$s" = storage-starved ]; then
+            sleep 2; seconds=$(fwd_metric 24001 forwarder_storage_starved_seconds)
+            wait_exit fwdA 40; rc=$WAIT_RC; took=$(elapsed "$onset" "$(now_s)")
+            [ "$rc" = 70 ] || ok=1
+            python3 -I -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 31.0 else 1)" "$took" || ok=1
+            [ -n "$seconds" ] && [ "$seconds" -ge 1 ] && [ "$seconds" -le 3 ] || ok=1 # wall seconds, 2 s after the onset
+            grep -q F_STORAGE_STARVED "$W/fwdA.log" && grep -q "insufficient storage space" "$W/fwdA.log" || ok=1
+            detail="48 MB: exit $rc ${took} s after the storage_starved onset (bound 30 s + one check); forwarder_storage_starved_seconds $seconds 2 s in; $(grep -h -o 'STOP F_STORAGE_STARVED.\{0,170\}' "$W/fwdA.log" | tail -1)"
+        else
+            sleep 45
+            if fwd_alive fwdA; then detail="RED as required: the rule's line FAILS: alive 45 s after the storage_starved onset (forwarder_storage_starved_seconds $(fwd_metric 24001 forwarder_storage_starved_seconds))"
+                kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5 || { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
+            else wait_exit fwdA 1; ok=1; detail="the nc build exited $WAIT_RC: the seam did not hold the process (INCONCLUSIVE RED)"; fi
+        fi
+        fwd_alive fwdA && { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
+        sudo -n umount "$mnt" 2> /dev/null || sudo -n umount -l "$mnt"; LANE_C_MOUNT=""
+        start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        [ $ok -eq 0 ] && result "$s" ok "$detail" || result "$s" fail "$detail" ;;
+    *) return 1 ;;
+    esac
+    return 0
 }
 
 for s in "${SCENARIOS[@]}"; do run_scenario "$s"; done

@@ -65,10 +65,11 @@ if(WITH_AERON AND WITH_BRIDGE)
     if(NOT CT_BUILD_MEDIA_DRIVER)
         message(FATAL_ERROR "ct-bridge (WITH_BRIDGE) needs CT_BUILD_MEDIA_DRIVER=ON: the embedded driver mode links aeron_driver_static")
     endif()
-    # The embedded driver: aeron_driver_static of the verified tree (it carries the C client too; it is linked first so
+    # The embedded driver: app/common/EmbeddedDriver.cpp (one copy with ct-forwarder, RC2 S10' 8.2 rule 4; compiled into
+    # each final target, never a library, so the link order below holds) over aeron_driver_static of the verified tree (it carries the C client too; it is linked first so
     # the client symbols resolve from it and nothing of aeron_static is pulled twice). The ldd allowlist gains nothing.
     function(ct_bridge_binary name pure domain codec archive)
-        add_executable(${name} main.cpp EmbeddedDriver.cpp)
+        add_executable(${name} main.cpp ${CT_EMBEDDED_DRIVER_SOURCE})
         target_link_libraries(${name} PRIVATE aeron_driver_static ${pure} ct_app_common_aeron ${codec} ${domain} ${archive}
             ct_client_aeron ct_sbe_codecs)
         target_compile_options(${name} PRIVATE -Wall -Wextra)
@@ -84,6 +85,7 @@ if(WITH_AERON AND WITH_BRIDGE)
             "${PROJECT_SOURCE_DIR}/adapters/sbe/tests" "${PROJECT_SOURCE_DIR}/domain/bridge/tests"
             "${PROJECT_SOURCE_DIR}/archive/tests" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         add_executable(ct_bridge_app_tests tests/AppTestMain.cpp tests/BridgeAgentTest.cpp tests/AgentPropertyTest.cpp
+            tests/StorageStarvationAppTest.cpp
             tests/CodecAppTest.cpp tests/StopPathTest.cpp)
         target_link_libraries(ct_bridge_app_tests PRIVATE ct_bridge_pure_seamed ct_bridge_codec_seamed ct_bridge_domain_seamed
             ct_client ct_sbe_codecs)
@@ -111,7 +113,7 @@ if(WITH_AERON AND WITH_BRIDGE)
         target_link_options(ct_bridge_app_alloc_tests PRIVATE -rdynamic)
         add_test(NAME bridge.zero_alloc_app COMMAND ct_bridge_app_alloc_tests)
 
-        add_executable(ct_bridge_main_aeron_tests tests/MainAeronTest.cpp EmbeddedDriver.cpp)
+        add_executable(ct_bridge_main_aeron_tests tests/MainAeronTest.cpp ${CT_EMBEDDED_DRIVER_SOURCE})
         target_link_libraries(ct_bridge_main_aeron_tests PRIVATE aeron_driver_static ct_bridge_pure_seamed ct_app_common_aeron
             ct_client_aeron)
         target_include_directories(ct_bridge_main_aeron_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
@@ -179,6 +181,10 @@ if(WITH_AERON AND WITH_BRIDGE)
         ct_bridge_binary(ct_bridge_negctl ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_negctl PRIVATE CT_BRIDGE_NC_PRESET="NEGCTL_DROP_RECORDS_2_3")
+        # RC2 S10' Q1: the tmpfs-starved-nc RED (storage starvation never ends the process)
+        ct_bridge_binary(ct_bridge_nc_storagekeep ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
+            ct_archive_aeron_seamed)
+        target_compile_definitions(ct_bridge_nc_storagekeep PRIVATE CT_BRIDGE_NC_PRESET="STORAGE_STARVED_EXIT_OFF")
         ct_bridge_binary(ct_bridge_tc_driverstall ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_tc_driverstall PRIVATE CT_BRIDGE_TC_DRIVERSTALL=1)

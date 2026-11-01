@@ -5,3 +5,5 @@ BridgeE3AppTest.theRealCoreEndsInTheCleanStateThroughTheAppWiring|FENCE_OFF|no f
 # BRIDGE session, already registered (RegisterSession answers DUPLICATE), and the in-order commit puts the
 # RegisterSession before the query, so no feed frame can reach serve unregistered here; the gate's RED is
 # BridgeAgentTest.registerThenQueryThenStream (bridge.app_negative_controls). Same reason as AgentPropertyTest.
+# RC2 S10' section 9 (S9c review NOTE-6): the second-session variant, the same RED.
+BridgeE3AppTest.aSecondSessionAfterARestartEndsInTheCleanDump|FENCE_OFF|no fence at a lossy election: the core state differs across two sessions|CORE STATE:

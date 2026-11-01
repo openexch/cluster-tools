@@ -953,12 +953,58 @@ drill_rk13_tc() { # drill mode binary expected-line
     finish "$drill" "$(verdict)"
 }
 
+# RC2 S10' Q1 (lane C, coordinator decision 2026-11-01): the S9c NOTE-5 240 MB case (below the 256 MB embedded minimum
+# of a 64m-term journal: every replay image refused for storage, the S9c bridge stayed alive with 61 REPLAY_STORAGE
+# faults). The rule: exit 70 within 30 s + one check of the storage_starved onset seen on /ready, the reason named in the
+# log, bridge_storage_starved_seconds growing before it. tmpfs-starved-nc runs ct_bridge_nc_storagekeep
+# (STORAGE_STARVED_EXIT_OFF) and must FAIL the rule's line "alive 45 s after the storage_starved onset".
+drill_tmpfs_starved() { # drill binary want(exit70|alive)
+    local drill=$1 binary=$2 want=$3
+    if ! sudo -n true 2>/dev/null; then echo "$drill NOT RUN no sudo" >> "$RESULTS"; return; fi
+    [ -x "$binary" ] || { echo "$drill NOT RUN binary missing" >> "$RESULTS"; return; }
+    setup "$drill" 1 1 $((SEED_BASE + 1)) 8 || { FAILS+=("setup"); finish "$drill" FAIL; return; }
+    mkdir -p "$SHM/tmpfs"
+    sudo mount -t tmpfs -o size=240m tmpfs "$SHM/tmpfs" && sudo chmod 1777 "$SHM/tmpfs"
+    jctl 60 RECORD 0 term=64m > /dev/null
+    BRDRV_OVERRIDE="$SHM/tmpfs" start_bridge bridge embedded "$binary" || FAILS+=("bridge start")
+    local onset="" seconds="" i
+    for i in $(seq 1 600); do
+        if curl -s --max-time 1 "http://127.0.0.1:$BPORT/ready" 2>/dev/null | grep -q storage_starved; then onset=$(now_s); break; fi
+        alive bridge || break
+        sleep 0.1
+    done
+    if [ -z "$onset" ]; then
+        FAILS+=("no storage_starved on /ready within 60 s")
+    elif [ "$want" = exit70 ]; then
+        sleep 2; seconds=$(bm bridge_storage_starved_seconds)
+        wait_exit bridge 40
+        local took; took=$(elapsed "$onset" "$(now_s)")
+        [ "$WAIT_RC" = 70 ] || FAILS+=("exit $WAIT_RC (want 70)")
+        fle "$took" 31 || FAILS+=("exit $took s after the storage_starved onset (bound 30 s + one check)")
+        [ -n "$seconds" ] && [ "$seconds" -ge 1 ] && [ "$seconds" -le 3 ] ||
+            FAILS+=("bridge_storage_starved_seconds '$seconds' 2 s after the onset (want 1..3 wall seconds)")
+        grep -q "F_STORAGE_STARVED" "$D/ev/bridge.log" || FAILS+=("no F_STORAGE_STARVED line")
+        grep -q "insufficient storage space\|refused for storage space" "$D/ev/bridge.log" || FAILS+=("the reason is not named")
+        NOTES+=("240 MB: exit $WAIT_RC $took s after the storage_starved onset; bridge_storage_starved_seconds $seconds 2 s in; $(grep -m1 -o 'STOP F_STORAGE_STARVED.\{0,160\}' "$D/ev/bridge.log")")
+    else
+        sleep 45
+        if alive bridge; then
+            NOTES+=("RED as required: the rule's line FAILS: alive 45 s after the storage_starved onset (bridge_storage_starved_seconds $(bm bridge_storage_starved_seconds))")
+        else
+            wait_exit bridge 1; FAILS+=("the nc build exited $WAIT_RC: the seam did not hold the process (INCONCLUSIVE RED)")
+        fi
+    fi
+    finish "$drill" "$(verdict)"
+}
+
 for drill in "${DRILLS[@]}"; do
     log "=== $drill"
     case $drill in
         rk0-external) drill_rk0 external ;;
         rk0-embedded) drill_rk0 embedded ;;
         tmpfs-min) drill_tmpfs_min ;;
+        tmpfs-starved) drill_tmpfs_starved tmpfs-starved "$BRIDGE" exit70 ;;
+        tmpfs-starved-nc) drill_tmpfs_starved tmpfs-starved-nc "$(bin ct_bridge_nc_storagekeep)" alive ;;
         rk1) drill_rk1 ;;
         rk1-embedded) drill_rk1_embedded ;;
         rk2-external) drill_rk2 external ;;

@@ -25,3 +25,7 @@ ForwarderAgentTest.exitSeams|EPOCH_MISMATCH_FATAL|an ME epoch change after the b
 ForwarderAgentTest.exitSeams|EPOCH_ZERO_FATAL|an ME epoch 0 after the bind is accepted (NOTE-6)|CHECK( r.agent.stopReason().exitCode == 78 )
 ForwarderAgentTest.meEpochWaitReconnects|EPOCH_WAIT|an ME session that never shows its epoch is kept forever (F-ME-1)|CHECK( r.agent.counters().meEpochReconnects == 1 )
 ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds|AGENT_ME_SESSION_BEFORE_POLL|the ME session starts after the poll: the same-batch hello is discarded (review FIX-1)|CHECK( r.agent.meLink() == MeLink::BOUND )
+# RC2 S10' 8.3 (the app seams of AppSeams.h, ct_forwarder_pure_seamed): the identity on both clusters
+MainTest.identityIsTheConfiguredIdOnBothClusters|IDENTITY_RANDOM|a random identity per start (the S12 shape): RegisterSession.identity is not FWD_INSTANCE_ID|CHECK( id == 4242 )
+# RC2 S10' Q1 (coordinator decision 2026-11-01): 30 s of storage-refused ingress publications end the process 70
+ForwarderAgentTest.storageStarvedIngressExits70|STORAGE_STARVED_EXIT_OFF|a publication starved of storage space never ends the process: alive and not ready forever (the 2026-07-25 shape)|alive after 30 s of storage starvation
