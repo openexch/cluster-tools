@@ -93,9 +93,14 @@ enum class Rule : unsigned
     RELIST_EVERY_TICK, // RED shape: a halted bridge re-lists its source on every tick
     GENESIS_EXIT_UNCOUNTED, // S10' 4.1 rule 8 off: the genesis exit of EPOCH_MISMATCH is not counted
     SUCCESSOR_WALK_WHILE_STREAMING, // RED shape: a streaming hole walks the later recordings instead of rotating
-    FEEDHALT_PROMPT,
-    RESCAN_EXIT_A_OFF,
-    MIRROR_FIRST_HALT_REASON, // RED shape (4R rule 6): the core halt mirror keeps the first halted report's reason // RED shape (lane C W2b finding): a re-scan's reports never take exit (a) at a quiet head // a timing seam, not a rule (tc_slowhalt, S10' 3.3): off = the FeedHalt is offered 5 s after HALTING
+    FEEDHALT_PROMPT, // a timing seam, not a rule (tc_slowhalt, S10' 3.3): off = the FeedHalt is offered 5 s after HALTING
+    RESCAN_EXIT_A_OFF, // RED shape (lane C W2b finding): a re-scan's reports never take exit (a) at a quiet head
+    MIRROR_FIRST_HALT_REASON, // RED shape (4R rule 6): the core halt mirror keeps the first halted report's reason
+    // the S10' review fixes (2026-11-01)
+    TAINT_VERIFY_OFF, // S10' 5.1 taint rule off: a non-linear read of a source a walk passed a bad recording on is believed
+    TAINT_HALTED_EXEMPT, // RED shape (review F1): the taint rule skips every read while a halt is active
+    TAINT_NEVER_CLEARS, // RED shape (review F1, C4): the taint survives a linear read past the bad recording
+    GAP_RELATCH_OFF, // RED shape (review N2-1): an acked GAP FeedHalt is never re-offered after a premature 76 {GAP, 0}
     // adapters/sbe BridgeCodec (13.11-13.16)
     CODEC_SWAP_TAKER_MAKER_ORDER, // RED shape: takerOrderId and makerOrderId swapped
     CODEC_ENUM_GET,         // RED shape: an E::get path (raw 2..255 throws or clamps)

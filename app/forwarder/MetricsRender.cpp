@@ -88,7 +88,7 @@ std::string renderPrometheus(const ForwarderSnapshot &s)
     type(out, "forwarder_driver_mode", "gauge"); // RC2 S10' 8.2 rule 6: the mode in force
     line(out, "forwarder_driver_mode{mode=\"%s\"} 1", driverModeLabel(s.driverMode));
     counter(out, "forwarder_driver_dir_reclaimed_total", s.driverDirReclaimed);
-    counter(out, "forwarder_storage_starved_seconds", s.storageStarvedSeconds); // S10' Q1: exit 70 after 30 s of it
+    counter(out, "forwarder_storage_starved_seconds_total", s.storageStarvedSeconds); // S10' Q1: exit 70 after 30 s of it
     perCluster(out, "forwarder_session_state", "gauge", s.core.clientState, s.me.clientState);
     perCluster(out, "forwarder_session_new_leader_total", "counter", s.core.newLeaderEvents, s.me.newLeaderEvents);
     perCluster(out, "forwarder_session_reconnect_total", "counter", s.core.sessionsOpened > 0 ? s.core.sessionsOpened - 1 : 0,

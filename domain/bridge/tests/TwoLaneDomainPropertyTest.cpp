@@ -5,9 +5,18 @@
 //   - a dense cursor with digests (FEED_GAP above cursor + 1, FEED_UNBOUND before the bind, duplicates counted);
 //   - a per-lane GAP halt table keyed by bridge identity (at most 8 records) plus ONE overflow record; a GAP FeedHalt
 //     is stale per record when cursor >= seen - 1 (DUPLICATE, nothing written); a new or changed record is ACCEPTED,
-//     an identical one DUPLICATE; the same identity replaces its record (from another session: seen = max);
+//     an identical one DUPLICATE; the same identity replaces its record; a replace from ANOTHER session keeps
+//     seen = max and expected = min and marks the record SESSION_SHARED, after which no session lowers it (assets
+//     FeedState.recordGapHalt, eb687f1);
+//   - the core's own GAP record (identity 0, FeedState.recordCoreGap): every FEED_GAP refusal and every unbound s > 1
+//     latches GAP {c + 1, s} into it (an open one merges: seen = max, expected = min), exactly like the real core;
 //   - each record cleared by its own reach condition cursor >= seen_i - 1; the overflow record never clears by reach
 //     (an operator latch: 76 {GAP, 0} then open);
+//   - in a quarter of the non-overflow runs (a side generator, the scenario's draws unchanged) the operator sends a
+//     PREMATURE 76 {GAP, 0} and open while a lane's hole is open (4R.1 rule 2: self-healing by the lane's re-offer);
+//   - in half the non-overflow runs (the same side generator) one extra election while a lane's hole is open and a
+//     data frame is pending, noticed by the lanes 1..10 iterations late: the frames sent meanwhile reach the core above
+//     cursor + 1 (FEED_GAP), so the identity-0 record opens beside a lane's record (review N2-2 non-vacuity);
 //   - the BRIDGE_HALT gate bit held by the holder set {GAP, NONGAP_AWAITING_OPEN, OVERFLOW}, cleared only when the set
 //     empties; the report's feedHalted = table non-empty or slot set or overflow (rule 6).
 // The stub keeps a TRUTH table next to the implementation table: the truth is the 4R rule with no seam, the
@@ -37,7 +46,8 @@
 //       lane_ahead fences ("cold walks per lane_ahead fence > 1");
 //   (f) the gate bit never clears while a truth record is open ("the bit cleared with a record open") or while the
 //       overflow record is set ("the bit cleared under overflow"); at the end the bit is set iff a truth record, the
-//       overflow or the slot is;
+//       overflow or the slot is; a HALTED(GAP) lane whose hole is open (cursor < seen - 1) never runs 250 of its
+//       iterations (5 s) with the bit clear ("the gate open with a hole open for > 5 s", review N2-1);
 //   (b) liveness: when the union of the live lanes' nodes carries every seq the run completes with cursor == N (an
 //       overflow run after the operator's 76 {GAP, 0} and open);
 //   (g) non-vacuity over the seeds (C5).
@@ -524,6 +534,8 @@ struct Stats
     int gapRecords = 0, gapReachCleared = 0, twoRecordOneReopen = 0, overflowRuns = 0, overflowOperatorCleared = 0;
     int restarts = 0, recoveries = 0, reopens = 0, elections = 0, duplicates = 0, pauses = 0, episodes = 0;
     int lagEgress = 0, stuckHalts = 0;
+    int coreGapRecords = 0, coreAndLaneRuns = 0, prematureClears = 0, relatchedAfterClear = 0; // review N2-1 / N2-2
+    int lateNoticeElections = 0; // N2-2: elections the lanes noticed 1..10 iterations late
     std::uint64_t stuckSeed = 0;
     std::vector<int> shapes = std::vector<int>(7, 0);
 };
@@ -549,6 +561,7 @@ struct Lane final : CorePort
     int upAt = -1;
     bool upPending = true; // onSessionUp is due at upAt (a paused lane takes it when it runs again)
     int exitSince = -1;    // the iteration since which the core's cursor has passed this lane's GAP halt (exit (a))
+    int openHoleIts = 0;   // (f'): the lane's iterations HALTED(GAP) with its hole open and the gate bit clear
     bool restarted = false;
     std::deque<std::pair<int, CoreEgress>> egress;
 
@@ -604,6 +617,10 @@ struct Pending
 };
 
 constexpr std::uint8_t HOLD_GAP = 1, HOLD_NONGAP = 2, HOLD_OVERFLOW = 4;
+constexpr std::int64_t CORE_IDENTITY = 0; // FeedState.CORE_DETECTED_IDENTITY
+constexpr int SESSION_SHARED = -1;        // FeedState.SESSION_SHARED: written by two sessions, never lowered after
+// (f') 4R.1 rule 2: a halted lane re-offers within one halted report (25 iterations here) once the gate shows clear
+constexpr int OPEN_HOLE_ITERATIONS = 250;
 // 3.1 rule 3 / 9.4 exit (a): a halted lane leaves a GAP halt on its next report once the cursor passed seen - 1. A lane
 // still halted this long after that (two re-scan periods plus the report cadence) is a stuck halt.
 constexpr int STUCK_ITERATIONS = 700;
@@ -643,9 +660,29 @@ struct Run
     int reopens = 0, distinctHalted = 0;
     std::set<std::int64_t> haltedIdentities;
     bool overflowSeenInRun = false;
-
-    Run(const Scenario &s, std::mt19937_64 &r, std::uint64_t sd) : sc(s), rng(r), seed(sd)
+    bool coreAndLaneOpen = false; // N2-2: the identity-0 record and a lane record open together
+    // N2-1: the premature operator clear (its own generator, so the scenario and the run's draws are unchanged)
+    std::mt19937_64 opRng;
+    bool prematureArmed = false, prematureDone = false, relatchCounted = false;
+    int prematureAt = -1;
+    // N2-2: one extra LATE-NOTICE election per armed run (half the non-overflow runs, all draws from the side
+    // generator): the lanes learn of the new leader 1..10 iterations after the uncommitted tail was lost, so a lane's
+    // next frames reach the new leader above cursor + 1 (the real FEED_GAP path: frames sent before the bridge noticed
+    // the loss) and the core's identity-0 record opens; the scenario's draws are unchanged
+    bool lateNoticeArmed = false;
+    int noticeAt = -1;
+    int extraElectAt = -1; // one extra late-notice election while a lane's hole is open (the core and a lane record)
+    bool extraElectDone = false;
+    struct Deferred
     {
+        int slot, incarnation, upDelta;
+    };
+    std::vector<Deferred> deferredNotice;
+
+    Run(const Scenario &s, std::mt19937_64 &r, std::uint64_t sd) : sc(s), rng(r), seed(sd), opRng(sd ^ 0x76c1ea2ULL)
+    {
+        prematureArmed = Shape::OVERFLOW != sc.shape && 0 == opRng() % 4;
+        lateNoticeArmed = Shape::OVERFLOW != sc.shape && 0 == opRng() % 2;
         nodes.resize(static_cast<std::size_t>(sc.nodes));
         for (int k = 0; k < sc.nodes; ++k)
         {
@@ -867,6 +904,11 @@ struct Run
 
     void reject(int incarnation, std::int64_t s, std::uint8_t reason, std::int64_t detail)
     {
+        if (debug)
+        {
+            std::printf("it %d reject inc %d seq %lld reason %d detail %lld cursor %lld\n", it, incarnation,
+                static_cast<long long>(s), reason, static_cast<long long>(detail), static_cast<long long>(cursor));
+        }
         CoreEgress e;
         e.kind = CoreEgress::REJECT;
         e.reject.tradeId = s;
@@ -980,6 +1022,10 @@ struct Run
             }
             gapCheck(p, s);
             reject(p.incarnation, s, 8, 1);
+            if (s > 1)
+            {
+                recordCoreGap(1, s); // D2 row 3: a hole at 1 (AssetsEngine 1467)
+            }
             return false;
         }
         if (s <= cursor)
@@ -996,6 +1042,7 @@ struct Run
         {
             gapCheck(p, s);
             reject(p.incarnation, s, 6, cursor + 1);
+            recordCoreGap(cursor + 1, s); // D1 row 5: FEED_GAP, then latch(GAP, c + 1, s) (AssetsEngine 1506-1507)
             return false;
         }
         cursor = s;
@@ -1054,9 +1101,18 @@ struct Run
             auto t = truth.find(id);
             if (t != truth.end())
             {
-                t->second.seen = t->second.session != p.incarnation ? std::max(t->second.seen, f.seen) : f.seen;
-                t->second.expected = f.expected;
-                t->second.session = p.incarnation;
+                if (t->second.session != p.incarnation)
+                {
+                    // another session (or a record already shared): never weakened (S2-3, FeedState.recordGapHalt)
+                    t->second.seen = std::max(t->second.seen, f.seen);
+                    t->second.expected = std::min(t->second.expected, f.expected);
+                    t->second.session = SESSION_SHARED;
+                }
+                else
+                {
+                    t->second.seen = f.seen;
+                    t->second.expected = f.expected;
+                }
             }
             else if (truth.size() < 8)
             {
@@ -1069,10 +1125,7 @@ struct Run
                 truthOverflowSeen = std::max(truthOverflowSeen, f.seen);
                 overflowSeenInRun = true;
             }
-            if (truth.size() >= 2)
-            {
-                multi = true;
-            }
+            noteTruthShape();
         }
         // the implementation
         const bool stale = !seams().staleRuleOff && truthStale;
@@ -1087,14 +1140,17 @@ struct Run
         }
         else if (auto t = table.find(id); t != table.end())
         {
-            const std::int64_t seen = t->second.session != p.incarnation ? std::max(t->second.seen, f.seen) : f.seen;
-            if (t->second.expected == f.expected && t->second.seen == seen)
+            const bool shared = t->second.session != p.incarnation;
+            const HaltRec next = shared
+                ? HaltRec{ std::min(t->second.expected, f.expected), std::max(t->second.seen, f.seen), SESSION_SHARED }
+                : HaltRec{ f.expected, f.seen, p.incarnation };
+            if (t->second.expected == next.expected && t->second.seen == next.seen && t->second.session == next.session)
             {
                 e.ack.resultRaw = ADMIN_DUPLICATE;
             }
             else
             {
-                t->second = HaltRec{ f.expected, seen, p.incarnation };
+                t->second = next;
                 accepted = true;
             }
         }
@@ -1123,8 +1179,81 @@ struct Run
             {
                 holders |= HOLD_OVERFLOW;
             }
+            if (prematureDone && !relatchCounted)
+            {
+                relatchCounted = true;
+                ++g_stats.relatchedAfterClear;
+            }
         }
         toLane(p.incarnation, e);
+    }
+
+    void noteTruthShape()
+    {
+        if (truth.size() >= 2)
+        {
+            multi = true;
+            if (truth.count(CORE_IDENTITY))
+            {
+                coreAndLaneOpen = true;
+            }
+        }
+    }
+
+    // FeedState.recordCoreGap (assets eb687f1 FIX-1): the identity-0 record of a GAP the core detected itself; an open
+    // one merges (seen = max, expected = min), so its reach never opens the gate below a hole the core refused a frame at
+    void recordCoreGap(std::int64_t expected, std::int64_t seen)
+    {
+        // the truth
+        if (auto t = truth.find(CORE_IDENTITY); t != truth.end())
+        {
+            t->second.seen = std::max(t->second.seen, seen);
+            t->second.expected = std::min(t->second.expected, expected);
+        }
+        else if (truth.size() < 8)
+        {
+            truth[CORE_IDENTITY] = HaltRec{ expected, seen, 0 };
+            ++g_stats.coreGapRecords;
+        }
+        else
+        {
+            truthOverflow = true;
+            truthOverflowSeen = std::max(truthOverflowSeen, seen);
+            overflowSeenInRun = true;
+        }
+        noteTruthShape();
+        // the implementation
+        bool wrote = false;
+        if (auto t = table.find(CORE_IDENTITY); t != table.end())
+        {
+            const HaltRec merged{ std::min(t->second.expected, expected), std::max(t->second.seen, seen), 0 };
+            wrote = merged.expected != t->second.expected || merged.seen != t->second.seen;
+            t->second = merged;
+        }
+        else if (seams().singleSlot && !table.empty())
+        {
+            // RED shape (the S7 single slot): the core's own second GAP is suppressed
+        }
+        else if (table.size() < 8)
+        {
+            table[CORE_IDENTITY] = HaltRec{ expected, seen, 0 };
+            wrote = true;
+        }
+        else
+        {
+            overflow = true;
+            overflowSeen = std::max(overflowSeen, seen);
+            wrote = true;
+        }
+        if (wrote)
+        {
+            bit = true;
+            holders |= HOLD_GAP;
+            if (overflow)
+            {
+                holders |= HOLD_OVERFLOW;
+            }
+        }
     }
 
     void apply(const Pending &p)
@@ -1163,9 +1292,15 @@ struct Run
         }
     }
 
-    void elect()
+    // the scenario's elections are noticed at once; only the extra election below is late (a late notice on every
+    // election trips the 9.6 storm guard on repeated FEED_GAP refusals at one cursor: a carried finding, README)
+    void elect() { elect(rng, false); }
+
+    // g: the generator of this election's own draws (the scenario's rng, or the side generator for the extra one)
+    void elect(std::mt19937_64 &g, bool late)
     {
         ++g_stats.elections;
+        noticeNow(); // a second election inside a late-notice window: the first one is noticed now
         for (const Pending &p : pending)
         {
             if (!p.f.records.empty())
@@ -1174,7 +1309,7 @@ struct Run
             }
         }
         pending.clear();
-        const bool dropEgress = std::uniform_int_distribution<int>(0, 1)(rng) == 0;
+        const bool dropEgress = std::uniform_int_distribution<int>(0, 1)(g) == 0;
         for (auto &lp : lanes)
         {
             if (!lp)
@@ -1185,11 +1320,45 @@ struct Run
             {
                 lp->egress.clear();
             }
-            lp->knownBoundary = offers;
-            lp->domain->onFence(FenceTrigger::NEW_LEADER, now);
-            lp->upAt = it + static_cast<int>(std::uniform_int_distribution<int>(1, 20)(rng));
-            lp->upPending = true;
+            const int upDelta = static_cast<int>(std::uniform_int_distribution<int>(1, 20)(g));
+            if (late)
+            {
+                deferredNotice.push_back({ lp->slot, lp->incarnation, upDelta });
+                continue;
+            }
+            notice(*lp, upDelta);
         }
+        if (late && !deferredNotice.empty())
+        {
+            ++g_stats.lateNoticeElections;
+            noticeAt = it + 1 + static_cast<int>(opRng() % 10);
+        }
+        if (debug)
+        {
+            std::printf("it %d election late %d noticeAt %d\n", it, late ? 1 : 0, noticeAt);
+        }
+    }
+
+    void notice(Lane &l, int upDelta)
+    {
+        l.knownBoundary = offers;
+        l.domain->onFence(FenceTrigger::NEW_LEADER, now);
+        l.upAt = it + upDelta;
+        l.upPending = true;
+    }
+
+    void noticeNow()
+    {
+        for (const Deferred &d : deferredNotice)
+        {
+            Lane *l = lanes[static_cast<std::size_t>(d.slot)].get();
+            if (l && l->incarnation == d.incarnation)
+            {
+                notice(*l, d.upDelta);
+            }
+        }
+        deferredNotice.clear();
+        noticeAt = -1;
     }
 
     // the operator, in an overflow run: 76 {GAP, 0} clears the table and the overflow, then open (clearAll)
@@ -1203,6 +1372,59 @@ struct Run
         holders = HOLD_NONGAP; // 76 {GAP, 0} adds NONGAP_AWAITING_OPEN
         holders = 0;           // open: clearAll
         bit = false;
+    }
+
+    // N2-1, the operator in any run: a PREMATURE 76 {GAP, 0} (the table, the identity-0 record and the overflow are
+    // cleared) and open while a lane's hole is still open; the truth forgets the records too (the operator's clear is
+    // not a reach-clear): the halted lanes must re-latch by themselves, (f') checks they do
+    void operatorPrematureClear()
+    {
+        ++g_stats.prematureClears;
+        table.clear();
+        truth.clear();
+        overflow = false;
+        truthOverflow = false;
+        holders = 0;
+        bit = false;
+        multi = false;
+        oneClearedOneOpen = false;
+    }
+
+    bool pendingData() const
+    {
+        for (const Pending &p : pending)
+        {
+            if (!p.f.records.empty())
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool laneStreaming() const
+    {
+        for (const auto &lp : lanes)
+        {
+            if (lp && it >= lp->upAt && State::STREAMING == lp->domain->view().state)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool laneHoleOpen() const
+    {
+        for (const auto &lp : lanes)
+        {
+            if (lp && it >= lp->upAt && State::HALTED == lp->domain->view().state &&
+                BridgeHalt::GAP == lp->domain->view().halt && cursor < lp->domain->halt().seen - 1)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------- events
@@ -1376,6 +1598,21 @@ struct Run
         else
         {
             l.exitSince = -1;
+        }
+        // (f') 4R.1 rule 2 (review N2-1): a premature 76 {GAP, 0} is self-healing: a HALTED(GAP) lane whose hole is open
+        // never runs OPEN_HOLE_ITERATIONS of its iterations with the gate bit clear
+        if (State::HALTED == v.state && BridgeHalt::GAP == v.halt && !bit && cursor < l.domain->halt().seen - 1)
+        {
+            if (++l.openHoleIts > OPEN_HOLE_ITERATIONS)
+            {
+                fail("the gate open with a hole open for > 5 s (lane " + std::to_string(l.slot) + ", halt {" +
+                    std::to_string(l.domain->halt().e) + ", " + std::to_string(l.domain->halt().seen) + "}, cursor " +
+                    std::to_string(cursor) + (prematureDone ? ", after a premature 76 {GAP, 0}" : "") + ")");
+            }
+        }
+        else
+        {
+            l.openHoleIts = 0;
         }
         // (c) the decision in force: the cursor when the lane began confirming (or halted without confirming)
         // a kept halt (also through a re-scan sync, whose re-offers repeat the same decision) keeps it in force
@@ -1570,6 +1807,10 @@ std::string runScenario(std::uint64_t seed)
     {
         run.now += 20ms;
         run.fireEvents();
+        if (run.noticeAt >= 0 && run.it >= run.noticeAt)
+        {
+            run.noticeNow();
+        }
         if (sc.elections && std::uniform_int_distribution<int>(0, 199)(rng) == 0)
         {
             run.elect();
@@ -1588,6 +1829,35 @@ std::string runScenario(std::uint64_t seed)
         if (!run.failure.empty())
         {
             return failText(run.failure);
+        }
+        // N2-1: the premature operator clear, 0..100 iterations after a lane's hole is first seen open
+        if (run.prematureArmed && !run.prematureDone)
+        {
+            if (run.prematureAt < 0 && run.laneHoleOpen())
+            {
+                run.prematureAt = run.it + std::uniform_int_distribution<int>(0, 100)(run.opRng);
+            }
+            if (run.prematureAt >= 0 && run.it >= run.prematureAt)
+            {
+                run.prematureDone = true;
+                run.operatorPrematureClear();
+            }
+        }
+        // N2-2: in a late-notice run, one extra late-notice election 0..50 iterations after a lane's hole is first seen
+        // open while another lane streams (the side generator draws it), so the core's own record can open beside a lane's record
+        if (run.lateNoticeArmed && !run.extraElectDone)
+        {
+            if (run.extraElectAt < 0 && run.laneHoleOpen() && run.laneStreaming())
+            {
+                run.extraElectAt = run.it + static_cast<int>(run.opRng() % 51);
+            }
+            // fired once an uncommitted data frame is pending (the lost tail the late notice hides), at most 200 late
+            if (run.extraElectAt >= 0 && run.it >= run.extraElectAt &&
+                (run.pendingData() || run.it >= run.extraElectAt + 200))
+            {
+                run.extraElectDone = true;
+                run.elect(run.opRng, true);
+            }
         }
         // the operator, in an overflow run, once every hole is passed: 76 {GAP, 0} then open
         if (!operatorDone && run.cursor == sc.n && (run.overflow || run.truthOverflow))
@@ -1611,6 +1881,10 @@ std::string runScenario(std::uint64_t seed)
     if (run.overflowSeenInRun)
     {
         ++g_stats.overflowRuns;
+    }
+    if (run.coreAndLaneOpen)
+    {
+        ++g_stats.coreAndLaneRuns;
     }
     for (auto &lp : run.lanes)
     {
@@ -1730,7 +2004,9 @@ TEST_CASE("TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReo
             << g_stats.restarts << ", pauses " << g_stats.pauses << ", elections " << g_stats.elections
             << ", recoveries " << g_stats.recoveries << ", duplicates " << g_stats.duplicates << ", egress delivered late "
             << g_stats.lagEgress << "; stuck GAP halts (exit (a) not taken) " << g_stats.stuckHalts << " (first seed "
-            << g_stats.stuckSeed << "); failures " << failures);
+            << g_stats.stuckSeed << "); late-notice elections " << g_stats.lateNoticeElections << ", core GAP records " << g_stats.coreGapRecords << ", runs with a core and a lane record "
+            << g_stats.coreAndLaneRuns << ", premature clears " << g_stats.prematureClears << " (re-latched "
+            << g_stats.relatchedAfterClear << "); failures " << failures);
     for (const std::string &r : reported)
     {
         MESSAGE("FAILED " << r);
@@ -1750,5 +2026,10 @@ TEST_CASE("TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReo
         CHECK(g_stats.restarts > 0);
         CHECK(g_stats.recoveries > 0);
         CHECK(g_stats.completed > runs / 2);
+        // review N2-2: the identity-0 record ran, also together with a lane record; N2-1: premature clears re-latched
+        CHECK(g_stats.coreGapRecords > 0);
+        CHECK(g_stats.coreAndLaneRuns > 0);
+        CHECK(g_stats.prematureClears > 0);
+        CHECK(g_stats.relatchedAfterClear > 0);
     }
 }

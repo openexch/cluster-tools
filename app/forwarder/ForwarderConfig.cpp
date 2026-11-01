@@ -148,7 +148,7 @@ client::ClientSettings meClientSettings(const ForwarderConfig &config)
     return s;
 }
 
-ConfigResult parseForwarderConfig(const EnvGetter &getenv)
+ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProbe &probe)
 {
     ConfigResult r;
     ForwarderConfig &c = r.config;
@@ -192,6 +192,10 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv)
         {
             e.push_back("AERON_DIR is required with FWD_DRIVER_MODE=external (the host aeronmd's directory)");
         }
+        else if (!probe.isDirectory(c.aeronDir))
+        {
+            e.push_back("AERON_DIR " + c.aeronDir + " is not an existing directory (is the host aeronmd running?)");
+        }
         if (driverDirSet)
         {
             e.push_back("FWD_DRIVER_DIR is set but FWD_DRIVER_MODE=external uses the host aeronmd at AERON_DIR: remove it");
@@ -208,23 +212,31 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv)
         {
             e.push_back("FWD_DRIVER_DIR must be an absolute path, got '" + c.driverDir + "'");
         }
+        else if (!probe.isDirectory(c.driverDir))
+        {
+            e.push_back("FWD_DRIVER_DIR " + c.driverDir + " is not an existing directory");
+        }
+        else if (!probe.isWritable(c.driverDir))
+        {
+            e.push_back("FWD_DRIVER_DIR " + c.driverDir + " is not writable");
+        }
         if (aeronDirSet)
         {
             e.push_back("AERON_DIR is set but FWD_DRIVER_MODE=embedded starts its own driver: remove it");
         }
     }
-    // 8.2 rule 2: the shared strict parser (TIMEOUT_CONSTANT RED: a missing key falls back to the S12 constant 5000)
+    // 8.2 rule 2: the shared strict parser on the raw value, as ct-bridge (TIMEOUT_CONSTANT RED: a missing key falls back
+    // to the S12 constant 5000)
     {
         const char *raw = getenv("FWD_DRIVER_TIMEOUT_MS");
-        if ((nullptr == raw || trimmed(raw).empty()) && app_seams::disabled(app_seams::Rule::TIMEOUT_CONSTANT))
+        if ((nullptr == raw || '\0' == *raw) && app_seams::disabled(app_seams::Rule::TIMEOUT_CONSTANT))
         {
             c.driverTimeoutMs = 5000; // RED shape
         }
         else
         {
             std::string error;
-            const std::string value = trimmed(raw);
-            const auto timeout = common::parseDriverTimeoutMs("FWD_DRIVER_TIMEOUT_MS", nullptr == raw ? nullptr : value.c_str(), error);
+            const auto timeout = common::parseDriverTimeoutMs("FWD_DRIVER_TIMEOUT_MS", raw, error);
             if (timeout)
             {
                 c.driverTimeoutMs = *timeout;

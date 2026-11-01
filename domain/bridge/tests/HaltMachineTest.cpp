@@ -688,3 +688,226 @@ TEST_CASE("HaltMachineTest.rescanTakesExitAAtAQuietHead")
     CHECK_MESSAGE(exitA, "stuck GAP halt at a quiet head");
     CHECK(rig.metrics.recovered(BridgeHalt::GAP) == 1);
 }
+
+// ------------------------------------------------------------------ the S10' review fixes (2026-11-01)
+
+namespace {
+
+void graceOneSecond(BridgeSettings &s)
+{
+    s.holeGrace = 1'000ms;
+    s.unreachableRetry = std::chrono::hours(1); // a node that went down stays down until a sync start clears its verdict
+}
+
+// a schema 3 copy of `seq` in recording `recordingId` of `source`, as the follower reports it
+RefusalAction refuse(Direct &d, std::size_t source, std::int64_t recordingId, std::int64_t seq, bool laterRecordings)
+{
+    Bytes bad = makeFrame(TEMPLATE_TRADE, seq, EPOCH, 64 * seq);
+    putLe16(bad, 4, 3);
+    d.keep.push_back(bad);
+    RefusedFrame f;
+    f.sourceIndex = source;
+    f.key = key(recordingId);
+    f.reason = Refusal::SCHEMA;
+    f.endPosition = 64 * seq;
+    f.bytes = d.keep.back().data();
+    f.length = d.keep.back().size();
+    f.laterRecordings = laterRecordings;
+    f.readWasMemoFree = true;
+    return d.domain->onRefused(f);
+}
+
+// a SWITCH the follower answers with a memo resume (a proof in `recordingId`)
+void attachFromMemo(Direct &d, std::size_t source, std::int64_t recordingId)
+{
+    AttachInfo info;
+    info.source = source;
+    info.recording = active(recordingId, 0);
+    info.from = 64 * 12;
+    info.fromProof = true;
+    info.memoFree = false;
+    d.domain->onAttached(info);
+}
+
+bool tickUntil(Direct &d, const std::function<bool()> &pred, int ticks)
+{
+    for (int i = 0; i < ticks && !pred(); ++i)
+    {
+        d.tick(100ms);
+    }
+    return pred();
+}
+
+bool epochLatched(const Direct &d)
+{
+    for (const auto &f : d.core.feedHalts)
+    {
+        if (HaltReason::EPOCH_MISMATCH == f.reason)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// N = 2, C = 5. Source 0 is recording 0 {1..5, 7..} (a hole at 6); source 1 is recording 10 {1..5, a schema 3 copy of
+// 6, 7..12}: HOLED + BAD halts SOURCE_SCHEMA at 6. A RESTART successor (recording 11, 6..12) appears on node 1; the
+// R0 re-scan walks past recording 10 into it and recovers to 12. Source 1 is then TAINTED, and the walk's read (past
+// the bad recording 10) goes on streaming: not a linear read.
+void taintSourceOneByAWalk(Direct &d)
+{
+    d.core.bound = EPOCH;
+    d.core.cursor = 5;
+    d.start(0, 0);
+    REQUIRE(d.domain->view().state == State::STREAMING);
+    REQUIRE(d.rec(TEMPLATE_TRADE, 7, EPOCH, 0, 0) == SinkAction::ABORT); // HOLED at 6
+    SourceCommand cmd = d.domain->takeSourceCommand();
+    REQUIRE(cmd.kind == SourceCommandKind::SWITCH);
+    REQUIRE(cmd.index == 1);
+    d.attach(1, 10);
+    REQUIRE(refuse(d, 1, 10, 6, false) == RefusalAction::CLOSE_REPLAY); // BAD at 6
+    d.pump();
+    d.tick();
+    REQUIRE(d.domain->view().state == State::HALTED);
+    REQUIRE(d.domain->view().halt == BridgeHalt::SOURCE_SCHEMA);
+    REQUIRE(tickUntil(d, [&] { return d.domain->feedingForTest(); }, 700)); // the R0 re-scan (60 s)
+    cmd = d.domain->takeSourceCommand();
+    REQUIRE(cmd.kind == SourceCommandKind::REATTACH);
+    REQUIRE(d.domain->current() == 1);
+    d.attach(1, 10, true); // memo-free from the chain start
+    REQUIRE(refuse(d, 1, 10, 6, true) == RefusalAction::SKIP_AND_CONTINUE); // R0: the walk goes on into recording 11
+    REQUIRE(d.domain->tainted(1));
+    for (std::int64_t s = 6; s <= 12; ++s)
+    {
+        REQUIRE(d.rec(TEMPLATE_TRADE, s, EPOCH, 1, 11) == SinkAction::CONTINUE);
+    }
+    d.poll(0); // the empty-poll flush
+    d.tick();
+    REQUIRE(d.core.cursor == 12);
+    REQUIRE(d.domain->view().halt == BridgeHalt::NONE);
+    REQUIRE(d.domain->view().state == State::STREAMING);
+    REQUIRE(d.domain->tainted(1));
+}
+
+}
+
+TEST_CASE("HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict")
+{
+    // review F1-TAINT-NO-RED (S10' 5.1 taint rule, C9): a foreign-epoch recording after 12 on both nodes. Source 1 meets
+    // it on the walk's read, past the bad recording 10. A linear read of source 1 meets the bad copy of 6 first: BAD, so
+    // the halt is SOURCE_SCHEMA (admin class); believing the non-linear FOREIGN makes every source foreign: EPOCH_MISMATCH
+    Direct d(2, graceOneSecond);
+    taintSourceOneByAWalk(d);
+    const std::uint64_t verifications0 = BridgeMetrics::get(d.metrics.holeVerifications);
+    REQUIRE(d.rec(TEMPLATE_TRADE, 13, 9, 1, 12) == SinkAction::ABORT);
+    SourceCommand cmd = d.domain->takeSourceCommand();
+    if (SourceCommandKind::REATTACH == cmd.kind)
+    {
+        // the taint rule: one linear memo-free read of source 1
+        d.attach(1, 10, true);
+        CHECK(refuse(d, 1, 10, 6, true) == RefusalAction::CLOSE_REPLAY); // streaming: no walk, BAD
+        cmd = d.domain->takeSourceCommand();
+    }
+    REQUIRE(cmd.kind == SourceCommandKind::SWITCH);
+    REQUIRE(cmd.index == 0);
+    d.attach(0, 0, true);
+    CHECK(d.rec(TEMPLATE_TRADE, 12, EPOCH, 0, 0) == SinkAction::CONTINUE); // a SKIP of the bound epoch
+    CHECK(d.rec(TEMPLATE_TRADE, 13, 9, 0, 1) == SinkAction::ABORT);        // FOREIGN on a linear read: the truth
+    d.pump();
+    tickUntil(d, [&] { return State::HALTED == d.domain->view().state; }, 20);
+    const bool adminClass = !epochLatched(d) && BridgeHalt::SOURCE_SCHEMA == d.domain->view().halt;
+    CHECK_MESSAGE(adminClass, "a walked bad recording let a non-linear read latch genesis-only");
+    CHECK(BridgeMetrics::get(d.metrics.holeVerifications) == verifications0 + 1);
+    CHECK(d.core.latch == static_cast<std::uint8_t>(HaltReason::SOURCE_SCHEMA));
+}
+
+TEST_CASE("HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch")
+{
+    // review F1-TAINT-HALTED-EXEMPT (C9): node 1 goes down after the walk, so the GAP at 13 is decided without it
+    // (hole_grace, UNREACHABLE left out). Both nodes then gain a foreign-epoch recording and node 1 is back. The GAP
+    // re-scan reads source 0 memo-free (FOREIGN, the truth) and rotates to source 1 by a MEMO RESUME (a proof in
+    // recording 11, past the bad recording 10). Believed while halted, that FOREIGN makes every source foreign:
+    // a new FeedHalt EPOCH_MISMATCH (genesis-only). Verified by one linear read: the walk meets the bad copy, BAD,
+    // and the halt becomes SOURCE_SCHEMA (admin class)
+    Direct d(2, graceOneSecond);
+    taintSourceOneByAWalk(d);
+    SourceFault f;
+    f.source = 1;
+    f.kind = FaultKind::CONNECT_FAILED;
+    d.domain->onFault(f);
+    SourceCommand cmd = d.domain->takeSourceCommand();
+    REQUIRE(cmd.kind == SourceCommandKind::SWITCH);
+    REQUIRE(cmd.index == 0);
+    d.attach(0, 0, true);
+    REQUIRE(d.rec(TEMPLATE_TRADE, 14, EPOCH, 0, 0) == SinkAction::ABORT); // HOLED at 13, source 1 UNREACHABLE
+    REQUIRE(tickUntil(d, [&] { return State::HALTED == d.domain->view().state; }, 30));
+    REQUIRE(d.domain->view().halt == BridgeHalt::GAP);
+    REQUIRE(d.domain->halt().e == 13);
+    REQUIRE(tickUntil(d, [&] { return d.domain->feedingForTest(); }, 700)); // the GAP re-scan (60 s)
+    cmd = d.domain->takeSourceCommand();
+    REQUIRE(cmd.kind == SourceCommandKind::REATTACH);
+    REQUIRE(d.domain->current() == 0);
+    d.attach(0, 0, true);
+    CHECK(d.rec(TEMPLATE_TRADE, 12, EPOCH, 0, 0) == SinkAction::CONTINUE);
+    REQUIRE(d.rec(TEMPLATE_TRADE, 13, 9, 0, 1) == SinkAction::ABORT); // source 0: FOREIGN
+    cmd = d.domain->takeSourceCommand();
+    REQUIRE(cmd.kind == SourceCommandKind::SWITCH);
+    REQUIRE(cmd.index == 1);
+    attachFromMemo(d, 1, 11);
+    REQUIRE(d.frame(makeFrame(TEMPLATE_TRADE, 13, 9, 64 * 13), 1, 12, false) == SinkAction::ABORT);
+    cmd = d.domain->takeSourceCommand();
+    if (SourceCommandKind::REATTACH == cmd.kind)
+    {
+        // the taint rule, also while halted: the linear read is the re-scan's walk
+        d.attach(1, 10, true);
+        CHECK(refuse(d, 1, 10, 6, true) == RefusalAction::SKIP_AND_CONTINUE);
+        CHECK(d.rec(TEMPLATE_TRADE, 12, EPOCH, 1, 11) == SinkAction::CONTINUE);
+        CHECK(d.rec(TEMPLATE_TRADE, 13, 9, 1, 12) == SinkAction::ABORT); // the walk's verdict: BAD
+    }
+    d.pump();
+    tickUntil(d, [&] { return State::HALTED == d.domain->view().state && BridgeHalt::GAP != d.domain->view().halt; }, 20);
+    const bool adminClass = !epochLatched(d) && BridgeHalt::SOURCE_SCHEMA == d.domain->view().halt;
+    CHECK_MESSAGE(adminClass, "a tainted source's memo resume latched genesis-only during a GAP re-scan");
+    CHECK(d.core.latch == static_cast<std::uint8_t>(HaltReason::SOURCE_SCHEMA));
+}
+
+TEST_CASE("HaltMachineTest.taintClearsAfterALinearVerification")
+{
+    // review F1-TAINT-NO-RESET (C4): the operator removed the bad recording 10. The next non-linear verdict of source 1
+    // is verified once; that linear read accepts a frame of recording 11 (after the bad one) with no refusal met, so the
+    // taint clears: later verdicts of source 1 cost no more full re-reads
+    Direct d(2, graceOneSecond);
+    taintSourceOneByAWalk(d);
+    const std::uint64_t verifications0 = BridgeMetrics::get(d.metrics.holeVerifications);
+    REQUIRE(d.rec(TEMPLATE_TRADE, 14, EPOCH, 1, 11) == SinkAction::ABORT); // a hole at 13 on the walk's read
+    REQUIRE(d.domain->takeSourceCommand().kind == SourceCommandKind::REATTACH); // the taint rule: one linear read
+    CHECK(BridgeMetrics::get(d.metrics.holeVerifications) == verifications0 + 1);
+    d.attach(1, 11, true); // the chain now starts at recording 11
+    CHECK(d.rec(TEMPLATE_TRADE, 12, EPOCH, 1, 11) == SinkAction::CONTINUE); // a SKIP: no refusal met
+    const bool cleared = !d.domain->tainted(1);
+    CHECK_MESSAGE(cleared, "the taint survived a linear read past the bad recording");
+    CHECK(d.rec(TEMPLATE_TRADE, 14, EPOCH, 1, 11) == SinkAction::ABORT); // the linear truth: HOLED at 13
+    CHECK(d.domain->verdicts().at(1).kind == VerdictKind::HOLED);
+    CHECK(BridgeMetrics::get(d.metrics.holeVerifications) == verifications0 + 1);
+}
+
+TEST_CASE("HaltMachineTest.prematureGapClearReLatches")
+{
+    // review N2-1 (S10' 4R.1 rule 2): "a premature 76 {GAP, 0} is self-healing". The operator clears the lane table and
+    // opens the gate while this lane's hole at 11 is still open (C' = 10 < seen - 1 = 11): the next halted report shows
+    // feedHalted 0 and the acked FeedHalt is re-offered, once
+    Direct d;
+    gapHalt(d);
+    REQUIRE(d.domain->halt().acked);
+    REQUIRE(d.feedHaltOffers() == 1);
+    d.core.latch = 0; // 76 {GAP, 0}, then open
+    d.core.latchSkip = 0;
+    runFor(d, 11'000ms); // the halted reports come every 5 s
+    const bool relatched = 2 == d.feedHaltOffers() && static_cast<std::uint8_t>(HaltReason::GAP) == d.core.latch;
+    CHECK_MESSAGE(relatched, "a premature 76 {GAP, 0} left the open hole unlatched");
+    runFor(d, 20'000ms); // latched again: the report shows feedHalted 1, nothing more is offered
+    CHECK(d.feedHaltOffers() == 2);
+    CHECK(d.domain->halt().acked);
+    CHECK(d.domain->view().halt == BridgeHalt::GAP);
+    CHECK(d.domain->view().state == State::HALTED);
+}

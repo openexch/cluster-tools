@@ -1227,3 +1227,29 @@ TEST_CASE("BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan")
     CHECK(g_stats.recovered >= 4);
     CHECK(g_staleBehindHalts == 4); // the shape is still reached: when it drops to 0 the carry is fixed upstream
 }
+
+TEST_CASE("BridgeDomainPropertyTest.taintRuleSeedsStayGreen")
+{
+    // review F1-TAINT-NO-RED: the six seeds that found the S10' 5.1 taint rule (README lane A, deviation 2) lie outside
+    // the default seed range (0x5eedb41d + [0, 2000)); pinned here so they run on every build. The rule's own REDs are
+    // HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict (TAINT_VERIFY_OFF) and
+    // HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch (TAINT_HALTED_EXEMPT)
+    g_stats = Stats{};
+    std::string failure;
+    int failures = 0;
+    for (const std::uint64_t seed : { 2237ULL, 4244837ULL, 555985ULL, 1592636332ULL, 123458797ULL, 20263014ULL })
+    {
+        const std::string r = runScenario(seed);
+        if (!r.empty())
+        {
+            ++failures;
+            if (failure.empty())
+            {
+                failure = r;
+            }
+        }
+    }
+    INFO(failure);
+    CHECK(failures == 0);
+    CHECK(g_stats.runs == 6);
+}

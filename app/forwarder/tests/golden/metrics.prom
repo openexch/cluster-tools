@@ -6,8 +6,8 @@ forwarder_ready 0
 forwarder_driver_mode{mode="external"} 1
 # TYPE forwarder_driver_dir_reclaimed_total counter
 forwarder_driver_dir_reclaimed_total 0
-# TYPE forwarder_storage_starved_seconds counter
-forwarder_storage_starved_seconds 0
+# TYPE forwarder_storage_starved_seconds_total counter
+forwarder_storage_starved_seconds_total 0
 # TYPE forwarder_session_state gauge
 forwarder_session_state{cluster="core"} 2
 forwarder_session_state{cluster="me"} 2

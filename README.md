@@ -125,22 +125,49 @@ frame: registration, either cluster's new leader, a live gap, a GLOBAL admission
 overflow, an operator `SIGHUP` / `POST /resync`. Nothing is written to disk; a restart is a cold start.
 
 ```bash
-env FWD_CORE_INGRESS=0=10.0.0.1:9002,1=10.0.0.2:9002,2=10.0.0.3:9002 \
+env FWD_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron FWD_DRIVER_TIMEOUT_MS=5000 FWD_INSTANCE_ID=1 \
+    FWD_CORE_INGRESS=0=10.0.0.1:9002,1=10.0.0.2:9002,2=10.0.0.3:9002 \
     FWD_CORE_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' AE_AUTH_CREDENTIAL=6:FORWARDER:<64 hex> \
     FWD_ME_INGRESS=0=10.0.1.1:9002,1=10.0.1.2:9002,2=10.0.1.3:9002 \
-    FWD_ME_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' ME_AUTH_CREDENTIAL=6:FORWARDER:<64 hex> \
-    FWD_INGRESS_CHANNEL='aeron:udp?term-length=4m|mtu=8192' AERON_DIR=/dev/shm/aeron FWD_HTTP_BIND=127.0.0.1:9600 \
+    FWD_ME_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' ME_AUTH_CREDENTIAL=7:FORWARDER:<64 hex> \
+    FWD_INGRESS_CHANNEL='aeron:udp?term-length=4m|mtu=8192' FWD_HTTP_BIND=127.0.0.1:9600 \
     ct-forwarder
 ```
 
-Every variable is required (a missing one, a non-FORWARDER credential or two equal fixed-port response channels exit
-78). GET `/health` (200 UP / 503 STALLED), `/ready` (200, or 503 naming the failing conjuncts), `/metrics`
-(Prometheus; alert rules in `app/forwarder/alerts.yml`), POST `/resync`. Exit codes: 0 stopped by SIGTERM/SIGINT;
-70 process health (a fatal Aeron error, an escaped exception or broken invariant, the 5 s duty watchdog, the 2 s join
-bound); 75 an inferred refusal (restart allowed); 78 configuration or an observed refusal: the unit sets
-`RestartPreventExitStatus=78`, `RestartSec >= 2s` and a start limit. The T1 integration run is
-`app/forwarder/it/run-forwarder-it.sh <build> <assets-cluster.jar> <match-cluster.jar>` (3 AE + 3 ME + 2 forwarders,
-the negative-control binaries need `-DCT_FORWARDER_TEST_BUILDS=ON`; they are never published).
+| Variable | Rule |
+|---|---|
+| `FWD_DRIVER_MODE` | `external` (prod: the host `aeronmd` admin / cloud-console manage) or `embedded` (dev and demo only); no default |
+| `AERON_DIR` | `external` only (refused in `embedded`, also when empty): an existing directory, the host driver's |
+| `FWD_DRIVER_DIR` | `embedded` only (refused in `external`): an absolute, existing, writable directory; the driver runs in `<dir>/ct-forwarder-<FWD_INSTANCE_ID>`; `<dir>/ct-forwarder-<id>.lock` is held (flock) for the process lifetime, so a second instance with that id exits 78 without touching the dir, even in the same instant; a LIVE driver already in the dir exits 78 and is never deleted; a stale dir of an earlier run is reclaimed after a check of about 3 s (`forwarder_driver_dir_reclaimed_total`) |
+| `FWD_DRIVER_TIMEOUT_MS` | 3000..60000, the raw value (no blanks): the start-up connect wait, the CnC liveness check (a dead or stale driver exits 70) and the conductor-heartbeat threshold; the floor spans two driver heartbeats (1 s timer interval) |
+| `FWD_INSTANCE_ID` | 1..INT64_MAX, both modes: the identity on both cluster sessions (the core's `RegisterSession.identity`, the clientInfo of both connects) and the embedded driver dir; fixed per forwarder, so a restart keeps it |
+| `FWD_CORE_INGRESS`, `FWD_ME_INGRESS` | `id=host:port,...` of each cluster's members |
+| `FWD_CORE_RESPONSE_CHANNEL`, `FWD_ME_RESPONSE_CHANNEL` | `aeron:udp?endpoint=host:port` (port 0 = driver-assigned), never `0.0.0.0`; two equal fixed ports exit 78 |
+| `AE_AUTH_CREDENTIAL`, `ME_AUTH_CREDENTIAL` | `keyId:FORWARDER:secretHex` (another class exits 78) |
+| `FWD_INGRESS_CHANNEL` | the base ingress channel of both clusters |
+| `FWD_HTTP_BIND` | `host:port`; port 0 refused |
+
+Every variable is required (a missing or malformed one exits 78, all problems listed at once, before the http bind and
+any Aeron object). GET `/health` (200 UP / 503 STALLED; `driverMode`), `/ready` (200, or 503 naming the failing
+conjuncts, `storage_starved` among them), `/metrics` (Prometheus, `forwarder_driver_mode{mode}`,
+`forwarder_storage_starved_seconds_total`; alert rules in `app/forwarder/alerts.yml`), POST `/resync`. Exit codes: 0
+stopped by SIGTERM/SIGINT; 70 process health (a dead or stale driver in either mode, no driver answering at start, a
+wedged client conductor ("conductor heartbeat stale"), an escaped exception or broken invariant, the 5 s duty watchdog,
+the 2 s join bound, `F_STORAGE_STARVED`: an ingress publication refused for storage space on every attempt for 30 s, or
+an embedded driver that could not allocate its files at start for 30 s of retries); 75 an inferred refusal (restart
+allowed); 78 configuration, an embedded driver that cannot start (the instance lock, a live driver in the dir, a path
+that is not a directory, host limits; never storage space) or an observed refusal: the unit sets
+`RestartPreventExitStatus=78`, `RestartSec >= 2s` and a start limit (a 70 restarts: a storage starvation loops loudly
+until the tmpfs is fixed).
+
+Driver modes: prod runs `external` under the host `aeronmd`. `embedded` needs `FWD_DRIVER_DIR` on a tmpfs of at
+least **64 MB** per forwarder (measured, `tmpfs-min`: 49.3 MB used at the peak of a load with both clusters' 4m ingress
+terms, the egress images, CnC and loss report). Below it, 48 MB leaves an ingress publication without space (`/ready`
+503 `storage_starved`, then `F_STORAGE_STARVED` exit 70 after 30 s); 32 MB and less cannot allocate `cnc.dat`, which
+is retried for 30 s and then exits 70 too, so a passing squeeze of a shared `/dev/shm` never stops the forwarder for
+good. The T1 integration run is `app/forwarder/it/run-forwarder-it.sh <build> <assets-cluster.jar>
+<match-cluster.jar>` (3 AE + 3 ME + 2 forwarders, `IT_FWD_MODE=external|embedded`; the negative-control binaries need
+`-DCT_FORWARDER_TEST_BUILDS=ON`; they are never published).
 
 ### ct-bridge
 
@@ -178,7 +205,9 @@ a kept halt across a session loss included, or STALLED), `/ready` (200, or 503 n
 `core_not_connected`, `core_no_leader`, `core_not_registered`, `no_report_this_term`, `report_stale`,
 `no_source_attached`, `halted`, `fatal`, `backlog_without_progress_30s`, ...), `/metrics` (Prometheus; alert rules in
 `app/bridge/alerts.yml`). Exit codes: 0 SIGTERM / SIGINT; 70 process health (a dead or stale driver in either mode, a
-wedged client conductor, the duty watchdog, an escaped exception, the stop join bound, a domain fatal); 75 the
+wedged client conductor, the duty watchdog, an escaped exception, the stop join bound, a domain fatal,
+`F_STORAGE_STARVED`: the core ingress publication or every replay image refused for storage space on every attempt for
+30 s; `/ready` names `storage_starved` and `bridge_storage_starved_seconds_total` grows while it lasts); 75 the
 registration was never answered in three sessions (restart allowed); 78 configuration or an observed refusal (the
 unit sets `RestartPreventExitStatus=78`, `RestartSec >= 2s`, a start limit). SIGHUP is counted, nothing else.
 
@@ -194,12 +223,14 @@ Runbook:
 5. exit 78: read the config errors on stderr. exit 75: the registration was never answered three times; check the
    core's key table. exit 70: the first CRITICAL / FATAL line names the cause ("MediaDriver keepalive" = the driver
    died or its CnC is stale, "conductor heartbeat stale" = a wedged client conductor, "duty heartbeat" = a wedged duty
-   thread).
+   thread, `F_STORAGE_STARVED` = the media driver dir's tmpfs is too small or full: grow or clean it).
 6. `bridge_source_refused{reason="mtu"} == 1` on one source: unused until the bridge restarts; fix the recording MTU or
    `BRIDGE_JOURNAL_MTU`, then restart (every source refused: exit 78).
 7. Driver modes: prod runs `external` under the host `aeronmd` (its dir sizing covers the replay image, 3 x the ME
    journal term, plus this process's 4m ingress and egress terms). `embedded` (dev and demo) needs `BRIDGE_DRIVER_DIR`
-   on a tmpfs of at least 256 MB (measured: R-K0 embedded with a 64m-term journal).
+   on a tmpfs of at least 256 MB (measured: R-K0 embedded with a 64m-term journal). Below it the replay images are
+   refused for storage space: `/ready` 503 `storage_starved`, then `F_STORAGE_STARVED` exit 70 after 30 s (measured on
+   240 MB); a tmpfs so full that the embedded driver cannot allocate `cnc.dat` at start still exits 78 in ct-bridge.
 
 The T1 drills are `app/bridge/it/run-bridge-it.sh <build> <assets-cluster.jar> <harness.jar> <drill|all>` (the test
 builds `ct_bridge_nc_*`, `ct_bridge_negctl`, `ct_bridge_tc_*` need `-DCT_BRIDGE_TEST_BUILDS=ON`; never published).

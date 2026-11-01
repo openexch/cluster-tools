@@ -1,6 +1,7 @@
 #ifndef CLUSTER_TOOLS_APP_COMMON_STORAGE_STARVATION_H
 #define CLUSTER_TOOLS_APP_COMMON_STORAGE_STARVATION_H
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <string_view>
@@ -12,7 +13,7 @@
 // ct-bridge:
 //   - every attempt that failed for storage space marks the episode (its start time is the first such failure);
 //   - an attempt that succeeded, or that failed for ANOTHER reason, ends it (the starvation is no longer continuous);
-//   - while it lasts /ready is 503 (the owner's not-ready bit) and <process>_storage_starved_seconds grows;
+//   - while it lasts /ready is 503 (the owner's not-ready bit) and <process>_storage_starved_seconds_total grows;
 //   - STORAGE_STARVED_EXIT_NS after its start the owner exits 70: restartable (systemd restarts it, loud in the restart
 //     log and the alert), never 78, which would stop it for good after a passing tmpfs squeeze.
 // The 30 s is a constant in code, not a configuration key. Pure: no Aeron, no clock of its own (the owner's ns clock).
@@ -28,6 +29,15 @@ inline bool isStorageSpaceError(std::string_view detail) noexcept
     return std::string_view::npos != detail.find("insufficient storage space") ||
         std::string_view::npos != detail.find("insufficient usable storage") ||
         std::string_view::npos != detail.find("(-12) ");
+}
+
+// The same class for an aeron_errcode() (RC2 S10' review C13-6): ENOSPC, the errno a file allocation in the driver dir
+// fails with (aeron_driver_init on a full tmpfs: "(28) No space left on device ... cnc.dat", measured by tmpfs-min), or
+// -AERON_ERROR_CODE_STORAGE_SPACE (Aeron's own codes are negative; +12 is ENOMEM, not storage).
+inline constexpr int AERON_STORAGE_SPACE_CODE = -12; // -AERON_ERROR_CODE_STORAGE_SPACE
+inline constexpr bool isStorageSpaceErrcode(int aeronErrcode) noexcept
+{
+    return ENOSPC == aeronErrcode || AERON_STORAGE_SPACE_CODE == aeronErrcode;
 }
 
 class StorageStarvation
@@ -69,7 +79,7 @@ public:
     std::uint64_t episodes() const noexcept { return m_episodes; }
     const char *why() const noexcept { return m_why; }
 
-    // <process>_storage_starved_seconds: every starved second so far (closed episodes plus the current one).
+    // <process>_storage_starved_seconds_total: every starved second so far (closed episodes plus the current one).
     std::uint64_t starvedSeconds(std::int64_t nowNs) const noexcept
     {
         const std::int64_t total = m_closedNs + heldNs(nowNs);

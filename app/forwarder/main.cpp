@@ -10,10 +10,11 @@
 //
 // Exit codes: 0 stopped (SIGTERM/SIGINT); 70 EX_SOFTWARE process health (Aeron fatal from the conductor
 // thread incl. a dead or stale driver in either mode, no driver answering at start, the conductor heartbeat check, an
-// escaped exception or a broken invariant, the duty watchdog, the 2 s join bound, an INVALID reject of our own 65);
+// escaped exception or a broken invariant, the duty watchdog, the 2 s join bound, an INVALID reject of our own 65,
+// F_STORAGE_STARVED: an ingress publication, or the embedded driver's start, refused for storage space for 30 s);
 // 75 EX_TEMPFAIL an inferred refusal (restart allowed); 78 EX_CONFIG configuration, an embedded driver that cannot
-// start (the instance lock, a live driver in the dir, host limits) or an observed refusal (the unit sets
-// RestartPreventExitStatus=78).
+// start (the instance lock, a live driver in the dir, not a directory, host limits; never storage space) or an
+// observed refusal (the unit sets RestartPreventExitStatus=78).
 //
 // Test builds only (never published, publish.yml refuses them): CT_FORWARDER_NC_PRESET names the seams the
 // ct_forwarder_nc_* negative-control binaries switch off; CT_FORWARDER_TC_CORRUPT is ct_forwarder_tc_corrupt;
@@ -140,18 +141,56 @@ int main()
     }
     std::fprintf(stderr, "ct-forwarder: http listening on %s:%u\n", c.httpHost.c_str(), static_cast<unsigned>(http.boundPort()));
 
-    // S10' 8.2 rule 5: the driver per mode (embedded: its own C media driver; a start failure is host configuration, 78)
+    // S10' 8.2 rule 5: the driver per mode (embedded: its own C media driver; a start failure is host configuration, 78,
+    // except a start starved of storage space: retried for 30 s, then 70 F_STORAGE_STARVED; review C13-6)
     std::unique_ptr<common::EmbeddedDriver> driver;
     std::string aeronDir = c.aeronDir;
     if (fwd::DriverMode::EMBEDDED == c.driverMode)
     {
-        driver = std::make_unique<common::EmbeddedDriver>(fwd::forwarderDriverOptions(),
-            [](const std::string &why) { fwd::Supervisor::exitProcess(70, why); });
-        const std::string dir = common::EmbeddedDriver::dirFor(c.driverDir, c.instanceId, driver->options());
-        if (!driver->start(dir, false, error))
+        const std::string dir = common::EmbeddedDriver::dirFor(c.driverDir, c.instanceId, fwd::forwarderDriverOptions());
+        common::StorageStarvation startStorage;
+        for (;;)
         {
-            std::fprintf(stderr, "ct-forwarder: embedded media driver: %s (exit 78)\n", error.c_str());
-            return 78;
+            driver = std::make_unique<common::EmbeddedDriver>(fwd::forwarderDriverOptions(),
+                [](const std::string &why) { fwd::Supervisor::exitProcess(70, why); });
+            if (driver->start(dir, false, error))
+            {
+                break;
+            }
+            const std::int64_t nowNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            const bool onset = !startStorage.active();
+            const fwd::DriverStartVerdict verdict =
+                fwd::driverStartVerdict(driver->startFailedForStorage(), error, nowNs, startStorage);
+            if (fwd::DriverStartVerdict::REFUSE_78 == verdict)
+            {
+                std::fprintf(stderr, "ct-forwarder: embedded media driver: %s (exit 78)\n", error.c_str());
+                return 78;
+            }
+            if (fwd::DriverStartVerdict::EXIT_70_STORAGE == verdict)
+            {
+                std::fprintf(stderr, "ct-forwarder stopped: F_STORAGE_STARVED (exit 70): the embedded media driver could not "
+                    "allocate its files for insufficient storage space on every attempt for %lld s (the media driver dir's "
+                    "tmpfs is too small or full): %s\n", static_cast<long long>(startStorage.heldNs(nowNs) / 1'000'000'000LL),
+                    error.c_str());
+                return 70;
+            }
+            if (onset)
+            {
+                std::fprintf(stderr, "ct-forwarder: embedded media driver starved of storage space at start (retried 1 s "
+                    "apart, exit 70 if it lasts 30 s): %s\n", error.c_str());
+            }
+            driver.reset(); // releases the instance lock: the next attempt is a new object (and may lose it, then 78)
+            sigset_t stopSignals;
+            sigemptyset(&stopSignals);
+            sigaddset(&stopSignals, SIGTERM);
+            sigaddset(&stopSignals, SIGINT);
+            const timespec second{ 1, 0 };
+            if (const int sig = ::sigtimedwait(&stopSignals, nullptr, &second); SIGTERM == sig || SIGINT == sig)
+            {
+                std::fprintf(stderr, "ct-forwarder: stopped by signal %d while the embedded driver was starved (exit 0)\n", sig);
+                return 0;
+            }
         }
         aeronDir = dir;
         std::fprintf(stderr, "ct-forwarder: embedded media driver at %s%s\n", dir.c_str(),

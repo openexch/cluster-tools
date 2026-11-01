@@ -6,11 +6,17 @@
 //                           per-instance dir ct-forwarder-<id> is created and deleted, a stale dir of a killed earlier run
 //                           is reused and cleaned (forwarder_driver_dir_reclaimed_total 1), a second same-id instance =
 //                           78 on the lock (3 attempts) while the live dir is kept, a per-instance path that is not a
-//                           directory = 78
+//                           directory = 78, a parent dir that does not exist = 78 at the config parse
+//   startSequenceBothModes.embeddedLiveDriverInDir  a LIVE driver in ct-forwarder-<id> with no lock held (an aeronmd
+//                           pointed at that path, or a cleanup that removed the .lock under a running instance): 78 with
+//                           "a LIVE media driver is already in" on 3 attempts, the dir and the driver kept (contract 8.3's
+//                           own row; every other same-id case is refused by the lock before this check runs, review C13-1)
 //   sameIdStartsAreSerialised  two same-id embedded processes in the same instant, 3 times (stale dir / no dir): one
 //                           live driver, one 78, the live dir kept (the instance lock)
 //   heldInstanceLockRefusesTheStart  in-process: a held <dir>.lock refuses the start and leaves a stale dir untouched
 //                           (RED EMBEDDED_INSTANCE_LOCK)
+//   liveDriverInDirRefusesTheStart  in-process: a LIVE driver dir with no lock held refuses the start and is kept (RED
+//                           EMBEDDED_LIVE_CHECK: read as stale, deleted under the live driver)
 //   embeddedDirIsPerInstance  in-process: the stale dir of this instance is reclaimed (RED EMBEDDED_DIR_PER_PID)
 //   conductorStallExits70   ct_forwarder_tc_conductorstall on a live aeronmd: SIGUSR2 parks the client conductor; exit 70
 //                           within the driver timeout + 2.5 s with the "conductor heartbeat stale" line, although the duty
@@ -407,14 +413,53 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embedded")
         CHECK(*code == 78);
         fs::remove(instanceDir);
     }
-    // a parent dir that does not exist: 78 before any Aeron object (the lock cannot be created)
+    // a parent dir that does not exist: 78 at the config parse, before the http bind and any Aeron object (one rule with
+    // ct-bridge, review C13-3)
     {
         Process fwd = spawn(CT_FORWARDER_BINARY, forwarderEnv("embedded", dir + "/missing", freePort(), 5000),
             dir + "/../fwd-emb-7.log");
         const auto code = waitExit(fwd, 10000);
         REQUIRE(code.has_value());
         CHECK(*code == 78);
+        CHECK(slurp(fwd.log).find("FWD_DRIVER_DIR " + dir + "/missing is not an existing directory") != std::string::npos);
+        CHECK(slurp(fwd.log).find("http listening") == std::string::npos);
     }
+    fs::remove_all(dir);
+}
+
+TEST_CASE("MainAeronTest.startSequenceBothModes.embeddedLiveDriverInDir")
+{
+    // a live aeronmd in <FWD_DRIVER_DIR>/ct-forwarder-1 and NO lock file: the instance lock is taken (a fresh inode), so
+    // only the live-driver check stands between the start and dir_delete_on_start of a live driver dir
+    const std::string dir = workDir("emb-live");
+    const std::string instanceDir = dir + "/ct-forwarder-1";
+    Process aeronmd = startAeronmd(instanceDir, dir + "/../fwd-emb-live-aeronmd.log");
+    REQUIRE(!fs::exists(instanceDir + ".lock"));
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        Process fwd = spawn(CT_FORWARDER_BINARY, forwarderEnv("embedded", dir, freePort(), 5000),
+            dir + "/../fwd-emb-live-" + std::to_string(attempt) + ".log");
+        const auto code = waitExit(fwd, 15000);
+        const double took = secondsSince(fwd.started);
+        const std::string log = slurp(fwd.log);
+        MESSAGE("attempt " << attempt << ": exit " << (code ? *code : -999) << " after " << took << " s");
+        REQUIRE(code.has_value());
+        CHECK(*code == 78);
+        CHECK(log.find("a LIVE media driver is already in " + instanceDir) != std::string::npos);
+        CHECK(log.find("FWD_INSTANCE_ID") != std::string::npos);
+        CHECK(log.find("holds the instance lock") == std::string::npos); // refused by the live check, not the lock
+        CHECK(took >= 1.5);                                               // the check waited out a beat interval
+        CHECK(fs::exists(instanceDir + "/cnc.dat"));
+        CHECK(alive(aeronmd));
+    }
+    // the dir was never deleted: the driver's own CnC is still the one it beats in
+    CHECK(!waitExit(aeronmd, 200).has_value());
+    kill9(aeronmd);
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        fs::remove(dir + "/../fwd-emb-live-" + std::to_string(attempt) + ".log");
+    }
+    fs::remove(dir + "/../fwd-emb-live-aeronmd.log");
     fs::remove_all(dir);
 }
 
@@ -508,6 +553,31 @@ TEST_CASE("MainAeronTest.heldInstanceLockRefusesTheStart")
     REQUIRE(again.start(instanceDir, false, error));
     CHECK(again.reclaimed() == !started);
     CHECK(again.close(2000));
+    fs::remove_all(dir);
+}
+
+TEST_CASE("MainAeronTest.liveDriverInDirRefusesTheStart")
+{
+    // the in-process EmbeddedDriver with the forwarder's options (the seamed build): a LIVE driver in the dir and no lock
+    // held by anyone; start() refuses (78 in ct-forwarder) and leaves the dir and the driver as they are. RED
+    // EMBEDDED_LIVE_CHECK: the dir is read as stale and dir_delete_on_start deletes it under the live driver
+    const std::string dir = workDir("live-dir");
+    const std::string instanceDir = EmbeddedDriver::dirFor(dir, 11, forwarderDriverOptions());
+    Process aeronmd = startAeronmd(instanceDir, dir + "/live-aeronmd.log");
+    REQUIRE(!fs::exists(instanceDir + ".lock"));
+    EmbeddedDriver driver(forwarderDriverOptions(), [](const std::string &) {});
+    std::string error;
+    const bool started = driver.start(instanceDir, false, error);
+    const bool refusedLive = !started && error.find("a LIVE media driver is already in " + instanceDir) != std::string::npos;
+    CHECK(refusedLive); // EMBEDDED_LIVE_CHECK RED: started over the live driver's dir
+    CHECK_FALSE(driver.startFailedForStorage());
+    CHECK(fs::exists(instanceDir + "/cnc.dat"));
+    CHECK(alive(aeronmd));
+    if (started)
+    {
+        CHECK(driver.close(2000));
+    }
+    kill9(aeronmd);
     fs::remove_all(dir);
 }
 

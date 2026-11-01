@@ -55,8 +55,12 @@
 #                   rejects
 #   of5-meleader    the same under the me-leader fault: checked outside the declared window [SIGSTOP - 2 s, both
 #                   forwarders ready again + 2 s], the inside count printed; RED half (of5-meleader-nc): without the
-#                   window the check must find inversions > 0 (else INCONCLUSIVE: the election truncated nothing)
+#                   window the check must find inversions > 0 (else INCONCLUSIVE: the election truncated nothing).
+#                   Non-vacuity (review F4): the SIGSTOP lands 2 s after the load's first template-9 send with the load
+#                   still running, T2 resync rises on both forwarders, and of5-check.py names "the window holds
+#                   template-9 ids" and "some ids are checked"; any of these missing FAILs the row ("FAULT: ...")
 #   of5-shuffle     RED: of5-check.py --shuffle over of5's files (run of5 first in the same invocation): inversions > 0
+#   t1-names        review F9, no cluster: T1CoreDriver names (events prints UNKNOWN_<raw> for an unnamed enum value)
 set -uo pipefail
 
 if [ $# -lt 3 ]; then
@@ -663,7 +667,7 @@ PY
 #                   smallest size that passes with every larger size passing; a failing size records its exit code
 #   storage-starved S10' Q1 (IT_FWD_MODE=embedded, sudo): fwdA on a 48 MB tmpfs (below the 64 MB minimum: the ME ingress
 #                   publication is refused for storage space): /ready names storage_starved and
-#                   forwarder_storage_starved_seconds grows, then exit 70 within 30 s + one check of that onset, the
+#                   forwarder_storage_starved_seconds_total grows, then exit 70 within 30 s + one check of that onset, the
 #                   reason in the log. storage-starved-nc: ct_forwarder_nc_storagekeep (STORAGE_STARVED_EXIT_OFF) must
 #                   FAIL that rule's line "alive 45 s after the storage_starved onset"
 # The external kill (`fatal-aeron`, kill -9 of fwdA's own aeronmd: exit 70 within the timeout + 2 s) is the S12 row above.
@@ -793,16 +797,16 @@ lane_c_scenario() {
         if [ -z "$onset" ]; then
             ok=1; detail="no storage_starved on /ready within 60 s"
         elif [ "$s" = storage-starved ]; then
-            sleep 2; seconds=$(fwd_metric 24001 forwarder_storage_starved_seconds)
+            sleep 2; seconds=$(fwd_metric 24001 forwarder_storage_starved_seconds_total)
             wait_exit fwdA 40; rc=$WAIT_RC; took=$(elapsed "$onset" "$(now_s)")
             [ "$rc" = 70 ] || ok=1
             python3 -I -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 31.0 else 1)" "$took" || ok=1
             [ -n "$seconds" ] && [ "$seconds" -ge 1 ] && [ "$seconds" -le 3 ] || ok=1 # wall seconds, 2 s after the onset
             grep -q F_STORAGE_STARVED "$W/fwdA.log" && grep -q "insufficient storage space" "$W/fwdA.log" || ok=1
-            detail="48 MB: exit $rc ${took} s after the storage_starved onset (bound 30 s + one check); forwarder_storage_starved_seconds $seconds 2 s in; $(grep -h -o 'STOP F_STORAGE_STARVED.\{0,170\}' "$W/fwdA.log" | tail -1)"
+            detail="48 MB: exit $rc ${took} s after the storage_starved onset (bound 30 s + one check); forwarder_storage_starved_seconds_total $seconds 2 s in; $(grep -h -o 'STOP F_STORAGE_STARVED.\{0,170\}' "$W/fwdA.log" | tail -1)"
         else
             sleep 45
-            if fwd_alive fwdA; then detail="RED as required: the rule's line FAILS: alive 45 s after the storage_starved onset (forwarder_storage_starved_seconds $(fwd_metric 24001 forwarder_storage_starved_seconds))"
+            if fwd_alive fwdA; then detail="RED as required: the rule's line FAILS: alive 45 s after the storage_starved onset (forwarder_storage_starved_seconds_total $(fwd_metric 24001 forwarder_storage_starved_seconds_total))"
                 kill -TERM "${PID[fwdA]}"; wait_exit fwdA 5 || { kill -9 "${PID[fwdA]}"; wait_exit fwdA 5; }
             else wait_exit fwdA 1; ok=1; detail="the nc build exited $WAIT_RC: the seam did not hold the process (INCONCLUSIVE RED)"; fi
         fi
@@ -1134,19 +1138,32 @@ w6_of5() { # label fault
     w6_capture_bg "$label" $((SECONDS_LOAD + 15)) || { W6_OF5_OUT="capture never armed"; kill -TERM "${PID[fwdB]}"; wait_exit fwdB 3; return 1; }
     sleep 2 # the capture runs from 2 s before the load
     load_bg "$SECONDS_LOAD"
-    local ml="" wstart wend
+    local ml="" wstart wend faultFails=()
     if [ "$fault" = me-leader ]; then # T1-C's fault: SIGSTOP the ME leader 3 s under load, then SIGKILL
         local a0 b0; a0=$(fwd_metric 24001 'forwarder_resync_total{reason="T2"}'); b0=$(fwd_metric 24002 'forwarder_resync_total{reason="T2"}')
-        sleep 3; ml=$(leader_of me); wstart=$(( $(now_ms) - 2000 ))
+        # review F4 (2026-11-01): the load JVM compiles T1CoreDriver.java first (seconds), so "3 s after load_bg" could
+        # stop the ME before the first command. The fault is placed 2 s after the load's first template-9 send instead,
+        # and the load must still be running when the ME leader stops (else no dispatch crosses the leader change).
+        local s0 s9 loadUp=""; s0=$(fwd_metric 24001 'forwarder_dispatch_sent_total{template="9"}')
+        for _ in $(seq 1 300); do
+            s9=$(fwd_metric 24001 'forwarder_dispatch_sent_total{template="9"}')
+            [ -n "$s9" ] && [ "$s9" -gt "${s0:-0}" ] 2> /dev/null && { loadUp=yes; break; }
+            sleep 0.1
+        done
+        [ -n "$loadUp" ] || faultFails+=("the load never reached the ME (fwdA template-9 sent ${s0:-?} -> ${s9:-?} in 30 s)")
+        sleep 2; ml=$(leader_of me); wstart=$(( $(now_ms) - 2000 ))
+        kill -0 "$LOAD_PID" 2> /dev/null || faultFails+=("the load ended before the ME leader stopped (IT_SECONDS $SECONDS_LOAD)")
         log "SIGSTOP ME leader $ml"; kill -STOP "${PID[me$ml]}"; sleep 3
         log "SIGKILL ME leader $ml"; kill -9 "${PID[me$ml]}"; unset "PID[me$ml]"
-        local nl=""
+        local nl="" t2="" a1 b1
         for _ in $(seq 1 60); do nl=$(leader_of me) && [ "$nl" != "$ml" ] && break; sleep 0.5; done
         for _ in $(seq 1 120); do
-            [ "$(fwd_metric 24001 'forwarder_resync_total{reason="T2"}')" -gt "${a0:-0}" ] 2> /dev/null &&
-                [ "$(fwd_metric 24002 'forwarder_resync_total{reason="T2"}')" -gt "${b0:-0}" ] 2> /dev/null && break
+            a1=$(fwd_metric 24001 'forwarder_resync_total{reason="T2"}'); b1=$(fwd_metric 24002 'forwarder_resync_total{reason="T2"}')
+            [ "$a1" -gt "${a0:-0}" ] 2> /dev/null && [ "$b1" -gt "${b0:-0}" ] 2> /dev/null && { t2=yes; break; }
             sleep 0.5
         done
+        # review F4: a fault that no forwarder resynced from is not the O-F5 me-leader case (the row was vacuous)
+        [ -n "$t2" ] || faultFails+=("T2 resync did not rise on both forwarders in 60 s (fwdA ${a0:-?} -> ${a1:-?}, fwdB ${b0:-?} -> ${b1:-?})")
         wait_ready 24001 60; wait_ready 24002 60
         wend=$(( $(now_ms) + 2000 ))
         W6_OF5_WINDOW=(--window "$wstart" "$wend")
@@ -1161,8 +1178,9 @@ w6_of5() { # label fault
         "${W6_OF5_WINDOW[@]}" 2>&1)
     W6_OF5_RC=$?
     W6_OF5_OUT="capture exit $W6_CAPTURE_RC ($W6_CAPTURE_LINE); journal exit $jrc (seq 1..$((W6_JNEXT - 1))); oracle rc $orc; $(tr '\n' ' ' <<< "$W6_OF5_OUT"); $ORACLE_DETAIL"
+    [ ${#faultFails[@]} -eq 0 ] || W6_OF5_OUT="FAULT: $(IFS=';'; echo "${faultFails[*]}"); $W6_OF5_OUT"
     kill -TERM "${PID[fwdB]}"; wait_exit fwdB 3
-    [ "$W6_CAPTURE_RC" = 0 ] && [ $jrc -eq 0 ] && [ $orc -eq 0 ] && [ $W6_OF5_RC -eq 0 ]
+    [ "$W6_CAPTURE_RC" = 0 ] && [ $jrc -eq 0 ] && [ $orc -eq 0 ] && [ $W6_OF5_RC -eq 0 ] && [ ${#faultFails[@]} -eq 0 ]
 }
 
 w6_scenario() {
@@ -1181,6 +1199,10 @@ w6_scenario() {
         if [ $rrc -eq 1 ] && [[ "$red" == *"OF5 FAIL: "*"0 inversions"* ]]; then result of5-meleader-nc ok "RED as required: without the window: $red"
         elif [ $rrc -eq 0 ]; then result of5-meleader-nc fail "INCONCLUSIVE: no inversion inside the window (the ME leader change truncated nothing): $red"
         else result of5-meleader-nc fail "failed for another reason (rc $rrc): $red"; fi ;;
+    t1-names) # review F9 (2026-11-01): T1CoreDriver events prints UNKNOWN_<raw> for an unnamed enum value, no cluster
+        local out rc; out=$(core_driver names 2>&1); rc=$?; out=$(tr '\n' ' ' <<< "$out")
+        if [ $rc -eq 0 ] && [[ "$out" == *"NAMES PASS"* ]]; then result t1-names ok "$out"
+        else result t1-names fail "rc $rc: $out"; fi ;;
     of5-shuffle)
         local map="$W/capture-of5/dispatch.map" jr="$W/of5-journal.txt" out rc inv
         [ -s "$map" ] && [ -s "$jr" ] || { result of5-shuffle fail "NOT RUN: run of5 first in the same invocation (no $map / $jr)"; return 0; }

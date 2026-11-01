@@ -304,7 +304,7 @@ private:
     // RC2 S10' Q1 (coordinator decision 2026-11-01): an ingress publication refused for storage space on every attempt
     // for STORAGE_STARVED_EXIT_NS (30 s, a constant) ends the process 70: restartable and loud, never alive-not-ready
     // forever (the 2026-07-25 /dev/shm shape) and never 78 (a passing tmpfs squeeze must not stop it for good). Until
-    // then /ready names storage_starved and forwarder_storage_starved_seconds grows.
+    // then /ready names storage_starved and forwarder_storage_starved_seconds_total grows.
     void superviseStorage()
     {
         const char *names[2] = { "core", "ME" };
@@ -1116,7 +1116,7 @@ private:
     bool m_stopped = false;
     StopReason m_stopReason;
     common::StorageStarvation m_storage[2];               // S10' Q1: [0] core, [1] ME ingress publication
-    common::StorageStarvation m_storageAny;               // either of them: forwarder_storage_starved_seconds
+    common::StorageStarvation m_storageAny;               // either of them: forwarder_storage_starved_seconds_total
     common::ClientStorageFeed<CoreClient> m_storageFeed0;
     common::ClientStorageFeed<MeClient> m_storageFeed1;
 

@@ -19,6 +19,8 @@ enum class Rule : unsigned
     EMBEDDED_DIR_PER_PID,         // the embedded driver dir is per pid (a stale sibling is left behind)
     EMBEDDED_INSTANCE_LOCK,       // no instance lock: two same-id embedded starts both reclaim the dir
     STORAGE_STARVED_EXIT_OFF,     // S10' Q1: a publication starved of storage space never ends the process (alive forever)
+    EMBEDDED_LIVE_CHECK,          // no live-driver check: a LIVE driver dir without a held lock is read as stale and deleted
+    DRIVER_START_STORAGE_78,      // a storage-starved embedded driver start is a 78 at once (the S9c FIX-12 shape, C13-6)
     COUNT
 };
 

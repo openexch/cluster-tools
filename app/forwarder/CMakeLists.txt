@@ -4,12 +4,14 @@
 #   ct_forwarder_pure / _seamed  ForwarderConfig (strict env, the RC2 S10' driver keys), MetricsRender, the app seams
 #                              (S10' 8.3); links ct_app_common (HttpServer, Supervisor, LogRing, StatusBoardT: moved to
 #                              app/common by RC2 S9c W1)
-#   ct_forwarder_config_tests  ForwarderConfigTest + MetricsRenderTest + TcCaptureTest (+ the S10' pure REDs, negative-controls-pure.txt)
+#   ct_forwarder_config_tests  ForwarderConfigTest + MetricsRenderTest + TcCaptureTest + DriverStartTest (+ the S10' pure
+#                              REDs, negative-controls-pure.txt; the repo README's ct-forwarder example is parsed, C13-2)
 #   ct_forwarder_main_tests    the watchdog, the 2 s join bound and the stop path against duty stubs (FIX-8)
 # WITH_AERON (CT_BUILD_MEDIA_DRIVER: the embedded mode links aeron_driver_static, S10' section 8):
 #   ct-forwarder               the published binary (publish.yml FILES + manifest)
 #   ct_forwarder_app_tests     ForwarderAgent over two FakeTransports (contract 11.3) + the S10' identity test
-#   ct_forwarder_main_aeron_tests  S10' 8.3: startSequenceBothModes, conductorStallExits70 (real drivers, the real binaries)
+#   ct_forwarder_main_aeron_tests  S10' 8.3: startSequenceBothModes, the live-driver refusal, conductorStallExits70 (real
+#                              drivers, the real binaries)
 # CT_FORWARDER_TEST_BUILDS (never published; publish.yml refuses them):
 #   ct_forwarder_nc_noresync / _nc_norelease / _nc_refuse  negative-control presets of 11.4
 #   ct_forwarder_tc_corrupt                                 T1-G: a core defect simulated after decode
@@ -40,12 +42,14 @@ if(BUILD_TESTING)
         tests/PureTestMain.cpp
         tests/ForwarderConfigTest.cpp
         tests/MetricsRenderTest.cpp
-        tests/TcCaptureTest.cpp)
+        tests/TcCaptureTest.cpp
+        tests/DriverStartTest.cpp)
     target_link_libraries(ct_forwarder_config_tests PRIVATE ct_forwarder_pure_seamed ct_forwarder_domain)
     target_include_directories(ct_forwarder_config_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_definitions(ct_forwarder_config_tests PRIVATE
         CT_FORWARDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
-        CT_FORWARDER_ALERTS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/alerts.yml")
+        CT_FORWARDER_ALERTS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/alerts.yml"
+        CT_REPO_README="${PROJECT_SOURCE_DIR}/README.md")
     target_compile_options(ct_forwarder_config_tests PRIVATE -Wall -Wextra)
     add_test(NAME forwarder.config COMMAND ct_forwarder_config_tests)
     add_test(NAME forwarder.config_negative_controls

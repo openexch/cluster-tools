@@ -42,6 +42,9 @@ enum class Rule : unsigned
     TAP_SWALLOWS,               // the observer tap counts a fault but does not forward it
     RESEND_NEW_CORRELATION,     // the app re-registers (new correlation id) when an ack is late
     DUPLICATE_IDENTITY_EXITS,   // RC2 S10': a REJECTED DUPLICATE_IDENTITY (44) exits 78 at once (no bounded retry)
+    DUPLICATE_BUDGET_WALL_CLOCK, // S10' review F1: the 44 budget counts wall time (also disconnected), no new-session retry
+    INFERRED_READS_LAST_ACK,    // S10' review F2: the refusal kind is read from the cumulative acksRejected > 0
+    DUP_EPISODE_NEVER_RESET,    // S10' review F3: a registration does not end the DUPLICATE_IDENTITY episode
     // main (W4)
     WATCHDOG_OFF,               // the duty watchdog never fires
     INVOKER_NO_BEAT,            // the archive invoker does not store the heartbeat

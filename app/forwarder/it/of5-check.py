@@ -18,7 +18,10 @@
 #
 # Lines: OF5 <counts>, FIRST INVERSION ... (when any), COUNT ..., and the verdict "OF5 PASS" or "OF5 FAIL: <named
 # lines>". Named lines: "0 inversions" (inversions > 0), "every captured template-9 id has a record 3", "count >= sent
-# - rejects", "the map is dense". --shuffle (the negative control) permutes the positions of the checked ids before the
+# - rejects", "the map is dense", "some ids are checked" (checked > 0: no joined id outside every exemption makes the
+# check vacuous) and, with --window, "the window holds template-9 ids" (windowIds > 0: no dispatch crossed the declared
+# leader change; review F4). With --window a LOADSTART line records the first template-9 receiveMs against the window
+# start. --shuffle (the negative control) permutes the positions of the checked ids before the
 # check (seeded, default 1): the "0 inversions" line must FAIL. Exit 0 PASS, 1 FAIL, 64 usage, 65 unreadable input.
 import random
 import sys
@@ -164,6 +167,10 @@ def main(argv):
     inv, firstInv = inversions(checked)
     if inv:
         failed.append("0 inversions")
+    if not checked:
+        failed.append("some ids are checked")
+    if w is not None and not inside:
+        failed.append("the window holds template-9 ids")
     print("OF5 captured=%d firstSeq=%s lastSeq=%s template9=%d releases=%d otherKinds=%d record3=%d malformedRecord3=%d "
           "missingRecord3=%d capacityExempt=%d windowIds=%d checked=%d inversions=%d unexemptedInversions=%d" % (
               len(rows), seqs[0] if seqs else "-", seqs[-1] if seqs else "-", len(t9), sum(1 for r in rows if r[3] == 3),
@@ -172,6 +179,9 @@ def main(argv):
     if w is not None:
         print("WINDOW %d..%d ms: %d template-9 ids inside (exempt), %d inversions when the window is not declared"
               % (w[0], w[1], len(inside), unexempted))
+        firstMs = min((r[4] for r in t9), default=None)
+        print("LOADSTART first template-9 receiveMs %s, %s ms before the window start" % (
+            firstMs if firstMs is not None else "-", w[0] - firstMs if firstMs is not None else "-"))
     if missing:
         print("MISSING record 3 for %d ids, e.g. %s" % (len(missing), " ".join("%d/%d@%d" % (r[1], r[2], r[0]) for r in missing[:5])))
     if firstInv:

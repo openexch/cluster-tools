@@ -74,7 +74,7 @@ groups:
       - alert: BridgeStorageStarved
         # RC2 S10' Q1: the core ingress publication or every replay image refused for storage space; exit 70 after 30 s
         # (restartable, loud): the media driver dir's tmpfs is too small or full
-        expr: increase(bridge_storage_starved_seconds[1m]) > 0
+        expr: increase(bridge_storage_starved_seconds_total[1m]) > 0
         labels: { severity: page }
         annotations:
           summary: "ct-bridge starved of storage in the media driver dir (it exits 70 after 30 s): grow or clean the tmpfs"

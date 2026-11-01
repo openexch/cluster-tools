@@ -40,6 +40,9 @@ const char *ruleName(Rule rule) noexcept
         case Rule::TAP_SWALLOWS: return "TAP_SWALLOWS";
         case Rule::RESEND_NEW_CORRELATION: return "RESEND_NEW_CORRELATION";
         case Rule::DUPLICATE_IDENTITY_EXITS: return "DUPLICATE_IDENTITY_EXITS";
+        case Rule::DUPLICATE_BUDGET_WALL_CLOCK: return "DUPLICATE_BUDGET_WALL_CLOCK";
+        case Rule::INFERRED_READS_LAST_ACK: return "INFERRED_READS_LAST_ACK";
+        case Rule::DUP_EPISODE_NEVER_RESET: return "DUP_EPISODE_NEVER_RESET";
         case Rule::WATCHDOG_OFF: return "WATCHDOG_OFF";
         case Rule::INVOKER_NO_BEAT: return "INVOKER_NO_BEAT";
         case Rule::CONDUCTOR_WATCH_OFF: return "CONDUCTOR_WATCH_OFF";

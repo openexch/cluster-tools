@@ -389,6 +389,143 @@ TEST_CASE("BridgeAgentTest.duplicateIdentityPastTheBoundExits78")
     CHECK(r.agent->counters().sessionUps == 0);
 }
 
+TEST_CASE("BridgeAgentTest.duplicateIdentitySurvivesALongCoreOutage")
+{
+    // S10' F1: the 60 s bound counts CONNECTED time only. 5 s of REJECTED 44, then the core closes the session and
+    // answers no connect for 70 s (a core restart); the restarted core still holds the dead session for 10 s more (its
+    // session-timeout clock restarted). The registrar keeps its REJECTED across the outage: the new session must retry
+    // at once, not judge the stale refusal against 75 s of wall clock.
+    AppRig r(1);
+    r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
+    r.duplicateUntilNs = r.t.now + 3600 * SECOND;
+    r.journal(0, 1, 5);
+    r.agent->start();
+    r.runFor(5 * SECOND);
+    REQUIRE_FALSE(r.agent->stopped());
+    REQUIRE(r.agent->registrar().counters().acksRejected >= 1);
+    r.answerConnects = false; // connects time out: every cycle exhausts its attempts
+    r.closeSession();
+    r.runFor(70 * SECOND, 50 * MS);
+    REQUIRE_FALSE(r.client->isConnected());
+    const std::uint64_t rejectedBeforeReconnect = r.agent->registrar().counters().acksRejected;
+    const std::size_t sendsBeforeReconnect = r.registerCorrelations.size();
+    r.answerConnects = true;
+    // connected, or stopped at the first CONNECTED step (the RED shape: the named CHECK below then fails)
+    REQUIRE(r.runUntil([&] { return r.client->isConnected() || r.agent->stopped(); }, 60 * SECOND));
+    r.duplicateUntilNs = r.t.now + 10 * SECOND; // held 10 s into the new session (set before its first send)
+    const bool registeredAfterOutage = r.runUntil([&] { return r.core.cursor == 5; }, 45 * SECOND);
+    CHECK(registeredAfterOutage); // "exit 78 at the first CONNECTED step after the outage, no RegisterSession sent"
+    CHECK_FALSE(r.agent->stopped());
+    const bool retriedInTheNewSession = r.registerCorrelations.size() > sendsBeforeReconnect &&
+        r.agent->registrar().counters().acksRejected > rejectedBeforeReconnect;
+    CHECK(retriedInTheNewSession); // the new session met the held identity and retried, the outage did not count
+    CHECK(r.agent->registrar().counters().acksAccepted == 1);
+    CHECK(r.agent->counters().sessionUps == 1);
+}
+
+TEST_CASE("BridgeAgentTest.duplicateIdentityAfterAnOutageStillExits78")
+{
+    // S10' F1, the other side: a genuine duplicate is not hidden by an outage. 30 s of REJECTED 44, 70 s without a
+    // session, then the identity is still held: exit 78 after 30 s more CONNECTED time, not before, and only after a
+    // REJECTED ack of the new session
+    AppRig r(1);
+    r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
+    r.duplicateUntilNs = r.t.now + 3600 * SECOND;
+    r.journal(0, 1, 5);
+    r.agent->start();
+    r.runFor(30 * SECOND);
+    REQUIRE_FALSE(r.agent->stopped());
+    r.answerConnects = false;
+    r.closeSession();
+    r.runFor(70 * SECOND, 50 * MS);
+    REQUIRE_FALSE(r.agent->stopped());
+    const std::uint64_t rejectedBeforeReconnect = r.agent->registrar().counters().acksRejected;
+    r.answerConnects = true;
+    // connected, or stopped at the first CONNECTED step (the RED shape: the named CHECK below then fails)
+    REQUIRE(r.runUntil([&] { return r.client->isConnected() || r.agent->stopped(); }, 60 * SECOND));
+    const std::int64_t reconnectedAt = r.t.now;
+    r.runFor(25 * SECOND);
+    const bool insideTheConnectedBound = !r.agent->stopped();
+    CHECK(insideTheConnectedBound); // ~55 s connected of the 60 s bound
+    r.runFor(10 * SECOND);
+    REQUIRE(r.agent->stopped());
+    CHECK(78 == r.agent->stopReason().exitCode);
+    CHECK(std::string(r.agent->stopReason().code) == "F8_DUPLICATE_IDENTITY");
+    CHECK(r.agent->registrar().counters().acksRejected > rejectedBeforeReconnect);
+    CHECK(r.t.now - reconnectedAt >= 25 * SECOND);
+    CHECK(r.agent->counters().sessionUps == 0);
+}
+
+TEST_CASE("BridgeAgentTest.inferredRefusalDuringDuplicateIdentityExits75")
+{
+    // S10' F2: inside a DUPLICATE_IDENTITY episode the core goes silent and closes three sessions with the retry
+    // pending: the refusal is now INFERRED (S9c F8B, 75), not the earlier ack's 44 (which would retry, then exit 78)
+    AppRig r(1);
+    r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
+    r.duplicateUntilNs = r.t.now + 3600 * SECOND;
+    r.journal(0, 1, 5);
+    r.agent->start();
+    REQUIRE(r.runUntil([&] { return r.agent->registrar().counters().acksRejected >= 1; }, 10 * SECOND));
+    r.runFor(2 * SECOND);
+    r.reg = AppRig::Reg::SILENT; // a refused session's ack is dropped with its egress queue
+    r.registerCorrelations.clear();
+    for (int i = 0; i < 3 && !r.agent->stopped(); ++i)
+    {
+        REQUIRE(r.runUntil([&] { return r.client->isConnected() && !r.registerCorrelations.empty(); }, 60 * SECOND));
+        r.runFor(200 * MS);
+        r.closeSession();
+        r.registerCorrelations.clear();
+        r.runFor(200 * MS);
+    }
+    r.runFor(2 * SECOND);
+    const bool inferredExits75 = r.agent->stopped() && 75 == r.agent->stopReason().exitCode &&
+        std::string(r.agent->stopReason().code) == "F8B_INFERRED";
+    CHECK(inferredExits75); // "an inferred refusal inside a 44 episode retried as 44 (alive, later 78)"
+    CHECK(r.agent->registrar().counters().closesWhilePending == 3);
+    CHECK_FALSE(r.agent->registrar().rejectedByAck());
+}
+
+TEST_CASE("BridgeAgentTest.duplicateIdentityEpisodeResetsTwiceInOneRun")
+{
+    // S10' F3 (checklist C4): the episode markers reset at each registration. Three episodes in one process, each a
+    // partition where the core still holds the old session for 20 s, with 70 s registered between them: an episode
+    // judged against an earlier one's time would exit 78 at its first REJECTED of the new session
+    AppRig r(1);
+    r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
+    r.duplicateUntilNs = r.t.now + 20 * SECOND;
+    r.journal(0, 1, 5);
+    r.agent->start();
+    REQUIRE(r.runUntil([&] { return r.core.cursor == 5; }, 45 * SECOND));
+    bool episodeRegistered[3] = { true, false, false };
+    std::uint64_t retriesBefore[3] = { 0, 0, 0 };
+    for (int e = 1; e < 3; ++e)
+    {
+        CAPTURE(e);
+        r.runFor(70 * SECOND);
+        CHECK_FALSE(r.agent->stopped());
+        if (r.agent->stopped())
+        {
+            break; // the RED shape: an episode exited 78 (the named CHECKs below fail)
+        }
+        retriesBefore[e] = r.agent->counters().duplicateIdentityRetries;
+        const std::uint64_t ups = r.agent->counters().sessionUps;
+        r.closeSession();
+        r.duplicateUntilNs = r.t.now + 20 * SECOND;
+        episodeRegistered[e] = r.runUntil([&] {
+            return r.agent->counters().sessionUps == ups + 1 && app::CoreLink::C3_REGISTERED == r.agent->link();
+        }, 45 * SECOND);
+    }
+    const bool secondEpisodeRegistered = episodeRegistered[1];
+    const bool thirdEpisodeRegistered = episodeRegistered[2];
+    CHECK(secondEpisodeRegistered); // "second episode exits 78 at once" (the reset never ran)
+    CHECK(thirdEpisodeRegistered);  // "third episode exits 78 at once" (the reset ran only once)
+    CHECK_FALSE(r.agent->stopped());
+    CHECK(r.agent->counters().duplicateIdentityRetries > retriesBefore[2]);
+    CHECK(retriesBefore[2] > retriesBefore[1]);
+    CHECK(r.agent->registrar().counters().acksAccepted == 3);
+    CHECK(r.agent->counters().sessionUps == 3);
+}
+
 TEST_CASE("BridgeAgentTest.inferredRejectedExits75")
 {
     AppRig r(1);

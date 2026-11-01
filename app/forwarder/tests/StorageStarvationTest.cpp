@@ -1,5 +1,5 @@
 // RC2 S10' Q1 (coordinator decision 2026-11-01): an ingress publication refused for storage space on every attempt for
-// 30 s ends ct-forwarder 70; until then /ready names storage_starved and forwarder_storage_starved_seconds grows.
+// 30 s ends ct-forwarder 70; until then /ready names storage_starved and forwarder_storage_starved_seconds_total grows.
 //   StorageStarvationTest.*            the shared common::StorageStarvation rule (pure)
 //   ForwarderAgentTest.storageStarvedIngressExits70  the agent over FakeTransport: the ME's ingress publications are
 //       refused with the C client's exact text; alive and not ready at 29 s, exit 70 F_STORAGE_STARVED within 30 s + one

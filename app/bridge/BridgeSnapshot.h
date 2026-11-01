@@ -196,7 +196,7 @@ struct AppCounters
     std::uint64_t connectClusterErrors = 0;                   // bridge_connect_cluster_error_total
     std::uint64_t connectCycles = 0;                          // bridge_connect_cycles_total (cycles started)
     std::uint64_t connectCyclesFailed = 0;                    // cycles that ended FAILED (retried)
-    std::uint64_t storageStarvedSeconds = 0;                  // bridge_storage_starved_seconds (S10' Q1)
+    std::uint64_t storageStarvedSeconds = 0;                  // bridge_storage_starved_seconds_total (S10' Q1)
     std::uint64_t coreStaleTerm = 0;                          // bridge_core_stale_term_total
     std::uint64_t coreFutureTerm = 0;                         // bridge_core_future_term_total
     std::uint64_t coreMalformed = 0;                          // a core frame shorter than a money header

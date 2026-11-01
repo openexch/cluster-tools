@@ -141,8 +141,11 @@ else
 fi
 rm -rf "$WORK/build-bridge"
 
+# RC2 S10' section 8: ct-forwarder links aeron_driver_static too (its embedded driver mode), so WITH_AERON needs the driver
+expect_refused forwarder-without-driver "ct-forwarder (WITH_AERON) needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}"
+
 # 8. Positive control: the pinned inputs configure.
-if "$CMAKE" -S "$HERE" -B "$WORK/build-good" -DWITH_AERON=ON -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \
+if "$CMAKE" -S "$HERE" -B "$WORK/build-good" -DWITH_AERON=ON -DCT_BUILD_MEDIA_DRIVER=ON "${GOOD[@]}" \
     > "$WORK/good.log" 2>&1; then
     pass "pinned inputs configure"
 else

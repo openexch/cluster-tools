@@ -324,7 +324,7 @@ public:
     // connect attempt, or every replay image refused for storage (the S9a precheck or the archive's STORAGE_SPACE) with
     // no source FOLLOWING, held for STORAGE_STARVED_EXIT_NS (30 s, a constant) ends the process 70: restartable and loud,
     // never alive-not-ready forever (the 2026-07-25 /dev/shm shape), never 78. Until then /ready names storage_starved
-    // and bridge_storage_starved_seconds grows. A replay attempt that fails for another reason, or any source
+    // and bridge_storage_starved_seconds_total grows. A replay attempt that fails for another reason, or any source
     // FOLLOWING, ends a replay episode; a core attempt that fails otherwise, or a connected client, ends a core one.
     void superviseStorage()
     {
@@ -1009,7 +1009,9 @@ private:
         {
             return;
         }
-        if (m_registrar.counters().acksRejected > 0)
+        const bool byAck = app_seams::disabled(app_seams::Rule::INFERRED_READS_LAST_ACK) ?
+            m_registrar.counters().acksRejected > 0 : m_registrar.rejectedByAck();
+        if (byAck) // S10' F2: the CURRENT refusal came as an AdminAck, not by inference
         {
             if (REJECT_DUPLICATE_IDENTITY == m_registrar.lastReason() &&
                 !app_seams::disabled(app_seams::Rule::DUPLICATE_IDENTITY_EXITS))
@@ -1028,21 +1030,54 @@ private:
 
     // RC2 S10': REJECTED DUPLICATE_IDENTITY: another live registered session holds this identity. After a kill -9 the
     // dead session stays registered at the core until its session timeout, so a prompt restart meets it: retry with a
-    // bounded backoff for 2 x the core session timeout, then exit 78 (a second process with the same BRIDGE_INSTANCE_ID)
+    // bounded backoff for 60 s, then exit 78 (a second process with the same BRIDGE_INSTANCE_ID).
+    // The bound counts CONNECTED time only (S10' F1, dupClock): while the bridge has no core session nothing can be
+    // learnt about the other holder, and a core restart or election restarts the core's session-timeout clock anyway. A
+    // new session or term inside an episode retries at once (the registrar keeps its REJECTED across the session change),
+    // so every 78 follows a REJECTED ack in the current session and term.
     void duplicateIdentity()
     {
-        const std::int64_t budgetNs = m_settings.duplicateIdentityBudgetNs;
-        if (m_dupFirstNs < 0)
+        const bool wallClock = app_seams::disabled(app_seams::Rule::DUPLICATE_BUDGET_WALL_CLOCK);
+        if (!m_client.isConnected())
         {
-            m_dupFirstNs = m_nowNs;
+            return; // sessionLost's check: judged on the next CONNECTED step, in that session
+        }
+        const std::int64_t budgetNs = m_settings.duplicateIdentityBudgetNs;
+        const std::int64_t epoch = static_cast<std::int64_t>(m_client.sessionEpoch());
+        const std::int64_t term = m_client.leadershipTermId();
+        if (!m_dupActive)
+        {
+            m_dupActive = true;
+            m_dupHeldNs = 0;
+            m_dupLastNs = m_nowNs;
+            m_dupEpoch = epoch;
+            m_dupTerm = term;
             m_dupBackoffNs = m_settings.duplicateIdentityRetryInitialNs;
         }
-        const std::int64_t heldNs = m_nowNs - m_dupFirstNs;
+        else if ((epoch != m_dupEpoch || term != m_dupTerm) && !wallClock)
+        {
+            // the REJECTED is the previous session's (or term's): retry in this one before the bound is judged
+            m_dupEpoch = epoch;
+            m_dupTerm = term;
+            m_dupNextNs = -1;
+            m_dupBackoffNs = m_settings.duplicateIdentityRetryInitialNs;
+            if (m_registrar.retryAfterRejection())
+            {
+                m_counters.duplicateIdentityRetries++;
+                log(common::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44) in an earlier session or "
+                    "term: retry %llu now in session epoch %lld term %lld, %.1f s of the %.1f s connected budget used",
+                    static_cast<unsigned long long>(m_counters.duplicateIdentityRetries), static_cast<long long>(epoch),
+                    static_cast<long long>(term), static_cast<double>(m_dupHeldNs) / 1e9, static_cast<double>(budgetNs) / 1e9);
+            }
+            return;
+        }
+        const std::int64_t heldNs = m_dupHeldNs;
         if (heldNs >= budgetNs)
         {
             stop(EXIT_CONFIG, "F8_DUPLICATE_IDENTITY",
-                "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44) for %.1f s (>= the %.0f s bound: 2 x the core "
-                "session timeout plus an election): another live process holds identity %lld (a duplicate BRIDGE_INSTANCE_ID)",
+                "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44) for %.1f s connected (>= the %.0f s bound: 2 x the "
+                "core session timeout plus an election): another live process holds identity %lld (a duplicate "
+                "BRIDGE_INSTANCE_ID)",
                 static_cast<double>(heldNs) / 1e9, static_cast<double>(budgetNs) / 1e9,
                 static_cast<long long>(m_settings.identity));
             return;
@@ -1052,7 +1087,7 @@ private:
             m_dupNextNs = m_nowNs + m_dupBackoffNs;
             log(common::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44): identity %lld is held by "
                 "another live session (the previous process before its core session timeout?); retry %llu in %lld ms, "
-                "%.1f s of the %.1f s budget left", static_cast<long long>(m_settings.identity),
+                "%.1f s of the %.1f s connected budget left", static_cast<long long>(m_settings.identity),
                 static_cast<unsigned long long>(m_counters.duplicateIdentityRetries + 1),
                 static_cast<long long>(m_dupBackoffNs / 1'000'000), static_cast<double>(budgetNs - heldNs) / 1e9,
                 static_cast<double>(budgetNs) / 1e9);
@@ -1067,6 +1102,25 @@ private:
                 m_counters.duplicateIdentityRetries++;
             }
         }
+    }
+
+    // S10' F1: the DUPLICATE_IDENTITY episode's clock: adds the time between two CONNECTED link steps, nothing while the
+    // client is connecting, closed or awaiting a new leader. Runs at the top of every link step of an open episode.
+    void dupClock(bool connected)
+    {
+        if (!m_dupActive)
+        {
+            return;
+        }
+        if (app_seams::disabled(app_seams::Rule::DUPLICATE_BUDGET_WALL_CLOCK))
+        {
+            connected = true; // RED shape: the pre-review wall clock (an outage counts against the budget)
+        }
+        if (connected && m_dupLastNs >= 0)
+        {
+            m_dupHeldNs += m_nowNs - m_dupLastNs;
+        }
+        m_dupLastNs = connected ? m_nowNs : -1;
     }
 
     void down()
@@ -1113,8 +1167,13 @@ private:
         m_link = CoreLink::C3_REGISTERED;
         m_c3BeforeC4 = false;
         m_backoff.reset();
-        m_dupFirstNs = -1; // a registration ends a DUPLICATE_IDENTITY episode
-        m_dupNextNs = -1;
+        if (!app_seams::disabled(app_seams::Rule::DUP_EPISODE_NEVER_RESET))
+        {
+            m_dupActive = false; // a registration ends a DUPLICATE_IDENTITY episode (C4: the next one starts at 0)
+            m_dupHeldNs = 0;
+            m_dupLastNs = -1;
+            m_dupNextNs = -1;
+        }
     }
 
     void linkStep()
@@ -1122,6 +1181,7 @@ private:
         using client::ClientState;
         const ClientState st = m_client.state();
         m_stateChanged = false;
+        dupClock(ClientState::CONNECTED == st);
         switch (m_link)
         {
             case CoreLink::C0_DOWN:
@@ -1299,7 +1359,7 @@ private:
     AppCounters m_counters;
     common::StorageStarvation m_coreStorage;   // S10' Q1
     common::StorageStarvation m_replayStorage;
-    common::StorageStarvation m_anyStorage;    // either of them: bridge_storage_starved_seconds
+    common::StorageStarvation m_anyStorage;    // either of them: bridge_storage_starved_seconds_total
     common::ClientStorageFeed<CoreClient> m_coreStorageFeed;
     std::uint64_t m_seenReplayStorage = 0;
     std::uint64_t m_seenReplayOther = 0;
@@ -1328,7 +1388,11 @@ private:
     bool m_loggedHaltActive = false;      // S10': the halt lines of drainVerdicts
     std::int64_t m_loggedHaltCorrelation = 0;
     bool m_loggedHaltAcked = false;
-    std::int64_t m_dupFirstNs = -1;   // S10': the first REJECTED DUPLICATE_IDENTITY of this episode
+    bool m_dupActive = false;         // S10': a REJECTED DUPLICATE_IDENTITY episode is open (until enterC3)
+    std::int64_t m_dupHeldNs = 0;     // its CONNECTED time so far (F1: the 60 s bound counts only this)
+    std::int64_t m_dupLastNs = -1;    // the last CONNECTED link step dupClock saw, -1 while not connected
+    std::int64_t m_dupEpoch = -1;     // the session epoch and term of the episode's last REJECTED judgement
+    std::int64_t m_dupTerm = -1;
     std::int64_t m_dupNextNs = -1;    // the next RegisterSession retry
     std::int64_t m_dupBackoffNs = 0;
     bool m_stopRequested = false;

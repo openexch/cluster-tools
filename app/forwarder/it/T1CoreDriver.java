@@ -30,6 +30,11 @@
 //       channel) records every BROADCAST OrderEvent for <seconds> (0 = until SIGTERM), one flushed line
 //       "orderId userId eventKind status reason meReason receiveMs" (enum names, UNKNOWN_<raw> for a value the schema
 //       does not name). Prints "EVENTS armed" once registered, "EVENTS count=N" at the end.
+//   names
+//       Review F9 (2026-11-01), no cluster: the events naming on the raw values 200 (unnamed by EventKind, OrderStatus and
+//       CoreRejectReason: get() throws) and 255 (the uint8 null value: NULL_VAL), plus one named value. Prints one
+//       "NAMES <enum> <raw> -> <name>" line each, then "NAMES PASS" (exit 0) or "NAMES FAIL: unnamed raw not printed as
+//       UNKNOWN_<raw>" (exit 1).
 //
 // What this T1 run does NOT have: the RC2 S9 Java bridge (contract assumption 2). At assets b05b8e8 the bridge still
 // speaks the v5 settlement journal (schemaId 3: Settle / TerminalRelease), which a behaviour-3 core refuses, so no ME
@@ -84,6 +89,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 public final class T1CoreDriver {
 
@@ -459,8 +465,38 @@ public final class T1CoreDriver {
         }
     }
 
-    private static String nameOf(final Enum<?> e, final int raw) {
+    // Review F9 (2026-11-01): the SBE-generated get() maps only the null value to NULL_VAL and THROWS
+    // IllegalArgumentException for any other value the schema does not name; both print UNKNOWN_<raw>, the recorder lives.
+    private static String nameOf(final Supplier<Enum<?>> of, final int raw) {
+        final Enum<?> e;
+        try {
+            e = of.get();
+        } catch (final IllegalArgumentException unnamed) {
+            return "UNKNOWN_" + raw;
+        }
         return e == null || "NULL_VAL".equals(e.name()) ? "UNKNOWN_" + raw : e.name();
+    }
+
+    private static void names() {
+        final short[] raws = {200, 255};
+        boolean ok = true;
+        for (final short raw : raws) {
+            final String[] got = {nameOf(() -> EventKind.get(raw), raw), nameOf(() -> OrderStatus.get(raw), raw),
+                nameOf(() -> CoreRejectReason.get(raw), raw)};
+            final String[] enums = {"EventKind", "OrderStatus", "CoreRejectReason"};
+            for (int i = 0; i < got.length; i++) {
+                System.out.println("NAMES " + enums[i] + " " + raw + " -> " + got[i]);
+                ok &= ("UNKNOWN_" + raw).equals(got[i]);
+            }
+        }
+        final String named = nameOf(() -> EventKind.get(EventKind.HOLD_CHANGED.value()), EventKind.HOLD_CHANGED.value());
+        System.out.println("NAMES EventKind " + EventKind.HOLD_CHANGED.value() + " -> " + named);
+        ok &= "HOLD_CHANGED".equals(named);
+        if (!ok) {
+            System.out.println("NAMES FAIL: unnamed raw not printed as UNKNOWN_<raw>");
+            System.exit(1);
+        }
+        System.out.println("NAMES PASS");
     }
 
     private static void events(final String aeronDir, final String ingress, final Path outFile, final int seconds)
@@ -485,15 +521,15 @@ public final class T1CoreDriver {
                     // Under load the core coalesces OrderEvents into OrderEventBatch (SessionEgressQueue); read both.
                     if (h.templateId() == OrderEventDecoder.TEMPLATE_ID) {
                         d.wrapAndApplyHeader(b, 0, h);
-                        w.println(d.orderId() + " " + d.userId() + " " + nameOf(EventKind.get(d.eventKindRaw()), d.eventKindRaw()) + " "
-                                + nameOf(OrderStatus.get(d.statusRaw()), d.statusRaw()) + " "
-                                + nameOf(CoreRejectReason.get(d.reasonRaw()), d.reasonRaw()) + " " + d.meReason() + " " + receiveMs);
+                        w.println(d.orderId() + " " + d.userId() + " " + nameOf(() -> EventKind.get(d.eventKindRaw()), d.eventKindRaw()) + " "
+                                + nameOf(() -> OrderStatus.get(d.statusRaw()), d.statusRaw()) + " "
+                                + nameOf(() -> CoreRejectReason.get(d.reasonRaw()), d.reasonRaw()) + " " + d.meReason() + " " + receiveMs);
                         count++;
                     } else if (h.templateId() == OrderEventBatchDecoder.TEMPLATE_ID) {
                         for (final OrderEventBatchDecoder.EventsDecoder e : batch.wrapAndApplyHeader(b, 0, h).events()) {
-                            w.println(e.orderId() + " " + e.userId() + " " + nameOf(EventKind.get(e.eventKindRaw()), e.eventKindRaw()) + " "
-                                    + nameOf(OrderStatus.get(e.statusRaw()), e.statusRaw()) + " "
-                                    + nameOf(CoreRejectReason.get(e.reasonRaw()), e.reasonRaw()) + " " + e.meReason() + " " + receiveMs);
+                            w.println(e.orderId() + " " + e.userId() + " " + nameOf(() -> EventKind.get(e.eventKindRaw()), e.eventKindRaw()) + " "
+                                    + nameOf(() -> OrderStatus.get(e.statusRaw()), e.statusRaw()) + " "
+                                    + nameOf(() -> CoreRejectReason.get(e.reasonRaw()), e.reasonRaw()) + " " + e.meReason() + " " + receiveMs);
                             count++;
                         }
                     }
@@ -530,6 +566,9 @@ public final class T1CoreDriver {
                         throw new IllegalArgumentException("events <aeronDir> <ingress> <outFile> <seconds>");
                     }
                     events(args[1], args[2], Path.of(args[3]), Integer.parseInt(args[4]));
+                    break;
+                case "names":
+                    names();
                     break;
                 default:
                     throw new IllegalArgumentException("unknown command " + args[0]);

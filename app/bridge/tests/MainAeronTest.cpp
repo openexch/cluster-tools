@@ -1,9 +1,13 @@
 // RC2 S9c 12.2 ct_bridge_main_aeron_tests (WITH_AERON, real media drivers; the processes are the real binaries):
 //   startSequenceBothModes  external: no driver started, connectAeron(AERON_DIR); no driver there = exit 70 after the
 //                           driver timeout. embedded: the per-instance dir is created and deleted, a stale dir of a
-//                           killed earlier run is reused and cleaned (bridge_driver_dir_reclaimed_total 1), a LIVE driver
-//                           in it = 78, a per-instance path that is not a directory = 78 (RED EMBEDDED_DIR_PER_PID on
-//                           the in-process EmbeddedDriver)
+//                           killed earlier run is reused and cleaned (bridge_driver_dir_reclaimed_total 1), a second
+//                           same-id instance = 78 on the lock, a per-instance path that is not a directory = 78 (RED
+//                           EMBEDDED_DIR_PER_PID on the in-process EmbeddedDriver)
+//   startSequenceBothModes.embeddedLiveDriverInDir  a LIVE driver in ct-bridge-<id> with no lock held: 78 with "a LIVE
+//                           media driver is already in" on 3 attempts, the dir and the driver kept (S10' review C13-1: the
+//                           lock refuses every other same-id case before this check runs; its RED EMBEDDED_LIVE_CHECK is
+//                           the forwarder's in-process MainAeronTest.liveDriverInDirRefusesTheStart, the code is one copy)
 //   sameIdStartsAreSerialised  two same-id embedded processes in the same instant, 5 times (stale dir / no dir): one
 //                           live driver, one 78, the live dir kept (the instance lock, Q3)
 //   heldInstanceLockRefusesTheStart  in-process: a held <dir>.lock refuses the start and leaves a stale dir untouched
@@ -343,9 +347,8 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embedded")
             siblings += e.is_directory() && e.path().filename().string().rfind("ct-bridge-", 0) == 0 ? 1 : 0; // dirs: the .lock sits next to it
         }
         CHECK(siblings == 1);
-        // a second instance with the same id on this host: a LIVE driver in the dir = 78, every time (the driver beats
-        // once per 1 s timer interval: a check shorter than that read it as stale at random and deleted the live dir),
-        // and the running instance keeps its driver
+        // a second instance with the same id on this host: 78 on the instance lock, every time, and the running instance
+        // keeps its driver (the live-driver check behind the lock: embeddedLiveDriverInDir below)
         for (int attempt = 0; attempt < 3; ++attempt)
         {
             Process second = spawn(CT_BRIDGE_BINARY, {}, bridgeEnv("embedded", dir, 5000),
@@ -372,6 +375,43 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embedded")
         CHECK(*code == 78);
         fs::remove(instanceDir);
     }
+    fs::remove_all(dir);
+}
+
+TEST_CASE("MainAeronTest.startSequenceBothModes.embeddedLiveDriverInDir")
+{
+    // a live aeronmd in <BRIDGE_DRIVER_DIR>/ct-bridge-1 and NO lock file (an aeronmd pointed at that path, or a cleanup
+    // that removed the .lock under a running instance): the lock is taken on a fresh inode, so only the live-driver check
+    // (the driver beats once per 1 s timer interval, the check samples longer than that) keeps dir_delete_on_start off a
+    // live driver dir
+    const std::string dir = workDir("emb-live");
+    const std::string instanceDir = dir + "/ct-bridge-1";
+    Process aeronmd = startAeronmd(instanceDir, dir + "/../bridge-emb-live-aeronmd.log");
+    REQUIRE(!fs::exists(instanceDir + ".lock"));
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        Process bridge = spawn(CT_BRIDGE_BINARY, {}, bridgeEnv("embedded", dir, 5000),
+            dir + "/../bridge-emb-live-" + std::to_string(attempt) + ".log");
+        const auto code = waitExit(bridge, 15000);
+        const double took = secondsSince(bridge.started);
+        const std::string log = slurp(bridge.log);
+        MESSAGE("attempt " << attempt << ": exit " << (code ? *code : -999) << " after " << took << " s");
+        REQUIRE(code.has_value());
+        CHECK(*code == 78);
+        CHECK(log.find("a LIVE media driver is already in " + instanceDir) != std::string::npos);
+        CHECK(log.find("BRIDGE_INSTANCE_ID") != std::string::npos);
+        CHECK(log.find("holds the instance lock") == std::string::npos); // refused by the live check, not the lock
+        CHECK(took >= 1.5);
+        CHECK(fs::exists(instanceDir + "/cnc.dat"));
+        CHECK(::kill(aeronmd.pid, 0) == 0);
+    }
+    CHECK(!waitExit(aeronmd, 200).has_value());
+    kill9(aeronmd);
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        fs::remove(dir + "/../bridge-emb-live-" + std::to_string(attempt) + ".log");
+    }
+    fs::remove(dir + "/../bridge-emb-live-aeronmd.log");
     fs::remove_all(dir);
 }
 

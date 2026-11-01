@@ -100,6 +100,7 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
 {
     m_dir = dir;
     m_manual = manualMainLoop;
+    m_failureErrcode = 0;
     if (m_options.instanceLock)
     {
         const std::string lockPath = dir + ".lock";
@@ -129,14 +130,18 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
             error = "embedded driver dir " + dir + " exists and is not a directory";
             return false;
         }
-        const auto firstLook = std::chrono::steady_clock::now();
-        std::this_thread::sleep_until(firstLook + std::chrono::milliseconds(LIVE_DRIVER_AGE_MS + LIVE_DRIVER_MARGIN_MS));
-        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(LIVE_DRIVER_SAMPLE_MS);
-        bool live = aeron_is_driver_active(dir.c_str(), LIVE_DRIVER_AGE_MS, &quietLog);
-        while (!live && std::chrono::steady_clock::now() < until)
+        bool live = false; // EMBEDDED_LIVE_CHECK RED shape (liveCheck off): every existing dir is read as stale
+        if (m_options.liveCheck)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            const auto firstLook = std::chrono::steady_clock::now();
+            std::this_thread::sleep_until(firstLook + std::chrono::milliseconds(LIVE_DRIVER_AGE_MS + LIVE_DRIVER_MARGIN_MS));
+            const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(LIVE_DRIVER_SAMPLE_MS);
             live = aeron_is_driver_active(dir.c_str(), LIVE_DRIVER_AGE_MS, &quietLog);
+            while (!live && std::chrono::steady_clock::now() < until)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                live = aeron_is_driver_active(dir.c_str(), LIVE_DRIVER_AGE_MS, &quietLog);
+            }
         }
         if (live)
         {
@@ -170,6 +175,7 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
     }
     if (aeron_driver_init(&m_driver, m_context) < 0)
     {
+        m_failureErrcode = aeron_errcode(); // before any close: ENOSPC = the CnC cannot be allocated (C13-6)
         error = lastAeronError("aeron_driver_init");
         m_driver = nullptr;
         aeron_driver_context_close(m_context);
@@ -178,6 +184,7 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
     }
     if (aeron_driver_start(m_driver, manualMainLoop) < 0)
     {
+        m_failureErrcode = aeron_errcode();
         error = lastAeronError("aeron_driver_start");
         aeron_driver_close(m_driver);
         m_driver = nullptr;

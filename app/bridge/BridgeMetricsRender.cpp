@@ -411,7 +411,7 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
     p.counter("bridge_sighup_ignored_total", "SIGHUPs counted (no operator resync exists)", x.sighupIgnored);
     p.counter("bridge_driver_dir_reclaimed_total", "Embedded mode: a stale per-instance driver dir reused and cleaned at start",
         x.driverDirReclaimed);
-    p.counter("bridge_storage_starved_seconds",
+    p.counter("bridge_storage_starved_seconds_total",
         "Seconds the core ingress publication or every replay image was refused for storage space (exit 70 after 30 s, S10' Q1)",
         s.app.storageStarvedSeconds);
 

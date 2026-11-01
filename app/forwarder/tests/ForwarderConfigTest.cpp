@@ -3,10 +3,20 @@
 // use port 0, 0.0.0.0 refused (S11 validate).
 // RC2 S10' 8.3: driverModeIsStrict (RED DRIVER_MODE_DEFAULT_EXTERNAL), driverTimeoutUsesTheSharedParser (RED
 // TIMEOUT_CONSTANT), instanceIdRange (table-driven), identityIsTheInstanceIdInBothClientNames.
+// RC2 S10' review C13-3: driverDirsAreCheckedAtTheParse (table-driven, ct-bridge's rule and texts: AERON_DIR an existing
+// directory, FWD_DRIVER_DIR an existing writable one; the timeout's raw value, no trimming). Review C13-2:
+// readmeExampleParses (the repo README's ct-forwarder example and env table against this parser).
 #include "doctest/doctest.h"
 
+#include <unistd.h>
+
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
+#include <set>
+#include <sstream>
 #include <string>
 
 #include "ForwarderConfig.h"
@@ -44,12 +54,24 @@ std::map<std::string, std::string> embeddedEnv()
     return env;
 }
 
-ConfigResult parse(const std::map<std::string, std::string> &env)
+// Every path is an existing writable directory unless named in `missing` / `readOnly` (the bridge's injected probe).
+cluster_tools::app::common::DirProbe fakeDirs(std::set<std::string> missing = {}, std::set<std::string> readOnly = {})
 {
-    return parseForwarderConfig([&env](const char *name) -> const char * {
-        const auto it = env.find(name);
-        return it == env.end() ? nullptr : it->second.c_str();
-    });
+    cluster_tools::app::common::DirProbe p;
+    p.isDirectory = [missing](const std::string &path) { return 0 == missing.count(path); };
+    p.isWritable = [readOnly](const std::string &path) { return 0 == readOnly.count(path); };
+    return p;
+}
+
+ConfigResult parse(const std::map<std::string, std::string> &env,
+    const cluster_tools::app::common::DirProbe &probe = fakeDirs())
+{
+    return parseForwarderConfig(
+        [&env](const char *name) -> const char * {
+            const auto it = env.find(name);
+            return it == env.end() ? nullptr : it->second.c_str();
+        },
+        probe);
 }
 
 bool mentions(const ConfigResult &r, const std::string &text)
@@ -216,7 +238,7 @@ TEST_CASE("ForwarderConfigTest.driverTimeoutUsesTheSharedParser")
     const ConfigResult missing = parse(env);
     const bool missingTimeoutRefused = !missing.ok() && mentions(missing, "FWD_DRIVER_TIMEOUT_MS is required");
     CHECK_MESSAGE(missingTimeoutRefused, "5000 used while the key is missing"); // TIMEOUT_CONSTANT RED
-    for (const char *bad : { "2999", "60001", "0", "-3000", "+3000", "3000ms", "3e3", "" })
+    for (const char *bad : { "2999", "60001", "0", "-3000", "+3000", "3000ms", "3e3", "", " 5000", "5000 ", "\t5000" })
     {
         CAPTURE(bad);
         env = validEnv();
@@ -270,4 +292,130 @@ TEST_CASE("ForwarderConfigTest.identityIsTheInstanceIdInBothClientNames")
     CHECK(forwarderIdentity(r.config) == 7);
     CHECK(coreClientSettings(r.config).clientName == "ct-forwarder-core identity=7");
     CHECK(meClientSettings(r.config).clientName == "ct-forwarder-me identity=7");
+}
+
+TEST_CASE("ForwarderConfigTest.driverDirsAreCheckedAtTheParse")
+{
+    // external: AERON_DIR must be an existing directory at the parse (ct-bridge: 78 with every other problem)
+    {
+        const ConfigResult r = parse(validEnv(), fakeDirs({ "/dev/shm/aeron-fwd" }));
+        CHECK_FALSE(r.ok());
+        CHECK(mentions(r, "AERON_DIR /dev/shm/aeron-fwd is not an existing directory (is the host aeronmd running?)"));
+        CHECK(parse(validEnv(), fakeDirs({}, { "/dev/shm/aeron-fwd" })).ok()); // a client needs no write access there
+    }
+    // embedded: FWD_DRIVER_DIR an existing, writable directory
+    {
+        const ConfigResult missing = parse(embeddedEnv(), fakeDirs({ "/dev/shm/fwd-embedded" }));
+        CHECK_FALSE(missing.ok());
+        CHECK(mentions(missing, "FWD_DRIVER_DIR /dev/shm/fwd-embedded is not an existing directory"));
+        const ConfigResult readOnly = parse(embeddedEnv(), fakeDirs({}, { "/dev/shm/fwd-embedded" }));
+        CHECK_FALSE(readOnly.ok());
+        CHECK(mentions(readOnly, "FWD_DRIVER_DIR /dev/shm/fwd-embedded is not writable"));
+    }
+    // the problem is reported with the others, in one list (not after the http bind as the lock open did)
+    {
+        auto env = embeddedEnv();
+        env["FWD_INSTANCE_ID"] = "0";
+        const ConfigResult r = parse(env, fakeDirs({ "/dev/shm/fwd-embedded" }));
+        CHECK(mentions(r, "FWD_DRIVER_DIR /dev/shm/fwd-embedded is not an existing directory"));
+        CHECK(mentions(r, "FWD_INSTANCE_ID must be an integer"));
+    }
+    // the real probe (stat / access) on this host: a dir that exists, one that does not
+    {
+        namespace fs = std::filesystem;
+        const std::string base = fs::temp_directory_path().string() + "/ct-fwd-config-" + std::to_string(::getpid());
+        fs::remove_all(base);
+        fs::create_directories(base + "/there");
+        auto env = embeddedEnv();
+        env["FWD_DRIVER_DIR"] = base + "/there";
+        CHECK(parse(env, cluster_tools::app::common::systemDirProbe()).ok());
+        env["FWD_DRIVER_DIR"] = base + "/missing";
+        CHECK(mentions(parse(env, cluster_tools::app::common::systemDirProbe()), "is not an existing directory"));
+        auto ext = validEnv();
+        ext["AERON_DIR"] = base + "/missing";
+        CHECK(mentions(parse(ext, cluster_tools::app::common::systemDirProbe()), "is not an existing directory"));
+        fs::remove_all(base);
+    }
+}
+
+namespace {
+
+// The `env K=V ... ct-forwarder` block of the repo README's ct-forwarder section: K=V tokens, '...' quotes removed,
+// "<64 hex>" placeholders filled. Empty when the section or the block is missing.
+std::map<std::string, std::string> readmeForwarderExample(const std::string &readme, std::string &section)
+{
+    std::map<std::string, std::string> env;
+    const std::size_t start = readme.find("### ct-forwarder");
+    if (std::string::npos == start)
+    {
+        return env;
+    }
+    const std::size_t end = readme.find("\n### ", start + 1);
+    section = readme.substr(start, std::string::npos == end ? std::string::npos : end - start);
+    const std::size_t block = section.find("```bash\n");
+    const std::size_t blockEnd = std::string::npos == block ? block : section.find("```", block + 8);
+    if (std::string::npos == blockEnd)
+    {
+        return env;
+    }
+    std::string text = section.substr(block + 8, blockEnd - block - 8);
+    for (std::size_t at; std::string::npos != (at = text.find("<64 hex>"));)
+    {
+        text.replace(at, 8, std::string(64, '6'));
+    }
+    std::string token;
+    bool quoted = false;
+    const auto flush = [&] {
+        const std::size_t eq = token.find('=');
+        if (std::string::npos != eq && eq > 0 && token.substr(0, eq).find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789") ==
+            std::string::npos)
+        {
+            env[token.substr(0, eq)] = token.substr(eq + 1);
+        }
+        token.clear();
+    };
+    for (const char ch : text)
+    {
+        if ('\'' == ch)
+        {
+            quoted = !quoted;
+        }
+        else if (!quoted && (' ' == ch || '\n' == ch || '\\' == ch))
+        {
+            flush();
+        }
+        else
+        {
+            token += ch;
+        }
+    }
+    flush();
+    return env;
+}
+
+}
+
+TEST_CASE("ForwarderConfigTest.readmeExampleParses")
+{
+    std::ifstream in(CT_REPO_README);
+    REQUIRE(in.good());
+    std::ostringstream all;
+    all << in.rdbuf();
+    std::string section;
+    const auto env = readmeForwarderExample(all.str(), section);
+    REQUIRE(!env.empty());
+    const ConfigResult r = parse(env); // AERON_DIR of the example is a host path: the injected probe has it
+    for (const std::string &e : r.errors)
+    {
+        MESSAGE("README example: " << e);
+    }
+    CHECK(r.ok());
+    CHECK(r.config.driverMode == DriverMode::EXTERNAL);
+    // the env table names every driver key of S10' 8.2 rule 6 and the embedded tmpfs minimum
+    for (const char *key : { "FWD_DRIVER_MODE", "AERON_DIR", "FWD_DRIVER_DIR", "FWD_DRIVER_TIMEOUT_MS", "FWD_INSTANCE_ID" })
+    {
+        CAPTURE(key);
+        CHECK(section.find(std::string("| `") + key + "`") != std::string::npos);
+    }
+    CHECK(section.find("64 MB") != std::string::npos);
 }

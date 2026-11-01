@@ -1,5 +1,5 @@
 // RC2 S10' Q1 (coordinator decision 2026-11-01) for ct-bridge: storage starvation held for 30 s ends the process 70;
-// until then /ready names storage_starved and bridge_storage_starved_seconds grows.
+// until then /ready names storage_starved and bridge_storage_starved_seconds_total grows.
 //   coreIngressStarvedOfStorageExits70  the core ingress publication refused on every attempt with the C client's text
 //   replayStarvedOfStorageExits70       every replay image refused for storage (the S9a precheck counter) and no source
 //                                       FOLLOWING: the 2026-10-31 T1 240 MB shape (61 REPLAY_STORAGE faults, alive)

@@ -20,6 +20,8 @@ const char *ruleName(Rule rule) noexcept
         case Rule::EMBEDDED_DIR_PER_PID: return "EMBEDDED_DIR_PER_PID";
         case Rule::EMBEDDED_INSTANCE_LOCK: return "EMBEDDED_INSTANCE_LOCK";
         case Rule::STORAGE_STARVED_EXIT_OFF: return "STORAGE_STARVED_EXIT_OFF";
+        case Rule::EMBEDDED_LIVE_CHECK: return "EMBEDDED_LIVE_CHECK";
+        case Rule::DRIVER_START_STORAGE_78: return "DRIVER_START_STORAGE_78";
         case Rule::COUNT: break;
     }
     return "?";

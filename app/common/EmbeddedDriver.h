@@ -7,6 +7,8 @@
 #include <string>
 #include <thread>
 
+#include "common/StorageStarvation.h"
+
 // EmbeddedDriver - <PROCESS>_DRIVER_MODE=embedded only (dev and demo; the prod mode is the host aeronmd that admin and
 // cloud-console manage, checklist C13): the Aeron C media driver of the verified tree, in this process. One copy for
 // ct-bridge (RC2 S9c 3.1, 3.3 step 4, 3.4, W4) and ct-forwarder (RC2 S10' section 8, rule 4): the process name, the dir
@@ -23,7 +25,10 @@
 //   - the termination hook is installed so that a validated TerminateDriver request is LOUD (exit 70); it is NOT a
 //     death detector (S9c review FIX-4): a dead driver thread is seen by the client conductor's CnC driver timeout;
 //   - any driver context / init / start error refuses the start (78, S9c review FIX-12: host configuration a restart
-//     cannot fix: socket buffer limits, a tmpfs too small for the CnC and the terms);
+//     cannot fix: socket buffer limits), EXCEPT an init / start that failed for storage space (ENOSPC or Aeron's
+//     STORAGE_SPACE: the CnC cannot be allocated on a full tmpfs; RC2 S10' review C13-6): startFailedForStorage() says
+//     so; ct-forwarder retries it under the Q1 rule (StorageStarvation.h: 70 after 30 s, never 78, which would keep it
+//     down for good after a passing tmpfs squeeze); ct-bridge's main still maps every start failure to 78;
 //   - close() runs on a helper thread with a timed wait (the stop must not hang on it).
 // manualMainLoop (the *_tc_driverstall test builds only): the driver's duty cycle runs on a thread this class owns, and
 // stopDriving() stops it (the driver thread dead, the client alive: the 2026-08-12 shape, R-K13 (b)).
@@ -41,6 +46,7 @@ struct EmbeddedDriverOptions
     // Negative-control shapes, set only by the seamed builds of the owner (the owner's app seams decide):
     bool dirPerPid = false;    // EMBEDDED_DIR_PER_PID: the dir is per pid (a stale sibling is left behind)
     bool instanceLock = true;  // EMBEDDED_INSTANCE_LOCK off: no lock, two same-id starts both reclaim the dir
+    bool liveCheck = true;     // EMBEDDED_LIVE_CHECK off: an existing dir is read as stale without the live-driver check
 };
 
 class EmbeddedDriver
@@ -57,8 +63,12 @@ public:
     EmbeddedDriver(const EmbeddedDriver &) = delete;
     EmbeddedDriver &operator=(const EmbeddedDriver &) = delete;
 
-    // False (with `error`) = refuse to start (78). reclaimed() says whether a stale dir was reused and cleaned.
+    // False (with `error`) = refuse to start (78), or, when startFailedForStorage(), a storage-starved start the owner
+    // retries with a NEW object (this one keeps the instance lock until it goes). reclaimed() says whether a stale dir
+    // was reused and cleaned.
     bool start(const std::string &dir, bool manualMainLoop, std::string &error);
+    bool startFailedForStorage() const noexcept { return isStorageSpaceErrcode(m_failureErrcode); }
+    int failureErrcode() const noexcept { return m_failureErrcode; }
     bool reclaimed() const noexcept { return m_reclaimed; }
     const std::string &dir() const noexcept { return m_dir; }
     bool running() const noexcept { return nullptr != m_driver; }
@@ -85,6 +95,7 @@ private:
     std::atomic<bool> m_stopLoop{ false };
     std::thread m_loop;
     int m_lockFd = -1;
+    int m_failureErrcode = 0; // aeron_errcode() of a failed aeron_driver_init / aeron_driver_start (C13-6)
 };
 
 }}}

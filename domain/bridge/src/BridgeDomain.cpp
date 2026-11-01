@@ -287,6 +287,14 @@ void BridgeDomain::noteAccepted(const archive::JournalFrame &frame) noexcept
     {
         m_ownEpochSeen = true;
     }
+    if (m_tainted[frame.sourceIndex] && m_readMemoFree && !m_relist[frame.sourceIndex].walking &&
+        frame.key.recordingId > m_taintRecording[frame.sourceIndex] && !disabled(Rule::TAINT_NEVER_CLEARS))
+    {
+        // S10' 5.1 taint, reset path (C4): a linear memo-free read accepted a frame of a recording after the bad / stale
+        // one, so it passed that recording without a refusal (a linear read ends at one: BAD) or no longer meets it
+        m_tainted[frame.sourceIndex] = false;
+        m_taintRecording[frame.sourceIndex] = 0;
+    }
     // S9a 11a.13: the first seq of a recording read from its start, against the earlier recordings' first seqs
     if (!(frame.key == m_readKey))
     {
@@ -439,7 +447,7 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
                 r.badAtE = true;
                 r.bad = BadReason::STALE_EPOCH_PREFIX;
             }
-            m_tainted[m_current] = true;
+            taint(m_current, frame.key);
             if (!r.walking)
             {
                 r.walking = true;
@@ -655,7 +663,7 @@ RefusalAction BridgeDomain::onRefused(const archive::RefusedFrame &frame) noexce
                 r.badAtE = true;
                 r.bad = badFor(frame.reason);
             }
-            m_tainted[m_current] = true;
+            taint(m_current, frame.key);
             if (frame.laterRecordings)
             {
                 if (!r.walking)
@@ -1343,17 +1351,30 @@ bool BridgeDomain::walkVerdict(std::size_t source, Verdict &v) noexcept
     return true;
 }
 
+void BridgeDomain::taint(std::size_t source, const archive::RecordingKey &key) noexcept
+{
+    m_tainted[source] = true;
+    m_taintRecording[source] = std::max(m_taintRecording[source], key.recordingId);
+}
+
 bool BridgeDomain::taintVerify(std::size_t source) noexcept
 {
     // S10' 5.1 (R1 consequence): a re-scan walk went past a bad or stale recording of this source, so reads that are not
-    // linear (a memo resume, or the walk read itself) may sit beyond it. Before a HOLED / BEHIND / FOREIGN verdict on such
-    // a read is believed, ONE linear memo-free read from the chain start verifies it, once per (source, e): the bad
-    // recording then decides the admin class BAD as for any linear read (C9: never the genesis-only class by a detour)
-    if (m_halt.active || source >= m_settings.sourceCount || !m_tainted[source])
+    // linear (a memo resume, or the walk read itself once streaming) may sit beyond it. Before a HOLED / BEHIND / FOREIGN
+    // verdict on such a read is believed, ONE linear memo-free read from the chain start verifies it, once per (source, e):
+    // the bad recording then decides the admin class BAD as for any linear read (C9: never the genesis-only class by a
+    // detour). Also while halted (review F1): a GAP re-scan reads only the current source memo-free and rotates to the
+    // others by memo resume; only the halted re-scan's memo-free read is exempt, as it IS the walk (its verdict at e is
+    // walkVerdict's: BAD when a walked recording was bad, R0 / R1). The reset path is noteAccepted (C4).
+    if (disabled(Rule::TAINT_VERIFY_OFF) || source >= m_settings.sourceCount || !m_tainted[source])
     {
         return false;
     }
-    const bool linear = m_readMemoFree && !m_relist[source].walking;
+    if (m_halt.active && disabled(Rule::TAINT_HALTED_EXEMPT))
+    {
+        return false; // RED shape: the pre-review exemption of every read while a halt is active
+    }
+    const bool linear = m_readMemoFree && (m_halt.active || !m_relist[source].walking);
     if (linear || m_taintVerifiedAt[source] == e())
     {
         return false;
@@ -1384,7 +1405,10 @@ bool BridgeDomain::stepBackDue(std::size_t source, const archive::RecordingKey *
     }
     const Relist &r = m_relist[source];
     // R2 (F-2 trigger): the successor delivered e..f (f = last), f + 1 is missing on it (a hole, or its end), and the
-    // HOLED verdict at e recorded seen <= f + 1: an earlier recording of the chain holds a seq in (e, f + 1]
+    // HOLED verdict at e recorded seen <= f + 1: an earlier recording of the chain holds a seq in (e, f + 1]. HOLED only
+    // (contract R2): a SOURCE_SCHEMA walk records no seen, so a FILL successor holding only a valid e re-halts
+    // SOURCE_SCHEMA at e + 1 (the linear truth is BAD); the runbook's fix for SOURCE_SCHEMA is a RESTART-shaped re-journal
+    // (review F1-SCHEMA-FILL-NOSTEPBACK, carried as documentation)
     if (!r.deliveredE || r.steppedBack || 0 == r.seen || r.seen > e() || e() > r.walkedMax || e() <= r.e)
     {
         return false;
@@ -1906,7 +1930,27 @@ void BridgeDomain::haltedReport(std::int64_t cursor, std::int64_t epoch, std::in
     {
         leaveHalt(true); // 9.4: the core decided (another lane, an operator fill or skip)
         beginNormalSync(cursor, epoch);
+        return;
     }
+    relatchIfCleared(cursor);
+}
+
+void BridgeDomain::relatchIfCleared(std::int64_t cursor) noexcept
+{
+    // S10' 4R.1 rule 2 (review N2-1): "a premature 76 {GAP, 0} is self-healing". The 76 removes this lane's record while
+    // its hole is open, and `open` reopens the gate; the halted report then shows feedHalted 0 with C' < seen - 1. The
+    // acked FeedHalt is re-offered (the same wire and correlation id, at most once per feedHaltResend), so the open hole
+    // re-latches within one halted report interval. GAP only: a non-GAP clear keeps NONGAP_AWAITING_OPEN, and the `open`
+    // after it is the operator's decision (rule 4). The core's identity-0 record or another lane's record holding the
+    // gate shows feedHalted 1: nothing is re-offered until that one clears.
+    if (disabled(Rule::GAP_RELATCH_OFF) || State::HALTED != m_state || BridgeHalt::GAP != m_halt.halt ||
+        !m_halt.sendsFeedHalt() || m_halt.fallback || !m_halt.acked || m_coreHalted || haltExitReached(cursor) ||
+        m_now < m_halt.nextOfferAt)
+    {
+        return;
+    }
+    m_halt.acked = false;
+    m_halt.needOffer = true; // tick offers it (State::HALTED, also during a re-scan)
 }
 
 void BridgeDomain::onReport(const FeedPositionReport &report, TimePoint now) noexcept
@@ -1967,6 +2011,10 @@ void BridgeDomain::onReport(const FeedPositionReport &report, TimePoint now) noe
             if (m_rescan)
             {
                 streamingReport(cursor, epoch, covers, previous);
+                if (m_rescan && m_halt.active)
+                {
+                    relatchIfCleared(cursor); // a re-scan still holds the halt (no exit, no fence)
+                }
             }
             else
             {

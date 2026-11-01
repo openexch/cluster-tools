@@ -109,3 +109,8 @@ BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|
 HaltMachineTest.rescanTakesExitAAtAQuietHead|RESCAN_EXIT_A_OFF|lane C W2b finding: a re-scan's reports never take exit (a) at a quiet head|stuck GAP halt at a quiet head
 StormGuardTest.mixedLatchReportsHigherClass|MIRROR_FIRST_HALT_REASON|4R rule 6: the mirror keeps the first halted report's class|coreMirror GAP with a SOURCE_SCHEMA slot
 BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan|SCHEMA_RESCAN_OFF|S10' lane A carry: the stale-BEHIND SOURCE_SCHEMA halt of seed 31441 is permanent without the R0 re-scan|a clean source exists but the core stopped
+# the S10' review fixes (2026-11-01): the taint rule (5.1, C9) and its reset path (C4); 4R.1 rule 2 "a premature 76 is self-healing"
+HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict|TAINT_VERIFY_OFF|the taint rule off: a FOREIGN on the walk's read past a bad recording is believed|a walked bad recording let a non-linear read latch genesis-only
+HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch|TAINT_HALTED_EXEMPT|the pre-review halt exemption: a GAP re-scan's memo resume of a tainted source is believed|a tainted source's memo resume latched genesis-only during a GAP re-scan
+HaltMachineTest.taintClearsAfterALinearVerification|TAINT_NEVER_CLEARS|no reset path: the taint survives a linear read past the bad recording|the taint survived a linear read past the bad recording
+HaltMachineTest.prematureGapClearReLatches|GAP_RELATCH_OFF|an acked GAP FeedHalt is never re-offered after a premature 76 {GAP, 0} and open|a premature 76 {GAP, 0} left the open hole unlatched

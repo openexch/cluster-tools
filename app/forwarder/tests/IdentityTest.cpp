@@ -88,10 +88,15 @@ struct Start
 
     explicit Start(const std::map<std::string, std::string> &e)
     {
-        const ConfigResult r = parseForwarderConfig([&e](const char *name) -> const char * {
-            const auto it = e.find(name);
-            return it == e.end() ? nullptr : it->second.c_str();
-        });
+        cluster_tools::app::common::DirProbe anyDir; // FWD_DRIVER_DIR is only named here, never created
+        anyDir.isDirectory = [](const std::string &) { return true; };
+        anyDir.isWritable = [](const std::string &) { return true; };
+        const ConfigResult r = parseForwarderConfig(
+            [&e](const char *name) -> const char * {
+                const auto it = e.find(name);
+                return it == e.end() ? nullptr : it->second.c_str();
+            },
+            anyDir);
         REQUIRE(r.ok());
         config = r.config;
         meT.correlation = 50'000;

@@ -166,6 +166,7 @@ public:
             if (++m_consecutiveUnanswered >= m_settings.maxUnansweredSessions)
             {
                 m_state = RegistrationState::REJECTED;
+                m_rejectedByAck = false; // inferred: m_lastReason is an older ack's and says nothing about this one
                 m_detail = "RegisterSession unanswered in " + std::to_string(m_consecutiveUnanswered) +
                     " consecutive sessions the cluster closed: treated as REJECTED (a refused session's AdminAck "
                     "is dropped with its egress queue); configuration error, exit";
@@ -249,6 +250,8 @@ public:
             {
                 m_counters.acksRejected++;
                 m_state = RegistrationState::REJECTED;
+                m_rejectedByAck = true;
+                m_consecutiveUnanswered = 0; // answered: an owner's retry starts the unanswered count afresh
                 m_detail = "RegisterSession REJECTED by the core (reason " + std::to_string(m_lastReason) +
                     "): class/credential/resumable mismatch is a configuration error";
             }
@@ -276,10 +279,11 @@ public:
 
     // RC2 S10' (additive; the bridge's DUPLICATE_IDENTITY retry): an owner that judged a REJECTED ack transient starts a
     // new round (new correlation id) in the same session; the next doWork() sends it. Only a REJECTED that came as an
-    // AdminAck is retried (an inferred refusal stays terminal); the counters keep counting.
+    // AdminAck is retried (an inferred refusal stays terminal, also after an earlier ack-REJECTED: S10' F2); the counters
+    // keep counting.
     bool retryAfterRejection()
     {
-        if (RegistrationState::REJECTED != m_state || 0 == m_counters.acksRejected)
+        if (RegistrationState::REJECTED != m_state || !m_rejectedByAck)
         {
             return false;
         }
@@ -290,6 +294,9 @@ public:
     }
     // the reason of the last AdminAck for this registrar's RegisterSession (the core's AdminAck reason byte)
     std::uint8_t lastReason() const { return m_lastReason; }
+    // S10' F2: the current REJECTED came as an AdminAck (lastReason() is its reason); false while not REJECTED and for a
+    // REJECTED inferred from maxUnansweredSessions closes
+    bool rejectedByAck() const { return RegistrationState::REJECTED == m_state && m_rejectedByAck; }
 
     RegistrationState state() const { return m_state; }
     // Registered in the client's CURRENT, CONNECTED session and term (what readiness must
@@ -337,6 +344,7 @@ private:
     std::int64_t m_correlationId = 0;
     std::int64_t m_sentAtNs = 0;
     std::uint8_t m_lastReason = 0;
+    bool m_rejectedByAck = false;
     std::string m_detail;
     RegistrarCounters m_counters;
     bool m_settingsChecked = false;

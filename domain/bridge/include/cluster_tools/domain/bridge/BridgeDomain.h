@@ -104,6 +104,7 @@ public:
     bool successorsTried(std::size_t source) const noexcept { return m_relist.at(source).successorsTried; }
     bool steppedBack(std::size_t source) const noexcept { return m_relist.at(source).steppedBack; }
     std::int64_t relistSeen(std::size_t source) const noexcept { return m_relist.at(source).seen; }
+    bool tainted(std::size_t source) const noexcept { return m_tainted.at(source); } // the S10' 5.1 taint (C4 test)
 
 private:
     class Output final : public FrameOutput
@@ -174,6 +175,7 @@ private:
     void fence(FenceTrigger trigger, bool external) noexcept;
     void streamingReport(std::int64_t cursor, std::int64_t epoch, std::int64_t coversSeq, std::int64_t previous) noexcept;
     void haltedReport(std::int64_t cursor, std::int64_t epoch, std::int64_t previous) noexcept;
+    void relatchIfCleared(std::int64_t cursor) noexcept;
     bool haltExitReached(std::int64_t cursor) const noexcept;
     void leaveHalt(bool recovered) noexcept;
 
@@ -209,6 +211,7 @@ private:
     bool walkSkips(std::size_t source, const archive::RecordingKey &key) const noexcept;
     bool walkVerdict(std::size_t source, Verdict &v) noexcept;
     bool taintVerify(std::size_t source) noexcept;
+    void taint(std::size_t source, const archive::RecordingKey &key) noexcept;
     void stepBack(std::size_t source) noexcept;
     bool rescanReason() const noexcept;
     void resetRelist() noexcept;
@@ -276,9 +279,11 @@ private:
     bool m_ownEpochSeen = false;
     bool m_readMemoFree = true; // the read started at chain index 0 (the resume point's AttachInfo.memoFree)
     std::array<std::int64_t, archive::MAX_SOURCES> m_refusalVerifiedAt{}; // the e a memo-read refusal was verified at
-    // S10' 5.1: a re-scan walk went past a bad / stale recording of the source (taintVerify); the e it was verified at
+    // S10' 5.1: a re-scan walk went past a bad / stale recording of the source (taintVerify); the e it was verified at;
+    // the highest recording id the walk left as bad (cleared by a linear read that accepts a frame of a later recording)
     std::array<bool, archive::MAX_SOURCES> m_tainted{};
     std::array<std::int64_t, archive::MAX_SOURCES> m_taintVerifiedAt{};
+    std::array<std::int64_t, archive::MAX_SOURCES> m_taintRecording{};
     bool m_attachMemoFree = true;
     bool m_switchInFlight = false;
     std::size_t m_switchTarget = 0;
