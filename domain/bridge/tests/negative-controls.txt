@@ -81,7 +81,9 @@ BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|HOLE_VERIFY_OFF|(c): a memo-read hole believed: a false GAP|although a memo-free read delivers it
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|FENCE_OFF|(b): offers continue after a lost tail|above cursor + 1
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|STORM_GUARD_OFF|(i): an unbounded re-offer loop|the refused seq was offered
-BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|UNBOUND_COUNTS_AS_STORM|(j): the genesis race ends in a halt|behaviour 1/2 phase
+# S10' W4: (j) judges the journal at the v1/v2 halt (an R1 walk can now recover a seq-1 hole filled later), so this RED
+# meets (d) first: the genesis race parks the bridge CORE_REFUSED with a clean source
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|UNBOUND_COUNTS_AS_STORM|(j)/(d): the genesis race ends in a CORE_REFUSED park|a clean source exists but the core stopped at 0
 # the 2026-10-31 review fixes
 LaggedEgressTest.holeOnEverySourceHaltsGapUnderEgressLag|CONFIRM_REQUERY|BLOCKER-1: with an egress lag the bridge re-queries on every redelivery and never halts|CHECK( halted )
 LaggedEgressTest.gapRescanUnderALongLagIssuesABoundedNumberOfQueries|CONFIRM_REQUERY|BLOCKER-1: a GAP re-scan floods the core log with queries|CHECK( queries < 300 )
@@ -90,3 +92,19 @@ StormGuardTest.stormRotationNeverTargetsTheCurrentSource|STORM_TARGETS_CURRENT|N
 CursorTableTest.staleOldEpochPrefixOnEveryNodeNeverLatchesGenesisOnly|STALE_PREFIX_FOREIGN|NOTE-8: a stale prefix on every node latches the core genesis-only|CHECK( latch != static_cast<std::uint8_t>(HaltReason::EPOCH_MISMATCH) )
 RotationTest.refusalFromAMemoReadIsVerifiedFirst|REFUSAL_VERIFY_OFF|a refusal on a memo read is believed: a false SOURCE_SCHEMA|CHECK_FALSE( falseSchemaAtFifteen )
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|STALE_PREFIX_FOREIGN|(c): a stale prefix halts EPOCH_MISMATCH|without every source foreign
+# RC2 S10' section 5 (F-1: re-list while halted), 4.1 rule 8 (the genesis exit is counted)
+HaltMachineTest.rescanWalksTheSuccessorThatHoldsE|SUCCESSOR_WALK_OFF|R1 off: the halted re-scan never reaches the in-place successor (F-1)|still HALTED at N
+HaltMachineTest.fillOnlyESuccessorStepsBack|STEP_BACK_OFF|R2 off: e + 1 in the earlier recording is never re-read|halted again at e + 1
+HaltMachineTest.schemaHaltRescansAndAttachesValidCopies|SCHEMA_RESCAN_OFF|R0 off: HALTED(SOURCE_SCHEMA) never re-scans|halted SOURCE_SCHEMA never attaches the valid copies
+HaltMachineTest.successorAboveEKeepsTheHaltWithMinSeen|SEEN_FROM_FIRST_RECORDING_ONLY|the FeedHalt seen is the first recording's, larger than the truth|seen > truth
+HaltMachineTest.twoFillsInOneRun|MARKER_NEVER_RESET|the markers of the first fill survive the sync start: the second fill is never stepped back|second fill never walked
+HaltMachineTest.epochHaltNeverRelists|RELIST_ON_EPOCH_HALT|EPOCH_MISMATCH re-scans and re-lists|a re-list was made while EPOCH_MISMATCH
+HaltMachineTest.relistCadenceIsBounded|RELIST_EVERY_TICK|a halted bridge re-lists on every tick|listings > 22
+HaltMachineTest.genesisExitIsCounted|GENESIS_EXIT_UNCOUNTED|the dual genesis exit leaves EPOCH_MISMATCH uncounted|recovered {EPOCH_MISMATCH} 0 after the genesis report
+RotationTest.streamingHoleStillRotatesFirst|SUCCESSOR_WALK_WHILE_STREAMING|a streaming hole walks the later recordings|a successor walk while STREAMING
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|SUCCESSOR_WALK_OFF|(d): an in-place successor is never reached|no recovery although a source carries every seq
+# STEP_BACK_OFF at the property level is a non-vacuity line (stepBacks > 0) that needs >= 1000 runs; the 400-run RED is
+# HaltMachineTest.fillOnlyESuccessorStepsBack above
+BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|SCHEMA_RESCAN_OFF|(d): SOURCE_SCHEMA never re-scans|SOURCE_SCHEMA halt never recovered with valid copies present
+HaltMachineTest.rescanTakesExitAAtAQuietHead|RESCAN_EXIT_A_OFF|lane C W2b finding: a re-scan's reports never take exit (a) at a quiet head|stuck GAP halt at a quiet head
+StormGuardTest.mixedLatchReportsHigherClass|MIRROR_FIRST_HALT_REASON|4R rule 6: the mirror keeps the first halted report's class|coreMirror GAP with a SOURCE_SCHEMA slot

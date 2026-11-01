@@ -270,6 +270,8 @@ BridgeView BridgeDomain::view() const noexcept
     v.fatal = m_fatal;
     v.lastReportAt = m_lastReportAt;
     v.consumedPosition = m_consumedPosition;
+    v.syncCursor = m_syncCursor;
+    v.relistsSinceHalt = m_relistsSinceHalt;
     return v;
 }
 
@@ -334,7 +336,13 @@ void BridgeDomain::noteForward(const archive::JournalFrame &frame) noexcept
     if (m_rescan && m_halt.active && frame.peek.journalSeq >= m_halt.e)
     {
         // 9.4 (b): the re-scan delivered e; the core applies the exactly-next entry while latched and reach-clears
-        // its GAP latch; the halt is over (the gate stays SUSPENDED until ADMIN OPEN)
+        // its latch (S10' 4R: a GAP reach-clear with no other holder reopens the gate; SOURCE_SCHEMA keeps it)
+        Relist &r = m_relist[frame.sourceIndex];
+        if (r.walking && r.e == m_halt.e)
+        {
+            r.deliveredE = true; // S10' 5.1 R1: e came from a recording after the holed one (the R2 precondition)
+            BridgeMetrics::add(m_metrics.haltSuccessorAttaches);
+        }
         leaveHalt(true);
         m_state = State::STREAMING;
     }
@@ -375,6 +383,20 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
     const archive::Peek &p = frame.peek;
     const std::int64_t seq = p.journalSeq;
 
+    // S10' 5.1 R1: the walk skips the rest of a recording that lacks e or is bad before e: its frames are consumed, never
+    // forwarded, never decided on (the next recording of the listing is read from its start)
+    if (walkSkips(frame.sourceIndex, frame.key))
+    {
+        if (seq > m_last)
+        {
+            Relist &r = m_relist[frame.sourceIndex];
+            r.walkedMax = std::max(r.walkedMax, seq);
+        }
+        m_consumedPosition = frame.endPosition;
+        m_acceptedSinceAttach = true;
+        return SinkAction::CONSUME; // no memo proof from a recording the walk left (5.2 item 3)
+    }
+
     // row 1: a foreign epoch makes the source unusable for this sync, even where it would be a skip (D-S9b-1)
     if (0 != m_syncEpoch && p.meEpoch != m_syncEpoch && !disabled(Rule::EPOCH_CHECK_OFF))
     {
@@ -387,7 +409,48 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
             enterHalting(BridgeHalt::EPOCH_MISMATCH, seq, p.meEpoch); // RED shape: the first foreign record halts
             return SinkAction::ABORT;
         }
+        if (taintVerify(m_current))
+        {
+            return SinkAction::ABORT; // S10' 5.1: a foreign frame on a tainted source's non-linear read is verified first
+        }
         Verdict v;
+        if (walkVerdict(frame.sourceIndex, v))
+        {
+            // S10' 5.1 R1: a foreign recording ends a re-scan walk; the verdict at e is the walk's (HOLED with the min
+            // seen, or BAD when a walked recording refused e), never the genesis-only class (C9)
+            setVerdict(m_current, v);
+            rotate();
+            return SinkAction::ABORT;
+        }
+        if (!m_ownEpochSeen && !disabled(Rule::STALE_PREFIX_FOREIGN) &&
+            relistEligible(frame.readWasMemoFree, frame.laterRecordings) && frame.laterRecordings)
+        {
+            // S10' 5.1 R1: a stale older-epoch prefix is a recording bad before e: the re-scan walks past it into the later
+            // recordings of the listing (an end without e decides BAD, the admin class)
+            Relist &r = m_relist[m_current];
+            if (r.e != e() && !disabled(Rule::MARKER_NEVER_RESET))
+            {
+                r = Relist{};
+                r.e = e();
+                r.holedKey = frame.key;
+            }
+            if (!r.badAtE)
+            {
+                r.badAtE = true;
+                r.bad = BadReason::STALE_EPOCH_PREFIX;
+            }
+            m_tainted[m_current] = true;
+            if (!r.walking)
+            {
+                r.walking = true;
+                BridgeMetrics::add(m_metrics.haltRelists[m_current]);
+                ++m_relistsSinceHalt;
+            }
+            r.skipKey = frame.key;
+            m_consumedPosition = frame.endPosition;
+            m_acceptedSinceAttach = true;
+            return SinkAction::CONSUME;
+        }
         if (!m_ownEpochSeen && !disabled(Rule::STALE_PREFIX_FOREIGN))
         {
             // review NOTE-8 (amended 2026-10-31): a foreign frame before any frame of the bound epoch on this read is
@@ -493,6 +556,15 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
     {
         return SinkAction::ABORT;
     }
+    if (!m_halt.active && stepBackDue(frame.sourceIndex, &frame.key))
+    {
+        stepBack(frame.sourceIndex); // S10' 5.1 R2: an earlier recording of this chain holds e
+        return SinkAction::ABORT;
+    }
+    if (taintVerify(frame.sourceIndex))
+    {
+        return SinkAction::ABORT; // S10' 5.1: a hole on a tainted source's non-linear read is verified first
+    }
     const bool memoFree = disabled(Rule::HOLE_VERIFY_OFF) ? true : frame.readWasMemoFree;
     if (HoleDecision::VERIFY_FROM_CHAIN_START == m_memo.onHole(frame.sourceIndex, e(), memoFree))
     {
@@ -503,6 +575,37 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
     Verdict v;
     v.kind = VerdictKind::HOLED;
     v.seq = seq;
+    if (relistEligible(frame.readWasMemoFree, frame.laterRecordings))
+    {
+        // S10' 5.1 R1: a halted re-scan's memo-free read walks past the hole into the later recordings of the listed
+        // chain (an in-place successor: FILL, RESTART); the verdict at e is derived only after the last one
+        Relist &r = m_relist[frame.sourceIndex];
+        if (r.e != e() && !disabled(Rule::MARKER_NEVER_RESET))
+        {
+            r = Relist{};
+            r.e = e();
+            r.holedKey = frame.key;
+        }
+        if (0 == r.seen || (seq < r.seen && !disabled(Rule::SEEN_FROM_FIRST_RECORDING_ONLY)))
+        {
+            r.seen = seq; // 5.2 item 4: the FeedHalt's seen is the min over the recordings walked
+        }
+        if (frame.laterRecordings)
+        {
+            if (!r.walking)
+            {
+                r.walking = true;
+                BridgeMetrics::add(m_metrics.haltRelists[frame.sourceIndex]);
+                ++m_relistsSinceHalt;
+            }
+            r.skipKey = frame.key; // the rest of this recording is consumed (walkSkips)
+            r.walkedMax = std::max(r.walkedMax, seq); // what the earlier recordings hold past the hole (R2)
+            m_consumedPosition = frame.endPosition;
+            m_acceptedSinceAttach = true;
+            return SinkAction::CONSUME; // consumed, never forwarded (G1), never a memo proof (5.2 item 3)
+        }
+        (void)walkVerdict(frame.sourceIndex, v); // the last recording of the listing was walked
+    }
     setVerdict(m_current, v);
     rotate();
     return SinkAction::ABORT;
@@ -519,6 +622,11 @@ RefusalAction BridgeDomain::onRefused(const archive::RefusedFrame &frame) noexce
         return RefusalAction::SKIP_AND_CONTINUE; // RED shape: skipped like the Java T5
     }
     (void)handleStep(flushStaging()); // retried in tick if back-pressured; the switch waits for it
+    if (frame.sourceIndex == m_current && !m_switchInFlight && walkSkips(frame.sourceIndex, frame.key))
+    {
+        m_consumedPosition = frame.endPosition; // S10' 5.1 R1: the rest of a recording the walk left
+        return RefusalAction::SKIP_AND_CONTINUE;
+    }
     if (frame.sourceIndex == m_current && !m_switchInFlight)
     {
         // a refused frame on a read that resumed from the memo is verified like a hole (8.6): a memo-free read may
@@ -530,6 +638,37 @@ RefusalAction BridgeDomain::onRefused(const archive::RefusedFrame &frame) noexce
             BridgeMetrics::add(m_metrics.refusalVerifications);
             requestReattach();
             return RefusalAction::CLOSE_REPLAY;
+        }
+        if (relistEligible(m_readMemoFree, frame.laterRecordings))
+        {
+            // S10' 5.1 R0 / R1: a halted re-scan walks past the bad copy into the later recordings (valid copies of e
+            // in a successor); BAD is derived only after the last recording
+            Relist &r = m_relist[m_current];
+            if (r.e != e() && !disabled(Rule::MARKER_NEVER_RESET))
+            {
+                r = Relist{};
+                r.e = e();
+                r.holedKey = frame.key;
+            }
+            if (!r.badAtE)
+            {
+                r.badAtE = true;
+                r.bad = badFor(frame.reason);
+            }
+            m_tainted[m_current] = true;
+            if (frame.laterRecordings)
+            {
+                if (!r.walking)
+                {
+                    r.walking = true;
+                    BridgeMetrics::add(m_metrics.haltRelists[m_current]);
+                    ++m_relistsSinceHalt;
+                }
+                r.skipKey = frame.key; // a recording bad before (or at) e delivers nothing: the rest is consumed
+                m_consumedPosition = frame.endPosition;
+                return RefusalAction::SKIP_AND_CONTINUE;
+            }
+            r.successorsTried = true;
         }
         Verdict v;
         v.kind = VerdictKind::BAD;
@@ -611,6 +750,11 @@ void BridgeDomain::onAttached(const archive::AttachInfo &info) noexcept
     m_exhausted = false;
     if (m_resumePending)
     {
+        if (info.source < m_settings.sourceCount)
+        {
+            m_relist[info.source].walking = false; // S10' 5.1: a walk lives on the read it began on
+            m_relist[info.source].skipKey = {};
+        }
         m_acceptedSinceAttach = false; // a read from a resume point; a successor attach keeps the flag
         m_resumePending = false;
         m_ownEpochSeen = info.fromProof || !info.memoFree; // a memo resume (proof meEpoch == E) implies own-epoch frames
@@ -960,6 +1104,15 @@ void BridgeDomain::behindDwell() noexcept
     if (m_now - m_dwellStart >= m_settings.behindDwell)
     {
         m_dwellRunning = false;
+        if (!m_halt.active && stepBackDue(m_current, nullptr))
+        {
+            stepBack(m_current); // S10' 5.1 R2: the successor ended at f, an earlier recording holds f + 1
+            return;
+        }
+        if (taintVerify(m_current))
+        {
+            return; // S10' 5.1: BEHIND on a tainted source's non-linear read is verified first
+        }
         Verdict v;
         v.kind = VerdictKind::BEHIND;
         setVerdict(m_current, v);
@@ -1022,6 +1175,8 @@ void BridgeDomain::enterHalting(BridgeHalt halt, std::int64_t seen, std::int64_t
     h.correlationId = nextCorrelation();
     h.needOffer = true;
     m_halt = h;
+    m_relistsSinceHalt = 0;
+    m_haltingSince = m_now;
     m_state = State::HALTING;
     publish();
     driveHalting();
@@ -1039,6 +1194,10 @@ void BridgeDomain::driveHalting() noexcept
         {
             return;
         }
+    }
+    if (disabled(Rule::FEEDHALT_PROMPT) && m_now - m_haltingSince < std::chrono::milliseconds(5'000))
+    {
+        return; // ct_bridge_tc_slowhalt (S10' 3.3, a timing device): the FeedHalt 5 s after the confirming report
     }
     offerFeedHalt();
     if (m_halt.offeredOnce)
@@ -1121,6 +1280,136 @@ void BridgeDomain::leaveHalt(bool recovered) noexcept
     m_halt = HaltRecord{};
     m_rescan = false;
     m_rescanPending = false;
+}
+
+// ------------------------------------------------------------------ S10' section 5: re-list while halted
+
+bool BridgeDomain::rescanReason() const noexcept
+{
+    switch (m_halt.halt)
+    {
+        case BridgeHalt::GAP: return true;
+        case BridgeHalt::SOURCE_SCHEMA: return !disabled(Rule::SCHEMA_RESCAN_OFF); // R0
+        case BridgeHalt::EPOCH_MISMATCH: return disabled(Rule::RELIST_ON_EPOCH_HALT); // never (RED shape: re-scans)
+        case BridgeHalt::CORE_REFUSED: // the storm retry has its own cadence (9.6)
+        case BridgeHalt::NONE: return false;
+    }
+    return false;
+}
+
+bool BridgeDomain::relistEligible(bool memoFree, bool laterRecordings) const noexcept
+{
+    (void)laterRecordings;
+    if (disabled(Rule::SUCCESSOR_WALK_OFF) || !memoFree)
+    {
+        return false; // a memo read verifies first (8.6): the walk is memo-free
+    }
+    if (!m_halt.active)
+    {
+        return disabled(Rule::SUCCESSOR_WALK_WHILE_STREAMING) && State::STREAMING == m_state; // RED shape only
+    }
+    if (!m_rescan)
+    {
+        return false; // only a re-scan (or the resumption sync it is) re-lists: bounded by haltRescan (N-5)
+    }
+    return BridgeHalt::GAP == m_halt.halt || BridgeHalt::SOURCE_SCHEMA == m_halt.halt ||
+        (BridgeHalt::EPOCH_MISMATCH == m_halt.halt && disabled(Rule::RELIST_ON_EPOCH_HALT));
+}
+
+bool BridgeDomain::walkVerdict(std::size_t source, Verdict &v) noexcept
+{
+    if (!m_halt.active || !m_rescan || source >= m_settings.sourceCount)
+    {
+        return false;
+    }
+    Relist &r = m_relist[source];
+    if (!r.walking || r.e != e())
+    {
+        return false;
+    }
+    r.successorsTried = true;
+    if (r.badAtE)
+    {
+        // a walked recording refused its copy of e or a seq before it (R0): BAD (SOURCE_SCHEMA), never a GAP: "every
+        // recording lacks e or is bad before e" (5.1 R1)
+        v = Verdict{};
+        v.kind = VerdictKind::BAD;
+        v.bad = r.bad;
+        return true;
+    }
+    v = Verdict{};
+    v.kind = VerdictKind::HOLED;
+    v.seq = r.seen; // 5.2 item 4: the min over the recordings walked
+    return true;
+}
+
+bool BridgeDomain::taintVerify(std::size_t source) noexcept
+{
+    // S10' 5.1 (R1 consequence): a re-scan walk went past a bad or stale recording of this source, so reads that are not
+    // linear (a memo resume, or the walk read itself) may sit beyond it. Before a HOLED / BEHIND / FOREIGN verdict on such
+    // a read is believed, ONE linear memo-free read from the chain start verifies it, once per (source, e): the bad
+    // recording then decides the admin class BAD as for any linear read (C9: never the genesis-only class by a detour)
+    if (m_halt.active || source >= m_settings.sourceCount || !m_tainted[source])
+    {
+        return false;
+    }
+    const bool linear = m_readMemoFree && !m_relist[source].walking;
+    if (linear || m_taintVerifiedAt[source] == e())
+    {
+        return false;
+    }
+    m_taintVerifiedAt[source] = e();
+    m_memo.invalidate(source, archive::MemoReason::HOLE_VERIFY);
+    BridgeMetrics::add(m_metrics.holeVerifications);
+    clearWait();
+    requestReattach();
+    return true;
+}
+
+bool BridgeDomain::walkSkips(std::size_t source, const archive::RecordingKey &key) const noexcept
+{
+    if (!m_halt.active || !m_rescan || source >= m_settings.sourceCount)
+    {
+        return false;
+    }
+    const Relist &r = m_relist[source];
+    return r.walking && r.e == e() && key == r.skipKey;
+}
+
+bool BridgeDomain::stepBackDue(std::size_t source, const archive::RecordingKey *key) const noexcept
+{
+    if (disabled(Rule::STEP_BACK_OFF) || source >= m_settings.sourceCount)
+    {
+        return false;
+    }
+    const Relist &r = m_relist[source];
+    // R2 (F-2 trigger): the successor delivered e..f (f = last), f + 1 is missing on it (a hole, or its end), and the
+    // HOLED verdict at e recorded seen <= f + 1: an earlier recording of the chain holds a seq in (e, f + 1]
+    if (!r.deliveredE || r.steppedBack || 0 == r.seen || r.seen > e() || e() > r.walkedMax || e() <= r.e)
+    {
+        return false;
+    }
+    return nullptr == key || !(*key == r.holedKey);
+}
+
+void BridgeDomain::stepBack(std::size_t source) noexcept
+{
+    Relist &r = m_relist[source];
+    r.steppedBack = true;
+    BridgeMetrics::add(m_metrics.haltStepbacks);
+    // the 8.6 pair: invalidate the source's memo, then REATTACH: a memo-free re-read from the chain start; seq <= f
+    // SKIPs, f + 1 is FORWARDed from the earlier recording, the successor is SKIPped when it is reached again
+    m_memo.invalidate(source, archive::MemoReason::HOLE_VERIFY);
+    clearWait();
+    requestReattach();
+}
+
+void BridgeDomain::resetRelist() noexcept
+{
+    if (!disabled(Rule::MARKER_NEVER_RESET))
+    {
+        m_relist.fill(Relist{});
+    }
 }
 
 bool BridgeDomain::haltExitReached(std::int64_t cursor) const noexcept
@@ -1291,6 +1580,7 @@ void BridgeDomain::beginNormalSync(std::int64_t cursor, std::int64_t epoch) noex
         m_keysFull = false;
     }
     m_memo.beginSync();
+    resetRelist(); // S10' 5.1: successorsTried / steppedBack reset at every sync start (C4)
     m_syncCursor = cursor;
     m_last = cursor;
     m_syncEpoch = epoch;
@@ -1303,6 +1593,7 @@ void BridgeDomain::beginNormalSync(std::int64_t cursor, std::int64_t epoch) noex
     m_regressions.fill(0);
     m_strikes.fill(0);
     m_refusalVerifiedAt.fill(0);
+    m_taintVerifiedAt.fill(0);
     m_state = State::STREAMING;
     m_rescan = false;
     m_nextPeriodicAt = m_now + m_settings.reportInterval;
@@ -1321,11 +1612,35 @@ void BridgeDomain::syncStart(std::int64_t cursor, std::int64_t epoch) noexcept
     {
         // 9.4 (b): a GAP re-scan: a normal sync from C' with the halt kept (state HALTED, reading on)
         m_rescanPending = false;
+        if (haltExitReached(cursor) && epoch == m_halt.syncEpoch && !disabled(Rule::RESCAN_EXIT_A_OFF))
+        {
+            leaveHalt(true); // the re-scan's own report shows exit (a): no walk needed
+            beginNormalSync(cursor, epoch);
+            publish();
+            return;
+        }
         const HaltRecord kept = m_halt;
         beginNormalSync(cursor, epoch);
         m_halt = kept;
         m_state = State::HALTED;
         m_rescan = true;
+        if (BridgeHalt::SOURCE_SCHEMA == kept.halt)
+        {
+            // S10' 5.1 R0 / R1: the re-scan of a SOURCE_SCHEMA halt reads every source memo-free from its chain start (a
+            // memo resume could land past a bad copy below e in the very recording the walk must leave)
+            for (std::size_t i = 0; i < m_settings.sourceCount; ++i)
+            {
+                m_memo.invalidate(i, archive::MemoReason::HOLE_VERIFY);
+            }
+        }
+        if (!m_switchInFlight && SourceCommandKind::NONE == m_command.kind && !disabled(Rule::SUCCESSOR_WALK_OFF))
+        {
+            // S10' 5.1 R1: every re-scan re-lists the current source's chain (a successor recorded since the last listing
+            // is seen), even when nothing was accepted since the attach, and reads it memo-free from its start (the walk
+            // is memo-free; one listing per re-scan instead of a memo read followed by the 8.6 verification)
+            m_memo.invalidate(m_current, archive::MemoReason::HOLE_VERIFY);
+            requestReattach();
+        }
         publish();
         return;
     }
@@ -1437,7 +1752,11 @@ void BridgeDomain::syncStart(std::int64_t cursor, std::int64_t epoch) noexcept
             publish();
             return;
         }
-        leaveHalt(false); // the prefix below e is re-forwarded, the verdict at e re-derived
+        // S10' 4.1 rule 8: HALTED(EPOCH_MISMATCH) left on a report with a new epoch or a regressed cursor is the genesis
+        // exit (the dual genesis of 4.1 rule 6): counted as a recovery; any other leave re-forwards below e uncounted
+        const bool genesisExit = BridgeHalt::EPOCH_MISMATCH == m_halt.halt &&
+            (epoch != m_halt.syncEpoch || (m_haveReport && cursor < m_C)) && !disabled(Rule::GENESIS_EXIT_UNCOUNTED);
+        leaveHalt(genesisExit); // the prefix below e is re-forwarded, the verdict at e re-derived
     }
     beginNormalSync(cursor, epoch);
     if (stormDue)
@@ -1528,6 +1847,14 @@ void BridgeDomain::streamingReport(std::int64_t cursor, std::int64_t epoch, std:
             break;
     }
     acceptReport(cursor, epoch); // rule 4: last does NOT move (G1)
+    if (m_rescan && m_halt.active && haltExitReached(cursor) && !disabled(Rule::RESCAN_EXIT_A_OFF))
+    {
+        // S10' (lane C W2b finding): a re-scan whose report shows the exit reached (9.4 (a): GAP C' >= seen - 1,
+        // SOURCE_SCHEMA C' >= e) leaves the halt now, also at a quiet journal head where no record >= e is forwarded
+        leaveHalt(true);
+        beginNormalSync(cursor, epoch);
+        return;
+    }
     if (m_confirming)
     {
         const Decision d = m_confirmDecision;
@@ -1606,8 +1933,13 @@ void BridgeDomain::onReport(const FeedPositionReport &report, TimePoint now) noe
     m_query.reset();
     m_lastReportAt = now; // W2a: an accepted report (the outstanding query's correlation id, valid)
     m_degraded &= ~(bit(Degraded::REPORT_INVALID) | bit(Degraded::REPORT_TIMEOUT));
+    const bool keepFirst = disabled(Rule::MIRROR_FIRST_HALT_REASON) && m_coreHalted && 0 != m_coreHaltRaw &&
+        1 == report.feedHaltedRaw;
     m_coreHalted = 1 == report.feedHaltedRaw;
-    m_coreHaltRaw = report.haltReasonRaw;
+    if (!keepFirst)
+    {
+        m_coreHaltRaw = report.haltReasonRaw; // 4R rule 6: with a GAP record and a non-GAP slot, the higher exit class
+    }
     const std::int64_t previous = m_haveReport ? m_C : -1;
     const std::int64_t cursor = report.lastAppliedJournalSeq;
     const std::int64_t epoch = report.meEpoch;
@@ -1842,9 +2174,14 @@ void BridgeDomain::tick(TimePoint now) noexcept
         {
             offerFeedHalt(); // every 5 s until the AdminAck (a v1/v2 core never acks: bounded, visible)
         }
-        if (BridgeHalt::GAP == m_halt.halt && !m_rescan && !m_rescanPending && now >= m_nextRescanAt)
+        if (rescanReason() && !m_rescan && !m_rescanPending && now >= m_nextRescanAt)
         {
-            startRescan(); // 9.4 (b)
+            startRescan(); // 9.4 (b); S10' 5.1 R0: SOURCE_SCHEMA re-scans too
+        }
+        if (disabled(Rule::RELIST_EVERY_TICK) && !m_rescan && !m_rescanPending && SourceCommandKind::NONE == m_command.kind)
+        {
+            m_command.kind = SourceCommandKind::REATTACH; // RED shape: a re-list on every tick while halted
+            m_command.index = m_current;
         }
         if (BridgeHalt::CORE_REFUSED == m_halt.halt && !m_stormRetryPending && now >= m_nextRescanAt &&
             !disabled(Rule::STORM_TRIED_AT_SWITCH) && m_storm.active && stormRotatable() &&

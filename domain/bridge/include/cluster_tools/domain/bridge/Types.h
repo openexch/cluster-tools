@@ -201,6 +201,10 @@ struct BridgeView
     TimePoint lastReportAt{};       // the domain's time of its last accepted report (reset by onSessionDown)
     std::int64_t consumedPosition = 0; // the follower's consumed replay position as the domain last saw it
                                        // (JournalFrame.endPosition of an accepted frame, AttachInfo.from)
+    // RC2 S10' (additive): the cursor the current sync started from (a lane_ahead fence moves it: progress, 3.6) and
+    // the re-scan walks past a holed / bad recording since the halt began (5.4, /health relistsSinceHalt)
+    std::int64_t syncCursor = 0;
+    std::uint64_t relistsSinceHalt = 0;
 };
 
 // One source verdict (8.1), logged once per (source, e, kind); S9c drains them into the log.

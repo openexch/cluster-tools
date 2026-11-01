@@ -146,6 +146,8 @@ private:
                 refused.length = length;
                 refused.hasPeek = admission.hasPeek;
                 refused.peek = admission.peek;
+                refused.laterRecordings = m_policy.hasLaterRecording();
+                refused.readWasMemoFree = m_policy.readWasMemoFree();
                 if (RefusalAction::SKIP_AND_CONTINUE == sink.onRefused(refused))
                 {
                     m_policy.onRefusalSkipped(endPosition);
@@ -171,7 +173,16 @@ private:
             frame.length = length;
             frame.peek = admission.peek;
             frame.readWasMemoFree = m_policy.readWasMemoFree();
+            frame.laterRecordings = m_policy.hasLaterRecording();
             const SinkAction action = sink.onFrame(frame);
+            if (SinkAction::CONSUME == action)
+            {
+                if (!advanceEarly)
+                {
+                    m_policy.onConsumed(admission.peek, endPosition);
+                }
+                return SinkAction::CONTINUE; // the ports see CONTINUE / BREAK / ABORT only
+            }
             if (SinkAction::ABORT != action && !advanceEarly)
             {
                 m_policy.onAccepted(admission.peek, endPosition);

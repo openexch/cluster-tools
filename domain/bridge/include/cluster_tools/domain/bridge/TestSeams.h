@@ -83,6 +83,19 @@ enum class Rule : unsigned
     STORM_TARGETS_CURRENT,  // RED shape (review NOTE-1): the storm rotation may target the current source
     STALE_PREFIX_FOREIGN,   // RED shape (review NOTE-8): a foreign frame before any own-epoch frame is FOREIGN
     REFUSAL_VERIFY_OFF,     // a refusal on a memo read is believed at once (a false SOURCE_SCHEMA)
+    // RC2 S10' section 5 (F-1), 4.1 rule 8 and 3.3
+    SUCCESSOR_WALK_OFF, // S10' 5.1 R1 off: a halted re-scan decides HOLED / BAD on the holed recording (F-1)
+    STEP_BACK_OFF, // S10' 5.1 R2 off: no memo-free re-read after a FILL successor's f + 1 is missing
+    SCHEMA_RESCAN_OFF, // S10' 5.1 R0 off: HALTED(SOURCE_SCHEMA) never re-scans
+    SEEN_FROM_FIRST_RECORDING_ONLY, // RED shape: the walk keeps the first recording's seen (not the min)
+    MARKER_NEVER_RESET, // RED shape: successorsTried / steppedBack survive a sync start
+    RELIST_ON_EPOCH_HALT, // RED shape: HALTED(EPOCH_MISMATCH) re-scans and re-lists
+    RELIST_EVERY_TICK, // RED shape: a halted bridge re-lists its source on every tick
+    GENESIS_EXIT_UNCOUNTED, // S10' 4.1 rule 8 off: the genesis exit of EPOCH_MISMATCH is not counted
+    SUCCESSOR_WALK_WHILE_STREAMING, // RED shape: a streaming hole walks the later recordings instead of rotating
+    FEEDHALT_PROMPT,
+    RESCAN_EXIT_A_OFF,
+    MIRROR_FIRST_HALT_REASON, // RED shape (4R rule 6): the core halt mirror keeps the first halted report's reason // RED shape (lane C W2b finding): a re-scan's reports never take exit (a) at a quiet head // a timing seam, not a rule (tc_slowhalt, S10' 3.3): off = the FeedHalt is offered 5 s after HALTING
     // adapters/sbe BridgeCodec (13.11-13.16)
     CODEC_SWAP_TAKER_MAKER_ORDER, // RED shape: takerOrderId and makerOrderId swapped
     CODEC_ENUM_GET,         // RED shape: an E::get path (raw 2..255 throws or clamps)

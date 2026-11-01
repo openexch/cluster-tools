@@ -99,6 +99,11 @@ public:
     int stormCount() const noexcept { return m_storm.active ? m_storm.count : 0; }
     std::uint32_t stormTried() const noexcept { return m_storm.active ? m_storm.tried : 0; }
     bool confirming() const noexcept { return m_confirming; }
+    bool feedingForTest() const noexcept { return feeding(); } // a re-scan (or streaming) is reading
+    // RC2 S10' 5.1 markers (C3 / C4 tests)
+    bool successorsTried(std::size_t source) const noexcept { return m_relist.at(source).successorsTried; }
+    bool steppedBack(std::size_t source) const noexcept { return m_relist.at(source).steppedBack; }
+    std::int64_t relistSeen(std::size_t source) const noexcept { return m_relist.at(source).seen; }
 
 private:
     class Output final : public FrameOutput
@@ -119,6 +124,23 @@ private:
         int count = 0;
         std::uint32_t tried = 0;   // sources that OFFERED C' + 1 (bit per source; the 2026-10-31 9.6 amendment)
         std::uint32_t visited = 0; // sources the storm guard switched to for this cursor
+    };
+
+    // RC2 S10' 5.1: the halted re-scan's successor walk per source (R1) and the step back (R2). Per (source, e): reset at
+    // every sync start and when a walk starts for another e (C4).
+    struct Relist
+    {
+        std::int64_t e = 0;            // the e the walk is for (0: none)
+        std::int64_t seen = 0;         // the smallest seq past the hole over the walked recordings (0: a refusal only)
+        std::int64_t walkedMax = 0;    // the largest seq the walk consumed in the earlier recordings (R2: f + 1 <= it)
+        bool walking = false;          // the walk went past a holed / bad recording into a later one
+        bool successorsTried = false;  // the last recording of the listing WAS walked for e (C3)
+        bool deliveredE = false;       // the walk forwarded e from a later recording (the R2 precondition)
+        bool steppedBack = false;      // R2 done for e
+        bool badAtE = false;           // a walked recording refused its copy of e (the end verdict is BAD, R0)
+        BadReason bad = BadReason::REFUSAL_SCHEMA;
+        archive::RecordingKey holedKey{};
+        archive::RecordingKey skipKey{}; // the recording the walk left at a hole or a refusal (consumed to its end)
     };
 
     struct StepBack
@@ -180,6 +202,16 @@ private:
     bool stormRotatable() const noexcept;
     std::size_t untriedStormSource(bool allowCurrent) const noexcept;
     std::size_t ringSourceOf(std::int64_t seq) const noexcept;
+
+    // RC2 S10' section 5
+    bool relistEligible(bool memoFree, bool laterRecordings) const noexcept;
+    bool stepBackDue(std::size_t source, const archive::RecordingKey *key) const noexcept;
+    bool walkSkips(std::size_t source, const archive::RecordingKey &key) const noexcept;
+    bool walkVerdict(std::size_t source, Verdict &v) noexcept;
+    bool taintVerify(std::size_t source) noexcept;
+    void stepBack(std::size_t source) noexcept;
+    bool rescanReason() const noexcept;
+    void resetRelist() noexcept;
 
     void publish() noexcept;
     void logVerdict(std::size_t source, const Verdict &v) noexcept;
@@ -244,6 +276,9 @@ private:
     bool m_ownEpochSeen = false;
     bool m_readMemoFree = true; // the read started at chain index 0 (the resume point's AttachInfo.memoFree)
     std::array<std::int64_t, archive::MAX_SOURCES> m_refusalVerifiedAt{}; // the e a memo-read refusal was verified at
+    // S10' 5.1: a re-scan walk went past a bad / stale recording of the source (taintVerify); the e it was verified at
+    std::array<bool, archive::MAX_SOURCES> m_tainted{};
+    std::array<std::int64_t, archive::MAX_SOURCES> m_taintVerifiedAt{};
     bool m_attachMemoFree = true;
     bool m_switchInFlight = false;
     std::size_t m_switchTarget = 0;
@@ -278,6 +313,9 @@ private:
     bool m_rescan = false;   // a GAP re-scan sync is running (9.4 b)
     TimePoint m_nextRescanAt{};
     TimePoint m_nextHaltedQueryAt{};
+    std::array<Relist, archive::MAX_SOURCES> m_relist{};
+    std::uint64_t m_relistsSinceHalt = 0;
+    TimePoint m_haltingSince{}; // ct_bridge_tc_slowhalt (FEEDHALT_PROMPT off)
 
     // the verdict log
     static constexpr std::size_t VERDICT_LOG = 256;

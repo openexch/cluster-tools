@@ -25,7 +25,10 @@ enum class SinkAction : std::uint8_t
 {
     CONTINUE, // accepted, the poll goes on
     BREAK,    // accepted, the poll stops after it
-    ABORT     // not accepted, redelivered
+    ABORT,    // not accepted, redelivered
+    // RC2 S10' 5.1 R1: consumed (the read moves past it, the poll goes on) but never a memo proof: a halted bridge's
+    // re-scan walks past a hole or a bad copy without letting a later resume land behind that bad copy
+    CONSUME
 };
 
 // What the owner answers for a refused frame. The bridge closes the replay (SCHEMA_REFUSED, D-1
@@ -45,6 +48,9 @@ struct JournalFrame
     std::size_t length = 0;
     Peek peek;
     bool readWasMemoFree = true;     // this attach started at chain index 0 at its start (5.2 rule 5)
+    // RC2 S10' 5.1 R1: the listing this read walks has a recording after this frame's (a halted bridge's re-scan walks
+    // past a hole or a refusal into it instead of deciding HOLED / BAD on this recording)
+    bool laterRecordings = false;
 };
 
 struct RefusedFrame
@@ -57,6 +63,8 @@ struct RefusedFrame
     std::size_t length = 0;
     bool hasPeek = false;            // rows 1-6 passed (a HEAD refusal)
     Peek peek;
+    bool laterRecordings = false;    // as JournalFrame::laterRecordings (S10' 5.1 R0 / R1)
+    bool readWasMemoFree = true;     // as JournalFrame::readWasMemoFree
 };
 
 // The owner's frame sink. noexcept: an exception must never unwind through

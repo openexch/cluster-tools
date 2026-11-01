@@ -786,6 +786,22 @@ void FollowPolicy::onAccepted(const Peek &peek, std::int64_t endPosition)
     m_memo.onFrameRead(m_source, peek.journalSeq, m_readMemoFree);
 }
 
+void FollowPolicy::onConsumed(const Peek &peek, std::int64_t endPosition)
+{
+    m_prevSeq = peek.journalSeq;
+    m_havePrevSeq = true;
+    m_beltPending = false;
+    m_consumed = endPosition;
+    if (nullptr != m_metrics)
+    {
+        m_metrics->replayConsumedPosition.store(endPosition, std::memory_order_relaxed);
+        if (m_metrics->replayRecordingPosition.load(std::memory_order_relaxed) < endPosition)
+        {
+            m_metrics->replayRecordingPosition.store(endPosition, std::memory_order_relaxed);
+        }
+    }
+}
+
 void FollowPolicy::onRefused(Refusal reason, std::int64_t endPosition, TimePoint now)
 {
     fault(FaultKind::SCHEMA_REFUSED, now,

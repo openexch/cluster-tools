@@ -265,3 +265,28 @@ TEST_CASE("StormGuardTest.egressRegressionCopyRotatesToAValidOne")
     CHECK(BridgeMetrics::get(rig.metrics.stormRotations) == 1);
     CHECK(rig.domain->view().halt == BridgeHalt::NONE);
 }
+
+TEST_CASE("StormGuardTest.mixedLatchReportsHigherClass")
+{
+    // RC2 S10' 4R rule 6 (lane R review FIX-4): the core reports one haltReason; with this bridge's GAP record open and a
+    // SOURCE_SCHEMA slot latched by another lane it reports the higher exit class. The storm guard reads the mirror
+    // (SOURCE_SCHEMA: rotatable), while the bridge's own GAP halt still leaves by exit (a) on the cursor alone
+    Rig rig(1);
+    SimRecording &r = rig.archive(0).record();
+    appendJournal(rig.archive(0), r, 1, 10);
+    appendJournal(rig.archive(0), r, 12, 20); // a hole at 11: GAP {11, 12}
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return halted(rig); }));
+    REQUIRE(rig.domain->view().halt == BridgeHalt::GAP);
+    rig.runUntil([&] { return rig.domain->view().coreMirror == HaltReason::GAP; }, 30'000ms);
+    REQUIRE(rig.domain->view().coreMirror == HaltReason::GAP);
+    rig.core.setLatch(3, 11, 11, 0); // another lane's poison: SOURCE_SCHEMA, a higher exit class than GAP
+    rig.runFor(6'000ms, 50ms);          // the next halted report (5 s)
+    const bool mirrorsHigher = rig.domain->view().coreMirror == HaltReason::SOURCE_SCHEMA;
+    CHECK_MESSAGE(mirrorsHigher, "coreMirror GAP with a SOURCE_SCHEMA slot");
+    CHECK(rig.domain->view().halt == BridgeHalt::GAP);
+    rig.core.cursor = 11; // another lane delivered 11 = seen - 1: exit (a), whatever the reported class
+    rig.runUntil([&] { return rig.domain->view().halt == BridgeHalt::NONE; }, 30'000ms);
+    CHECK(rig.domain->view().halt == BridgeHalt::NONE);
+    CHECK(rig.metrics.recovered(BridgeHalt::GAP) == 1);
+}

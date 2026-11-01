@@ -106,7 +106,9 @@ public:
                     static_cast<std::size_t>(length < 0 ? 0 : length), header.position());
                 switch (action)
                 {
-                    case SinkAction::CONTINUE: return ::aeron::ControlledPollAction::CONTINUE;
+                    case SinkAction::CONTINUE:
+                    case SinkAction::CONSUME: // FollowerLoop maps it to CONTINUE first (S10' 5.1 R1)
+                        return ::aeron::ControlledPollAction::CONTINUE;
                     case SinkAction::BREAK: return ::aeron::ControlledPollAction::BREAK;
                     case SinkAction::ABORT: return ::aeron::ControlledPollAction::ABORT;
                 }

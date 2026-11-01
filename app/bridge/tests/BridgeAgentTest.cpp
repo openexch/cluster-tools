@@ -353,6 +353,42 @@ TEST_CASE("BridgeAgentTest.registrarRejectedExits78")
     CHECK(r.agent->counters().sessionUps == 0);
 }
 
+TEST_CASE("BridgeAgentTest.duplicateIdentityRetriesUntilTheOldSessionTimesOut")
+{
+    // RC2 S10': a restart right after a kill -9 meets the dead session of its identity, still registered at the core
+    // until the core session timeout: REJECTED DUPLICATE_IDENTITY (44) is retried, the bridge registers once it is gone
+    AppRig r(1);
+    r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
+    r.duplicateUntilNs = r.t.now + 25 * SECOND; // the dead session times out 25 s later (an election restarted its clock)
+    r.journal(0, 1, 5);
+    r.agent->start();
+    const bool registeredAfterDuplicate = r.runUntil([&] { return r.core.cursor == 5; }, 45 * SECOND);
+    CHECK(registeredAfterDuplicate); // DUPLICATE_IDENTITY_EXITS RED: exit 78 at the first REJECTED
+    CHECK_FALSE(r.agent->stopped());
+    CHECK(r.agent->counters().duplicateIdentityRetries >= 2);
+    CHECK(r.agent->registrar().counters().acksRejected >= 2);
+    CHECK(r.agent->registrar().counters().acksAccepted == 1);
+    CHECK(r.agent->counters().sessionUps == 1);
+}
+
+TEST_CASE("BridgeAgentTest.duplicateIdentityPastTheBoundExits78")
+{
+    // a genuine duplicate BRIDGE_INSTANCE_ID: the identity stays held; after the 60 s bound (2 x the 10 s core session
+    // timeout plus a slow election) exit 78
+    AppRig r(1);
+    r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
+    r.duplicateUntilNs = r.t.now + 3600 * SECOND;
+    r.journal(0, 1, 5);
+    r.agent->start();
+    r.runFor(58 * SECOND);
+    CHECK_FALSE(r.agent->stopped()); // still inside the bound
+    r.runFor(5 * SECOND);
+    REQUIRE(r.agent->stopped());
+    CHECK(78 == r.agent->stopReason().exitCode);
+    CHECK(std::string(r.agent->stopReason().code) == "F8_DUPLICATE_IDENTITY");
+    CHECK(r.agent->counters().sessionUps == 0);
+}
+
 TEST_CASE("BridgeAgentTest.inferredRejectedExits75")
 {
     AppRig r(1);

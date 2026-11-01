@@ -75,6 +75,18 @@ const char *ruleName(Rule rule) noexcept
         case Rule::STORM_TARGETS_CURRENT: return "STORM_TARGETS_CURRENT";
         case Rule::STALE_PREFIX_FOREIGN: return "STALE_PREFIX_FOREIGN";
         case Rule::REFUSAL_VERIFY_OFF: return "REFUSAL_VERIFY_OFF";
+        case Rule::SUCCESSOR_WALK_OFF: return "SUCCESSOR_WALK_OFF";
+        case Rule::STEP_BACK_OFF: return "STEP_BACK_OFF";
+        case Rule::SCHEMA_RESCAN_OFF: return "SCHEMA_RESCAN_OFF";
+        case Rule::SEEN_FROM_FIRST_RECORDING_ONLY: return "SEEN_FROM_FIRST_RECORDING_ONLY";
+        case Rule::MARKER_NEVER_RESET: return "MARKER_NEVER_RESET";
+        case Rule::RELIST_ON_EPOCH_HALT: return "RELIST_ON_EPOCH_HALT";
+        case Rule::RELIST_EVERY_TICK: return "RELIST_EVERY_TICK";
+        case Rule::GENESIS_EXIT_UNCOUNTED: return "GENESIS_EXIT_UNCOUNTED";
+        case Rule::SUCCESSOR_WALK_WHILE_STREAMING: return "SUCCESSOR_WALK_WHILE_STREAMING";
+        case Rule::FEEDHALT_PROMPT: return "FEEDHALT_PROMPT";
+        case Rule::RESCAN_EXIT_A_OFF: return "RESCAN_EXIT_A_OFF";
+        case Rule::MIRROR_FIRST_HALT_REASON: return "MIRROR_FIRST_HALT_REASON";
         case Rule::CODEC_SWAP_TAKER_MAKER_ORDER: return "CODEC_SWAP_TAKER_MAKER_ORDER";
         case Rule::CODEC_ENUM_GET: return "CODEC_ENUM_GET";
         case Rule::CODEC_HEAD_NOT_PERMUTED: return "CODEC_HEAD_NOT_PERMUTED";

@@ -205,6 +205,7 @@ struct AppCounters
     std::uint64_t ackMapSkips = 0;                            // bridge_ack_map_skips_total
     std::uint64_t ackUnknown = 0;                             // an ack for a trade not in flight here
     std::uint64_t registrationLost = 0;                       // 6.2 OrderReject UNREGISTERED_SESSION handled
+    std::uint64_t duplicateIdentityRetries = 0;               // S10': RegisterSession re-sent after REJECTED DUPLICATE_IDENTITY
     std::uint64_t sessionUps = 0;                             // onSessionUp calls (= C3 entries)
     std::uint64_t sessionDowns = 0;                           // onSessionDown calls
     std::uint64_t verdictEvents = 0;                          // verdict events drained into the log
@@ -247,6 +248,7 @@ struct BridgeSnapshot
     bool stopping = false;
     std::uint32_t notReady = 0;  // bits 0..13 (bit 14 is main's, added by the route)
     domain::bridge::BridgeView view;
+    std::uint64_t laneAheadFences = 0; // RC2 S10' 13: /health detail (bridge_fences_total{trigger="lane_ahead"})
     std::int64_t reportAgeMs = -1;          // from view.lastReportAt (-1: none this session)
     std::int64_t consumedPositionAgeMs = -1; // since view.consumedPosition last changed
     std::int64_t lastForwardAgeMs = -1;

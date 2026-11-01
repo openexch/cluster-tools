@@ -441,3 +441,24 @@ TEST_CASE("RotationTest.refusalFromAMemoReadIsVerifiedFirst")
     CHECK(rig.core.cursor == 30);
     CHECK(BridgeMetrics::get(rig.metrics.refusalVerifications) >= 1);
 }
+
+TEST_CASE("RotationTest.streamingHoleStillRotatesFirst")
+{
+    // RC2 S10' 5.1: while STREAMING nothing changes: a hole on source 0 rotates to source 1 (which has e) at once; no
+    // successor walk although source 0 has a later recording
+    Rig rig(2);
+    SimRecording &a0 = rig.archive(0).record();
+    appendJournal(rig.archive(0), a0, 1, 10);
+    appendJournal(rig.archive(0), a0, 12, 20);
+    rig.archive(0).stop(a0);
+    SimRecording &a1 = rig.archive(0).record();
+    appendJournal(rig.archive(0), a1, 15, 20); // a later recording that lacks 11 too
+    SimRecording &b = rig.archive(1).record();
+    appendJournal(rig.archive(1), b, 1, 20);
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return rig.core.cursor == 20; }, 120'000ms));
+    CHECK(BridgeMetrics::get(rig.metrics.sourceFailovers) >= 1);
+    CHECK(rig.domain->view().halt == BridgeHalt::NONE);
+    const std::uint64_t relists = rig.metrics.relists(0) + rig.metrics.relists(1);
+    CHECK_MESSAGE(relists == 0, "a successor walk while STREAMING");
+}

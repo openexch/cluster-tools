@@ -128,12 +128,16 @@ public:
     // sink answered CONTINUE or BREAK, so an aborted and redelivered frame is never a regression.
     FrameCheck checkFrame(const Peek &peek, TimePoint now);
     void onAccepted(const Peek &peek, std::int64_t endPosition);
+    // RC2 S10' 5.1 R1: SinkAction::CONSUME: the read position moves, no proof is recorded (and no hole marker read)
+    void onConsumed(const Peek &peek, std::int64_t endPosition);
     void onRefused(Refusal reason, std::int64_t endPosition, TimePoint now);
     void onRefusalSkipped(std::int64_t endPosition);
 
     // State the adapter and the owner read.
     const Recording *currentRecording() const noexcept;
     std::size_t chainIndex() const noexcept { return m_index; }
+    // RC2 S10' 5.1 R1: the listing walked holds a recording after the current one (recordingId order)
+    bool hasLaterRecording() const noexcept { return m_index + 1 < m_chain.size(); }
     std::int64_t consumed() const noexcept { return m_consumed; }
     bool readWasMemoFree() const noexcept { return m_readMemoFree; }
     bool hasContinuation() const noexcept { return m_continueAfter.has_value(); }

@@ -167,16 +167,18 @@ std::string renderHealthJson(const BridgeSnapshot &s, const HttpExtras &x)
 {
     const bool halted = healthHalted(s);
     const char *status = x.stalled ? "STALLED" : (halted ? "HALTED" : "UP");
-    char body[768];
+    char body[896];
     std::snprintf(body, sizeof(body),
         "{\"halted\":%s,\"aeConnected\":%s,\"haltReason\":\"%s\",\"meEpoch\":%" PRId64 ",\"cursor\":%" PRId64
         ",\"status\":\"%s\",\"state\":\"%s\",\"coreHaltReason\":\"%s\",\"expected\":%" PRId64 ",\"last\":%" PRId64
         ",\"attachedSource\":%zu,\"degraded\":%u,\"registered\":%s,\"reportThisTerm\":%s,\"identity\":%" PRId64
-        ",\"ready\":%s}",
+        ",\"ready\":%s,\"relistsSinceHalt\":%llu,\"laneAheadFences\":%llu}",
         halted ? "true" : "false", s.aeConnected ? "true" : "false", db::bridgeHaltName(s.view.halt), s.view.syncEpoch,
         s.view.cursor, status, db::stateName(s.view.state), db::haltReasonName(s.view.coreMirror), s.view.expected,
         s.view.last, s.view.attached, s.view.degraded, s.registered ? "true" : "false",
-        s.view.reportThisTerm ? "true" : "false", s.identity, 0 == readyBits(s, x) ? "true" : "false");
+        s.view.reportThisTerm ? "true" : "false", s.identity, 0 == readyBits(s, x) ? "true" : "false",
+        static_cast<unsigned long long>(s.view.relistsSinceHalt),
+        static_cast<unsigned long long>(s.laneAheadFences));
     return body;
 }
 
@@ -392,6 +394,9 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
             return t;
         }());
     p.counter("bridge_registration_lost_total", "OrderReject UNREGISTERED_SESSION naming a bridge template (6.2)", s.app.registrationLost);
+    p.counter("bridge_registration_duplicate_identity_retries_total",
+        "RegisterSession re-sent after a REJECTED DUPLICATE_IDENTITY (the old session of this identity not yet timed out)",
+        s.app.duplicateIdentityRetries);
     p.counter("bridge_aeron_errors_total", "Errors the Aeron client reported (fatal ones end the process)", s.aeronErrors);
     p.counter("bridge_log_dropped_total", "Log records dropped at the full ring", s.logDropped);
     p.counter("bridge_verdict_log_dropped_total", "Verdict events not drained in time", BridgeMetrics::get(m.verdictLogDropped));
@@ -418,6 +423,12 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
     {
         p.labelled("bridge_source_verdicts", label("source", std::to_string(i)), BridgeMetrics::value(m.sourceVerdicts[i]));
     }
+    // RC2 S10' 5.4: the halted re-scan's walks past a holed / bad recording, per source
+    p.family("bridge_halt_relists_total", "counter", "Re-scan walks past a holed or bad recording into later ones (5.1 R1)");
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        p.labelled("bridge_halt_relists_total", label("source", std::to_string(i)), BridgeMetrics::get(m.haltRelists[i]));
+    }
     counters(p, "bridge_forwarded_total", "Frames forwarded by kind", "kind", m.forwarded,
         [](std::size_t i) { return std::string(db::frameKindLabel(static_cast<db::FrameKind>(i))); });
     counters(p, "bridge_forwarded_records_total", "Records forwarded by frame kind", "kind", m.forwardedRecords,
@@ -437,6 +448,10 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
     counters(p, "bridge_halt_recovered_total", "Halts left by recovery, by halt", "reason", m.haltRecovered,
         [](std::size_t i) { return std::string(db::bridgeHaltName(static_cast<db::BridgeHalt>(i))); }, 1);
     p.counter("bridge_source_failovers_total", "Failovers to another source", BridgeMetrics::get(m.sourceFailovers));
+    p.counter("bridge_halt_successor_attaches_total", "A halted re-scan forwarded e from a later recording (5.1 R1)",
+        BridgeMetrics::get(m.haltSuccessorAttaches));
+    p.counter("bridge_halt_stepbacks_total", "Memo-free re-reads after a FILL successor (5.1 R2)",
+        BridgeMetrics::get(m.haltStepbacks));
     p.counter("bridge_staged_dropped_total", "Staged trades dropped by a fence", BridgeMetrics::get(m.stagedDropped));
     p.counter("bridge_hole_verifications_total", "Holes re-read memo-free", BridgeMetrics::get(m.holeVerifications));
     p.counter("bridge_refusal_verifications_total", "Memo-read refusals re-read memo-free", BridgeMetrics::get(m.refusalVerifications));

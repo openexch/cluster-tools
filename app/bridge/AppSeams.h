@@ -40,6 +40,7 @@ enum class Rule : unsigned
     READY_COUNTS_FORWARDS_ONLY, // backlog progress = forwards only (a skip walk reads not ready)
     TAP_SWALLOWS,               // the observer tap counts a fault but does not forward it
     RESEND_NEW_CORRELATION,     // the app re-registers (new correlation id) when an ack is late
+    DUPLICATE_IDENTITY_EXITS,   // RC2 S10': a REJECTED DUPLICATE_IDENTITY (44) exits 78 at once (no bounded retry)
     // main (W4)
     WATCHDOG_OFF,               // the duty watchdog never fires
     INVOKER_NO_BEAT,            // the archive invoker does not store the heartbeat

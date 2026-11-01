@@ -50,6 +50,8 @@ inline constexpr int EXIT_OK = 0;
 inline constexpr int EXIT_SOFTWARE = 70;
 inline constexpr int EXIT_TEMPFAIL = 75;
 inline constexpr int EXIT_CONFIG = 78;
+// the core's AdminAck reason for a second live registered BRIDGE session holding an identity (RC2 S10' 4R.1 rule 2)
+inline constexpr std::uint8_t REJECT_DUPLICATE_IDENTITY = 44;
 
 
 struct StopReason
@@ -100,6 +102,13 @@ struct AgentSettings
     std::int64_t reconnectBackoffInitialNs = 1'000'000'000LL;
     std::int64_t reconnectBackoffMaxNs = 30'000'000'000LL;
     std::int64_t registrarResendNs = 5'000'000'000LL;
+    // RC2 S10' (coordinator decisions 2026-11-01): a REJECTED DUPLICATE_IDENTITY (the old session of this identity is still
+    // registered at the core until its session timeout, e.g. after a kill -9; the core's 10 s clock restarts after an
+    // election) is retried with a bounded backoff for 60 s (2 x the 10 s timeout plus a slow election), then exits 78 as
+    // a genuine duplicate BRIDGE_INSTANCE_ID
+    std::int64_t duplicateIdentityBudgetNs = 60'000'000'000LL;
+    std::int64_t duplicateIdentityRetryInitialNs = 500'000'000LL;
+    std::int64_t duplicateIdentityRetryMaxNs = 4'000'000'000LL;
     // Tests only: the domain's timers (S9b 4: not operator knobs) and its correlation base.
     std::function<void(domain::bridge::BridgeSettings &)> tweakDomain;
     // The epoch-ms clock of O3 (default: the system clock) and the 1 ms park of the invoker (default: sleep 1 ms).
@@ -353,6 +362,7 @@ public:
         s.lastForwardAgeMs = TimePoint{} == s.view.lastForwardAt ? -1 : ageMs(s.view.lastForwardAt);
         s.stormCount = m_domain.stormCount();
         s.confirming = m_domain.confirming();
+        s.laneAheadFences = m_metrics.fenceCount(domain::bridge::FenceTrigger::LANE_AHEAD);
         s.syncs = m_domain.syncs();
         const client::ClientCounters &cc = m_client.counters();
         s.client.sessionsOpened = cc.sessionsOpened;
@@ -926,12 +936,61 @@ private:
         }
         if (m_registrar.counters().acksRejected > 0)
         {
+            if (REJECT_DUPLICATE_IDENTITY == m_registrar.lastReason() &&
+                !app_seams::disabled(app_seams::Rule::DUPLICATE_IDENTITY_EXITS))
+            {
+                duplicateIdentity();
+                return;
+            }
             stop(EXIT_CONFIG, "F8_REJECTED", "%s", m_registrar.detail().c_str());
         }
         else
         {
             stop(EXIT_TEMPFAIL, "F8B_INFERRED", "%s (closes while pending %llu)", m_registrar.detail().c_str(),
                 static_cast<unsigned long long>(m_registrar.counters().closesWhilePending));
+        }
+    }
+
+    // RC2 S10': REJECTED DUPLICATE_IDENTITY: another live registered session holds this identity. After a kill -9 the
+    // dead session stays registered at the core until its session timeout, so a prompt restart meets it: retry with a
+    // bounded backoff for 2 x the core session timeout, then exit 78 (a second process with the same BRIDGE_INSTANCE_ID)
+    void duplicateIdentity()
+    {
+        const std::int64_t budgetNs = m_settings.duplicateIdentityBudgetNs;
+        if (m_dupFirstNs < 0)
+        {
+            m_dupFirstNs = m_nowNs;
+            m_dupBackoffNs = m_settings.duplicateIdentityRetryInitialNs;
+        }
+        const std::int64_t heldNs = m_nowNs - m_dupFirstNs;
+        if (heldNs >= budgetNs)
+        {
+            stop(EXIT_CONFIG, "F8_DUPLICATE_IDENTITY",
+                "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44) for %.1f s (>= the %.0f s bound: 2 x the core "
+                "session timeout plus an election): another live process holds identity %lld (a duplicate BRIDGE_INSTANCE_ID)",
+                static_cast<double>(heldNs) / 1e9, static_cast<double>(budgetNs) / 1e9,
+                static_cast<long long>(m_settings.identity));
+            return;
+        }
+        if (m_dupNextNs < 0)
+        {
+            m_dupNextNs = m_nowNs + m_dupBackoffNs;
+            log(common::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44): identity %lld is held by "
+                "another live session (the previous process before its core session timeout?); retry %llu in %lld ms, "
+                "%.1f s of the %.1f s budget left", static_cast<long long>(m_settings.identity),
+                static_cast<unsigned long long>(m_counters.duplicateIdentityRetries + 1),
+                static_cast<long long>(m_dupBackoffNs / 1'000'000), static_cast<double>(budgetNs - heldNs) / 1e9,
+                static_cast<double>(budgetNs) / 1e9);
+            return;
+        }
+        if (m_nowNs - m_dupNextNs >= 0)
+        {
+            m_dupNextNs = -1;
+            m_dupBackoffNs = std::min(2 * m_dupBackoffNs, m_settings.duplicateIdentityRetryMaxNs);
+            if (m_registrar.retryAfterRejection())
+            {
+                m_counters.duplicateIdentityRetries++;
+            }
         }
     }
 
@@ -979,6 +1038,8 @@ private:
         m_link = CoreLink::C3_REGISTERED;
         m_c3BeforeC4 = false;
         m_backoff.reset();
+        m_dupFirstNs = -1; // a registration ends a DUPLICATE_IDENTITY episode
+        m_dupNextNs = -1;
     }
 
     void linkStep()
@@ -1107,6 +1168,33 @@ private:
                 domain::bridge::BadReason::COUNT == v.bad ? "-" : domain::bridge::badReasonLabel(v.bad),
                 archive::faultName(v.fault));
         }
+        // RC2 S10' (W0 finding: the T1 rows time a FeedHalt's AdminAck against the gate stream, and the log had no halt
+        // line): one line when a halt starts, when its FeedHalt is acknowledged (ACCEPTED or DUPLICATE: the core alone
+        // knows which) and when the halt ends; the log time is the steady clock, as `t1-core gate --watch`'s t
+        const domain::bridge::HaltRecord &h = m_domain.halt();
+        if (h.active != m_loggedHaltActive || h.correlationId != m_loggedHaltCorrelation || h.acked != m_loggedHaltAcked)
+        {
+            if (h.active && (!m_loggedHaltActive || h.correlationId != m_loggedHaltCorrelation))
+            {
+                log(common::LogLevel::WARN, "halt %s e %lld seen %lld epoch %lld: FeedHalt %s",
+                    domain::bridge::bridgeHaltName(h.halt), static_cast<long long>(h.e), static_cast<long long>(h.seen),
+                    static_cast<long long>(h.syncEpoch), h.sendsFeedHalt() ? "pending" : "none (CORE_REFUSED)");
+            }
+            if (h.active && h.acked && !(m_loggedHaltAcked && h.correlationId == m_loggedHaltCorrelation) &&
+                h.sendsFeedHalt())
+            {
+                log(common::LogLevel::INFO, "FeedHalt AdminAck %s e %lld seen %lld (ACCEPTED or DUPLICATE)",
+                    domain::bridge::bridgeHaltName(h.halt), static_cast<long long>(h.e), static_cast<long long>(h.seen));
+            }
+            if (!h.active && m_loggedHaltActive)
+            {
+                log(common::LogLevel::INFO, "halt left: cursor %lld last %lld", static_cast<long long>(m_domain.view().cursor),
+                    static_cast<long long>(m_domain.view().last));
+            }
+            m_loggedHaltActive = h.active;
+            m_loggedHaltCorrelation = h.correlationId;
+            m_loggedHaltAcked = h.acked;
+        }
     }
 
     void trackProgress()
@@ -1149,6 +1237,12 @@ private:
     std::uint64_t m_domainCallsInInvoker = 0;
     std::uint64_t m_invokes = 0;
     std::int64_t m_pendingSinceNs = -1;
+    bool m_loggedHaltActive = false;      // S10': the halt lines of drainVerdicts
+    std::int64_t m_loggedHaltCorrelation = 0;
+    bool m_loggedHaltAcked = false;
+    std::int64_t m_dupFirstNs = -1;   // S10': the first REJECTED DUPLICATE_IDENTITY of this episode
+    std::int64_t m_dupNextNs = -1;    // the next RegisterSession retry
+    std::int64_t m_dupBackoffNs = 0;
     bool m_stopRequested = false;
     std::int64_t m_stopRequestedAtNs = -1;
     bool m_stopped = false;

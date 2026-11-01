@@ -696,3 +696,66 @@ TEST_CASE("FollowPolicyTest.detachWhileConnectingCancelsTheAsyncConnect") // N-8
     CHECK(h.policy->idle());
     CHECK(h.archive.disconnects >= 1);
 }
+
+namespace {
+// RC2 S10' 5.1 R1: a sink that consumes (SinkAction::CONSUME) every frame above `holeAt` on the first recording, the way a
+// halted bridge's re-scan walks past a holed recording, and records what it saw
+struct WalkSink : FrameSink
+{
+    std::int64_t holeAt = 0;
+    std::int64_t firstRecordingId = -1;
+    std::vector<std::pair<std::int64_t, bool>> seen; // (seq, laterRecordings)
+    std::vector<std::int64_t> recordingIds;
+    SinkAction onFrame(const JournalFrame &frame) noexcept override
+    {
+        if (firstRecordingId < 0)
+        {
+            firstRecordingId = frame.key.recordingId;
+        }
+        seen.emplace_back(frame.peek.journalSeq, frame.laterRecordings);
+        recordingIds.push_back(frame.key.recordingId);
+        if (frame.key.recordingId == firstRecordingId && frame.peek.journalSeq > holeAt)
+        {
+            return SinkAction::CONSUME;
+        }
+        return SinkAction::CONTINUE;
+    }
+    RefusalAction onRefused(const RefusedFrame &) noexcept override { return RefusalAction::CLOSE_REPLAY; }
+};
+}
+
+TEST_CASE("FollowPolicyTest.followerWalksRecordingsAfterAHoledOne")
+{
+    // the chain R0 = [1..10, 12..20] (stopped: the FILL stopped it), R1 = [11] (active): the follower reaches R1 by its
+    // own walk once the owner consumed R0's rest; frames carry laterRecordings; a consumed frame is never a memo proof
+    Harness h;
+    auto &r0 = h.archive.record();
+    h.archive.appendTrades(r0, 1, 10, EPOCH);
+    h.archive.appendTrades(r0, 12, 9, EPOCH);
+    h.archive.stop(r0);
+    auto &r1 = h.archive.record();
+    h.archive.appendTrades(r1, 11, 1, EPOCH);
+    h.memo->onReport(EPOCH, 20); // skip proofs would be taken for every seq <= 20 read normally
+    WalkSink walk;
+    walk.holeAt = 10;
+    h.policy->attach(h.now);
+    for (int i = 0; i < 2000 && walk.seen.size() < 20; ++i)
+    {
+        h.now += std::chrono::milliseconds(1);
+        h.loop->doWork(walk, 32, h.now);
+    }
+    REQUIRE(walk.seen.size() == 20);
+    bool r0Later = true;
+    for (std::size_t i = 0; i < 19; ++i)
+    {
+        r0Later = r0Later && walk.seen[i].second;
+    }
+    CHECK(r0Later);                        // every R0 frame: a later recording exists in the listing
+    CHECK(walk.seen[19].first == 11);      // R1 reached by the follower's own walk (no owner command)
+    CHECK_FALSE(walk.seen[19].second);     // R1 is the last recording
+    CHECK(walk.recordingIds[19] != walk.recordingIds[0]);
+    // the proofs: R0's 1..10 (CONTINUE) and R1's 11; none for R0's consumed 12..20
+    const std::optional<Proof> onR0 = h.memo->proof(0, r0.rec.key);
+    REQUIRE(onR0.has_value());
+    CHECK_MESSAGE(onR0->seq == 10, "a consumed frame became a memo proof");
+}

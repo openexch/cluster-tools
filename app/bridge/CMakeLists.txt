@@ -12,7 +12,9 @@
 #   ct_bridge_main_aeron_tests startSequenceBothModes, conductorStallExits70 (a real driver)
 #   ct_bridge_e3_app_tests     12.6 E3 through the agent with serve as the core (needs the harness jar)
 # CT_BRIDGE_TEST_BUILDS (never published; publish.yml refuses them):
-#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl, ct_bridge_tc_driverstall / _tc_conductorstall
+#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl, ct_bridge_tc_driverstall / _tc_conductorstall;
+#   RC2 S10': ct_bridge_nc_noconfirm / _nc_rotatepast / _nc_haltedparks / _nc_nosuccessor / _nc_noschemarescan,
+#   ct_bridge_tc_slowhalt
 #   (ct_bridge_nc_mtu1408, the R-K6 wire RED, is retired: review NOTE-2, contract 19.5)
 #
 # The domain, codec and app seam flavours are chosen by each final target (production or seamed), never by a library,
@@ -185,5 +187,21 @@ if(WITH_AERON AND WITH_BRIDGE)
         ct_bridge_binary(ct_bridge_tc_conductorstall ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_tc_conductorstall PRIVATE CT_BRIDGE_TC_CONDUCTORSTALL=1)
+        # RC2 S10' (contract 3.3, 4.3, 5.3): the T1-N2 / halt / F-1 controls and the stale-FeedHalt timing device
+        foreach(nc IN ITEMS "noconfirm:HALT_CONFIRM_OFF" "rotatepast:ROTATE_PAST_CURSOR"
+                "haltedparks:HALTED_IGNORES_REPORT_RULES" "nosuccessor:SUCCESSOR_WALK_OFF"
+                "noschemarescan:SCHEMA_RESCAN_OFF" "tc_slowhalt:FEEDHALT_PROMPT")
+            string(REPLACE ":" ";" pair "${nc}")
+            list(GET pair 0 suffix)
+            list(GET pair 1 preset)
+            if(suffix STREQUAL "tc_slowhalt")
+                set(target ct_bridge_tc_slowhalt) # a timing device (5 s before the FeedHalt), never a rule RED
+            else()
+                set(target ct_bridge_nc_${suffix})
+            endif()
+            ct_bridge_binary(${target} ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
+                ct_archive_aeron_seamed)
+            target_compile_definitions(${target} PRIVATE CT_BRIDGE_NC_PRESET="${preset}")
+        endforeach()
     endif()
 endif()

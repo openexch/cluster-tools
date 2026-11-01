@@ -274,6 +274,23 @@ public:
         m_correlationId = m_settings.correlationIdBase + static_cast<std::int64_t>(++m_counters.rounds);
     }
 
+    // RC2 S10' (additive; the bridge's DUPLICATE_IDENTITY retry): an owner that judged a REJECTED ack transient starts a
+    // new round (new correlation id) in the same session; the next doWork() sends it. Only a REJECTED that came as an
+    // AdminAck is retried (an inferred refusal stays terminal); the counters keep counting.
+    bool retryAfterRejection()
+    {
+        if (RegistrationState::REJECTED != m_state || 0 == m_counters.acksRejected)
+        {
+            return false;
+        }
+        m_state = RegistrationState::UNREGISTERED;
+        m_correlationId = m_settings.correlationIdBase + static_cast<std::int64_t>(++m_counters.rounds);
+        m_detail.clear();
+        return true;
+    }
+    // the reason of the last AdminAck for this registrar's RegisterSession (the core's AdminAck reason byte)
+    std::uint8_t lastReason() const { return m_lastReason; }
+
     RegistrationState state() const { return m_state; }
     // Registered in the client's CURRENT, CONNECTED session and term (what readiness must
     // check): a closed session keeps its epoch and term until the next connect, so the state

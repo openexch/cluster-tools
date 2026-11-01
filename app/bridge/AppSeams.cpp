@@ -38,6 +38,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::READY_COUNTS_FORWARDS_ONLY: return "READY_COUNTS_FORWARDS_ONLY";
         case Rule::TAP_SWALLOWS: return "TAP_SWALLOWS";
         case Rule::RESEND_NEW_CORRELATION: return "RESEND_NEW_CORRELATION";
+        case Rule::DUPLICATE_IDENTITY_EXITS: return "DUPLICATE_IDENTITY_EXITS";
         case Rule::WATCHDOG_OFF: return "WATCHDOG_OFF";
         case Rule::INVOKER_NO_BEAT: return "INVOKER_NO_BEAT";
         case Rule::CONDUCTOR_WATCH_OFF: return "CONDUCTOR_WATCH_OFF";

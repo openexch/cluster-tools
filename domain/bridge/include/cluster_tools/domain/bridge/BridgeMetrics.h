@@ -75,6 +75,8 @@ struct BridgeMetrics
     Counters<SETTLE_REASON_LABELS> settleRejected{};                          // bridge_settle_rejected_total{reason}
     Counters<static_cast<std::size_t>(DeferReason::COUNT)> framesDeferred{}; // bridge_frames_deferred_total{why}
     Counters<BRIDGE_HALT_LABELS> haltRecovered{};                             // bridge_halt_recovered_total{reason}
+    // RC2 S10' 5.4: a halted re-scan walked past a holed / bad recording of the source into later ones
+    Counters<archive::MAX_SOURCES> haltRelists{};                             // bridge_halt_relists_total{source}
 
     // plain counters
     std::atomic<std::uint64_t> sourceFailovers{ 0 };
@@ -95,6 +97,8 @@ struct BridgeMetrics
     std::atomic<std::uint64_t> recordingsEnded{ 0 };
     std::atomic<std::uint64_t> sourceParks{ 0 };         // switches by 8.3 rows 1-3 (a park, not a failover)
     std::atomic<std::uint64_t> verdictLogDropped{ 0 };   // verdict events S9c did not drain in time
+    std::atomic<std::uint64_t> haltSuccessorAttaches{ 0 }; // S10' 5.4: a re-scan forwarded e from a later recording
+    std::atomic<std::uint64_t> haltStepbacks{ 0 };         // S10' 5.4: R2, one memo-free re-read from the chain start
 
     static void add(std::atomic<std::uint64_t> &c, std::uint64_t n = 1) noexcept
     {
@@ -128,6 +132,7 @@ struct BridgeMetrics
     std::uint64_t haltsSent(HaltReason r) const noexcept { return get(feedHaltsSent[static_cast<std::size_t>(r)]); }
     std::uint64_t deferred(DeferReason r) const noexcept { return get(framesDeferred[static_cast<std::size_t>(r)]); }
     std::uint64_t recovered(BridgeHalt h) const noexcept { return get(haltRecovered[static_cast<std::size_t>(h)]); }
+    std::uint64_t relists(std::size_t source) const noexcept { return get(haltRelists.at(source)); }
 };
 
 }}}

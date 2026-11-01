@@ -22,3 +22,4 @@ StopPathTest.invokerBeatsDuringABlockedArchiveCall|INVOKER_NO_BEAT|the invoker d
 AgentPropertyTest.agentOverLaggedCoreRecoversHalts|FENCE_OFF|no fence at a lossy election: an entry above cursor + 1 reaches the core|CHECK( noViolation )
 # Not listed: AgentPropertyTest with REGISTRATION_GATE_OFF (the contract names it): the FIFO ingress puts the RegisterSession before the query, so the stub core registers first and the property cannot see the gate; the gate RED is registerThenQueryThenStream.
 StopPathTest.sigtermDuringABlockedCallOnASlowArchiveReturns0|STOP_DETACH_WHEN_LATE|a late stop still runs stopReplay: the blocked call plus stopReplay pass the 7 s join bound (70)|CHECK( returned0 )
+BridgeAgentTest.duplicateIdentityRetriesUntilTheOldSessionTimesOut|DUPLICATE_IDENTITY_EXITS|RC2 S10': REJECTED DUPLICATE_IDENTITY exits 78 at once: a restart after kill -9 dies|CHECK( registeredAfterDuplicate )

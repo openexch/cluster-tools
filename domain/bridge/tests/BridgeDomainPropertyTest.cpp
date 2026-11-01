@@ -372,6 +372,27 @@ const char *truthName(Truth t)
     return "?";
 }
 
+// S10' 5.3: some recording holds a valid own-epoch copy of seq
+bool holdsValid(const SimArchive &archive, std::int64_t seq, std::int64_t epoch)
+{
+    for (const auto &rec : archive.recordings)
+    {
+        for (const auto &f : rec.frames)
+        {
+            if (f.bytes.empty())
+            {
+                continue;
+            }
+            const Admission a = admitFrame(f.flags, f.bytes.data(), f.bytes.size());
+            if (a.accepted() && a.peek.journalSeq == seq && (0 == epoch || a.peek.meEpoch == epoch))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 Truth memoFree(const SimArchive &archive, std::int64_t e, std::int64_t epoch)
 {
     bool ownSeen = false; // NOTE-8 (2026-10-31): a foreign frame before any own-epoch frame is a stale prefix: BAD
@@ -410,6 +431,9 @@ struct Stats
     int recovered = 0, haltsWithLag = 0;
     int recoveredGap = 0, recoveredSchema = 0, recoveredEpoch = 0, recoveredRefused = 0;
     int fills = 0, lanes = 0, regeneses = 0;
+    // RC2 S10' 5.3: in-place successors (FILL / RESTART / above e / SOURCE_SCHEMA valid copies) and their recoveries
+    int successorFills = 0, successorRestarts = 0, successorsAbove = 0, schemaSuccessors = 0;
+    int successorAttaches = 0, stepBacks = 0, schemaRescanRecoveries = 0, successorRecoveries = 0;
 };
 Stats g_stats;
 
@@ -588,6 +612,26 @@ struct Property : CorePort
     }
 
     // FIX-3: an operator refills source s with a complete journal of `epoch` (one active recording, nothing bad)
+    // RC2 S10' 5.3: an in-place successor recording on source s (the ME re-journals from `from` in place: the active
+    // recording stops, a new one holds from..to with valid copies); the old recordings stay in the chain
+    void successor(std::size_t s, std::int64_t from, std::int64_t to, std::int64_t epoch)
+    {
+        SimArchive &a = *sources.archives[s];
+        if (!a.recordings.empty())
+        {
+            a.stop(a.recordings.back());
+        }
+        SimRecording &r = a.record();
+        for (std::int64_t seq = from; seq <= to; ++seq)
+        {
+            const std::uint16_t t = sc.templates[static_cast<std::size_t>(seq)];
+            Bytes b = TEMPLATE_RELEASE == t ? makeRelease(seq, epoch, static_cast<std::uint16_t>(seq % 3))
+                                            : makeFrame(t, seq, epoch, 64 * seq);
+            putLe64(b, FRAME_OFFSET_EGRESS_SEQ, 64 * seq);
+            a.append(r, b);
+        }
+    }
+
     void fill(std::size_t s, std::int64_t epoch)
     {
         SimArchive &a = *sources.archives[s];
@@ -621,11 +665,19 @@ std::string runScenario(std::uint64_t seed)
     std::vector<Truth> snapshot;
     std::int64_t snapshotE = 0;
     bool v2Halted = false;
+    bool v2HaltClean = false;
     std::int64_t currentEpoch = EPOCH;  // FIX-3: a re-genesis moves the run to epoch 9
     int eventAt = -1;                    // FIX-3: the post-halt event of this halt
     bool eventDone = false;              // at most one post-halt event per run
     BridgeHalt pendingKind = BridgeHalt::NONE;
     std::int64_t pendingE = 0;           // a halt waiting to be recovered: its kind and e
+    // S10' 5.3: an in-place successor holding a valid e was recorded for the halt at successorE (in time for a re-scan)
+    std::int64_t successorE = 0;
+    bool successorRecovered = false;
+    bool successorSchema = false;        // the successor carried valid copies for a SOURCE_SCHEMA halt (R0)
+    std::int64_t fillE = 0;              // a FILL successor (only e) on fillSource: e + 1 lies in an earlier recording
+    std::size_t fillSource = 0;
+    std::uint64_t attachesAtHalt = 0;
     for (int it = 0; it < 12'000; ++it)
     {
         p.now += 20ms;
@@ -750,9 +802,25 @@ std::string runScenario(std::uint64_t seed)
         }
         const BridgeView v = p.domain->view();
         const bool haltedNow = (State::HALTED == v.state || State::HALTING == v.state) && BridgeHalt::NONE != v.halt;
-        if (haltedNow && sc.v2Until >= 0 && it < sc.v2Until)
+        if (haltedNow && sc.v2Until >= 0 && it < sc.v2Until && !v2Halted)
         {
+            // S10' W4: whether the journal was clean is judged when the v1/v2 halt happens, not at the end of the run (a
+            // post-halt fill can add seq 1 later, and with 5.1 R1 the halted bridge now reaches it)
             v2Halted = true;
+            v2HaltClean = false;
+            for (std::size_t s = 0; s < sc.sources && !v2HaltClean; ++s)
+            {
+                if (sc.poisonSeq && sc.poisoned[s])
+                {
+                    continue;
+                }
+                bool all = true;
+                for (std::int64_t e = 1; e <= sc.n && all; ++e)
+                {
+                    all = Truth::DELIVERS == memoFree(*p.sources.archives[s], e, currentEpoch);
+                }
+                v2HaltClean = all;
+            }
         }
         if (haltedNow && !haltChecked && BridgeHalt::CORE_REFUSED != v.halt)
         {
@@ -785,6 +853,13 @@ std::string runScenario(std::uint64_t seed)
             for (std::size_t s = 0; s < sc.sources; ++s)
             {
                 truths += std::string(" src") + std::to_string(s) + "=" + truthName(snapshot[s]);
+            }
+            // S10' 5.3 R2: after a FILL successor (only e), e + 1 sits in the earlier recording: one memo-free re-read
+            // reaches it, so a halt at e + 1 while that recording holds a valid e + 1 is a missing step back
+            if (0 != fillE && e == fillE + 1 && !sc.elections && holdsValid(*p.sources.archives[fillSource], e, currentEpoch))
+            {
+                return fail("halted again at e + 1 with the old recording holding it (FILL successor at " +
+                    std::to_string(fillE) + ", source " + std::to_string(fillSource) + ")");
             }
             if (BridgeHalt::GAP == v.halt && anyBadOrForeign)
             {
@@ -828,6 +903,7 @@ std::string runScenario(std::uint64_t seed)
         {
             pendingKind = v.halt;
             pendingE = p.domain->halt().e;
+            attachesAtHalt = BridgeMetrics::get(p.metrics.haltSuccessorAttaches);
             ++g_stats.haltsWithLag; // every run has an egress lag >= 1 (FIX-1)
             if (sc.postHaltEvents && !eventDone)
             {
@@ -836,6 +912,14 @@ std::string runScenario(std::uint64_t seed)
         }
         if (BridgeHalt::NONE != pendingKind && !haltedNow && BridgeHalt::NONE == v.halt && p.core.cursor >= pendingE)
         {
+            if (0 != successorE && pendingE == successorE)
+            {
+                successorRecovered = true;
+            }
+            if (BridgeHalt::SOURCE_SCHEMA == pendingKind && BridgeMetrics::get(p.metrics.haltSuccessorAttaches) > attachesAtHalt)
+            {
+                ++g_stats.schemaRescanRecoveries; // R0: the re-scan attached a successor's valid copy
+            }
             switch (pendingKind)
             {
                 case BridgeHalt::GAP: ++g_stats.recoveredGap; break;
@@ -867,6 +951,42 @@ std::string runScenario(std::uint64_t seed)
                 p.core.consumePosition = 0;
                 p.core.digests.clear();
                 p.core.genesisId = FOREIGN;
+            }
+            else if ((BridgeHalt::GAP == v.halt || BridgeHalt::SOURCE_SCHEMA == v.halt) &&
+                std::uniform_int_distribution<int>(0, 2)(rng) == 0)
+            {
+                // S10' 5.3: an in-place successor (the old recordings stay): FILL (only e), RESTART (e .. n), above e
+                // (e + k .. n: the halt stays, seen = the min), or for SOURCE_SCHEMA valid copies from e on
+                const std::size_t s = std::uniform_int_distribution<std::size_t>(0, sc.sources - 1)(rng);
+                const int kind = BridgeHalt::SOURCE_SCHEMA == v.halt ? 1 : std::uniform_int_distribution<int>(0, 2)(rng);
+                const bool inTime = it < 12'000 - 3'000 - 600; // a re-scan (60 s = 3000 iterations) still comes
+                const bool foreignBefore = sc.foreignTail && sc.foreignTail <= sc.n;
+                if (0 == kind)
+                {
+                    ++g_stats.successorFills;
+                    p.successor(s, e, e, currentEpoch);
+                    fillE = e;
+                    fillSource = s;
+                }
+                else if (1 == kind)
+                {
+                    ++(BridgeHalt::SOURCE_SCHEMA == v.halt ? g_stats.schemaSuccessors : g_stats.successorRestarts);
+                    p.successor(s, e, sc.n, currentEpoch);
+                }
+                else
+                {
+                    ++g_stats.successorsAbove;
+                    p.successor(s, std::min<std::int64_t>(sc.n, e + 1 + std::uniform_int_distribution<int>(0, 3)(rng)), sc.n,
+                        currentEpoch);
+                }
+                // elections fence a re-scan every ~1.2 s here (a fence does not restart the 6 s cadence, N-5): the walk
+                // may never finish, so those runs check safety only
+                if (kind != 2 && inTime && !foreignBefore && currentEpoch == EPOCH && !sc.poisonSeq && !sc.coreRefuseSeq &&
+                    !sc.elections)
+                {
+                    successorE = e; // the halt at e must be recovered (the re-scan walks to the successor)
+                    successorSchema = BridgeHalt::SOURCE_SCHEMA == v.halt;
+                }
             }
             else if (BridgeHalt::GAP == v.halt && std::uniform_int_distribution<int>(0, 1)(rng) == 0)
             {
@@ -919,7 +1039,7 @@ std::string runScenario(std::uint64_t seed)
     }
     // (j) a v1/v2 phase never ends in a halt (the halt (c) checks against the journal itself is the only exception:
     // a journal without seq 1 halts GAP at 1 whatever the core's behaviour), and the run binds once the core switches
-    if (v2Halted && cleanSource)
+    if (v2Halted && v2HaltClean)
     {
         return fail("a halt during the core's behaviour 1/2 phase");
     }
@@ -952,6 +1072,20 @@ std::string runScenario(std::uint64_t seed)
             }
             return {};
         }
+    }
+    g_stats.successorAttaches += static_cast<int>(BridgeMetrics::get(p.metrics.haltSuccessorAttaches));
+    g_stats.stepBacks += static_cast<int>(BridgeMetrics::get(p.metrics.haltStepbacks));
+    // S10' 5.3 (d): an in-place successor holding a valid e recovers the halt at e by the re-scan (R0 / R1)
+    if (0 != successorE)
+    {
+        if (!successorRecovered)
+        {
+            return fail(std::string("no recovery although a source carries every seq (") +
+                (successorSchema ? "SOURCE_SCHEMA halt never recovered with valid copies present" : "GAP") +
+                "; an in-place successor holds e = " + std::to_string(successorE) + "; halt " + bridgeHaltName(v.halt) +
+                ", core " + std::to_string(p.core.cursor) + ")");
+        }
+        ++g_stats.successorRecoveries;
     }
     // (d) liveness
     const bool refusalExpected = sc.coreRefuseSeq != 0 || (sc.poisonSeq != 0 && !cleanSource);
@@ -1014,7 +1148,11 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
             << ", refusal runs " << g_stats.poisonRuns << "; halts with lag " << g_stats.haltsWithLag
             << ", recovered GAP " << g_stats.recoveredGap << ", SOURCE_SCHEMA " << g_stats.recoveredSchema
             << ", EPOCH_MISMATCH " << g_stats.recoveredEpoch << ", CORE_REFUSED " << g_stats.recoveredRefused
-            << " (fills " << g_stats.fills << ", lanes " << g_stats.lanes << ", re-geneses " << g_stats.regeneses << ")");
+            << " (fills " << g_stats.fills << ", lanes " << g_stats.lanes << ", re-geneses " << g_stats.regeneses << ")"
+            << "; S10' successors: FILL " << g_stats.successorFills << ", RESTART " << g_stats.successorRestarts << ", above e "
+            << g_stats.successorsAbove << ", SOURCE_SCHEMA " << g_stats.schemaSuccessors << "; successor attaches "
+            << g_stats.successorAttaches << ", step-backs " << g_stats.stepBacks << ", schema re-scan recoveries "
+            << g_stats.schemaRescanRecoveries << ", successor recoveries " << g_stats.successorRecoveries);
     INFO(first);
     CHECK(failures == 0);
     if (failures == 0 && runs >= 400)
@@ -1043,5 +1181,10 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
         CHECK(g_stats.recoveredSchema > 0);
         CHECK(g_stats.recoveredEpoch > 0);
         CHECK(g_stats.recoveredRefused > 0);
+        // S10' 5.3 (C5): recoveries by an in-place successor, by the R2 step back and by the R0 schema re-scan ran
+        CHECK(g_stats.successorAttaches > 0);
+        CHECK(g_stats.stepBacks > 0);
+        CHECK(g_stats.schemaRescanRecoveries > 0);
+        CHECK(g_stats.successorRecoveries > 0);
     }
 }

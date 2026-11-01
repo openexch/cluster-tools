@@ -285,8 +285,10 @@ struct AppRigT
         ACCEPT,
         REJECT,
         SILENT,
-        ANSWER_FIRST_LATE // only the first RegisterSession of a session is answered, `lateNs` later
+        ANSWER_FIRST_LATE, // only the first RegisterSession of a session is answered, `lateNs` later
+        DUPLICATE_IDENTITY // RC2 S10': REJECTED reason 44 until `duplicateUntilNs`, then ACCEPT (the old session timed out)
     } reg = Reg::ACCEPT;
+    std::int64_t duplicateUntilNs = 0;
     std::int64_t lateNs = 7 * SECOND;
     std::set<std::int64_t> registeredSessions;
     std::set<std::int64_t> forgotten;            // sessions the core forgot the registration of (6.2)
@@ -532,6 +534,15 @@ struct AppRigT
                 }
                 case Reg::REJECT: emit(adminAckFrame(corr, 80, ADMIN_REJECTED, 1)); return;
                 case Reg::SILENT: return;
+                case Reg::DUPLICATE_IDENTITY:
+                    if (t.now < duplicateUntilNs)
+                    {
+                        emit(adminAckFrame(corr, 80, ADMIN_REJECTED, 44));
+                        return;
+                    }
+                    registeredSessions.insert(session);
+                    emit(adminAckFrame(corr, 80, ADMIN_ACCEPTED));
+                    return;
                 case Reg::ANSWER_FIRST_LATE:
                     if (answeredFirst.insert(session).second)
                     {

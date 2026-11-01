@@ -164,6 +164,9 @@ bridge_errors_total 1
 # HELP bridge_registration_lost_total OrderReject UNREGISTERED_SESSION naming a bridge template (6.2)
 # TYPE bridge_registration_lost_total counter
 bridge_registration_lost_total 0
+# HELP bridge_registration_duplicate_identity_retries_total RegisterSession re-sent after a REJECTED DUPLICATE_IDENTITY (the old session of this identity not yet timed out)
+# TYPE bridge_registration_duplicate_identity_retries_total counter
+bridge_registration_duplicate_identity_retries_total 0
 # HELP bridge_aeron_errors_total Errors the Aeron client reported (fatal ones end the process)
 # TYPE bridge_aeron_errors_total counter
 bridge_aeron_errors_total 0
@@ -219,6 +222,10 @@ bridge_degraded 0
 # TYPE bridge_source_verdicts gauge
 bridge_source_verdicts{source="0"} 0
 bridge_source_verdicts{source="1"} 0
+# HELP bridge_halt_relists_total Re-scan walks past a holed or bad recording into later ones (5.1 R1)
+# TYPE bridge_halt_relists_total counter
+bridge_halt_relists_total{source="0"} 0
+bridge_halt_relists_total{source="1"} 0
 # HELP bridge_forwarded_total Frames forwarded by kind
 # TYPE bridge_forwarded_total counter
 bridge_forwarded_total{kind="61"} 0
@@ -304,6 +311,12 @@ bridge_halt_recovered_total{reason="CORE_REFUSED"} 0
 # HELP bridge_source_failovers_total Failovers to another source
 # TYPE bridge_source_failovers_total counter
 bridge_source_failovers_total 0
+# HELP bridge_halt_successor_attaches_total A halted re-scan forwarded e from a later recording (5.1 R1)
+# TYPE bridge_halt_successor_attaches_total counter
+bridge_halt_successor_attaches_total 0
+# HELP bridge_halt_stepbacks_total Memo-free re-reads after a FILL successor (5.1 R2)
+# TYPE bridge_halt_stepbacks_total counter
+bridge_halt_stepbacks_total 0
 # HELP bridge_staged_dropped_total Staged trades dropped by a fence
 # TYPE bridge_staged_dropped_total counter
 bridge_staged_dropped_total 0
