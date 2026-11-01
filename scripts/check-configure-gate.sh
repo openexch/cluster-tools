@@ -130,7 +130,9 @@ if [ -n "$AERON_ALL" ]; then
     expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" "${BRIDGE[@]}" -DCT_INTEGRATION_TESTS=ON \
         -DCT_IT_ASSETS_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
 fi
-if "$CMAKE" -S "$HERE" -B "$WORK/build-bridge" -DWITH_AERON=ON "${BRIDGE[@]}" -DCT_BUILD_MEDIA_DRIVER=OFF "${GOOD[@]}" \
+# RC2 S9c W1: ct-bridge links aeron_driver_static (the embedded driver mode), so WITH_BRIDGE needs the driver built
+expect_refused bridge-without-driver "needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}" "${BRIDGE[@]}"
+if "$CMAKE" -S "$HERE" -B "$WORK/build-bridge" -DWITH_AERON=ON "${BRIDGE[@]}" -DCT_BUILD_MEDIA_DRIVER=ON "${GOOD[@]}" \
     > "$WORK/bridge.log" 2>&1; then
     pass "pinned inputs configure with WITH_BRIDGE=ON"
 else

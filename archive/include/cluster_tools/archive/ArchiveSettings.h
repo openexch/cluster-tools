@@ -31,7 +31,7 @@ struct ArchiveSettings
     std::int32_t replayStreamId = 0;       // BRIDGE_REPLAY_STREAM
     std::string localHost;                 // BRIDGE_LOCAL_HOST
     std::int32_t journalMtu = 0;           // BRIDGE_JOURNAL_MTU
-    std::string driverDir;                 // BRIDGE_DRIVER_DIR (bridge process only)
+    std::string driverDir;                 // BRIDGE_DRIVER_DIR (scope BRIDGE_EMBEDDED only)
 };
 
 struct ArchiveSettingsResult
@@ -42,10 +42,15 @@ struct ArchiveSettingsResult
     bool ok() const noexcept { return settings.has_value(); }
 };
 
+// RC2 S9c W0 (2026-10-31, checklist C13): the bridge's media driver is configurable. BRIDGE_EMBEDDED is the bridge
+// process with its own in-process driver (dev and demo; it creates <BRIDGE_DRIVER_DIR>/ct-bridge-<id>);
+// BRIDGE_EXTERNAL is the bridge on the host aeronmd at AERON_DIR (the prod default), where BRIDGE_DRIVER_DIR is
+// refused if present, so a unit cannot carry a key that means nothing in its mode.
 enum class SettingsScope : std::uint8_t
 {
-    BRIDGE, // the bridge process: BRIDGE_DRIVER_DIR is required (it creates the per-pid driver dir)
-    TOOL    // ct-journal-tail: an external driver, no BRIDGE_DRIVER_DIR
+    BRIDGE_EMBEDDED, // BRIDGE_DRIVER_DIR is required (the parent of the per-instance driver dir)
+    BRIDGE_EXTERNAL, // BRIDGE_DRIVER_DIR is refused if present (the driver is the host aeronmd)
+    TOOL             // ct-journal-tail: an external driver, BRIDGE_DRIVER_DIR not read
 };
 
 using SettingLookup = std::function<std::optional<std::string>(const std::string &key)>;

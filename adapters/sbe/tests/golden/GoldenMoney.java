@@ -250,9 +250,59 @@ public final class GoldenMoney {
         print("JAVA_QUERY_FEED_POSITION", buf, header.encodedLength() + query.encodedLength());
     }
 
+    // RC2 S9c 12.2 / 12.3: the bridge's RegisterSession (BRIDGE, acks|settlements, resumable, identity, sourceEpoch 0),
+    // the two OrderRejects the bridge acts on (6.2 UNREGISTERED_SESSION naming 61; F6 INVALID naming 7) and the
+    // SettlementApplied 13 the ack-latency map reads (O4).
+    private static void bridgeApp() {
+        final UnsafeBuffer buf = new UnsafeBuffer(new byte[1024]);
+        final com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder header =
+                new com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder();
+
+        final var register = new com.openexchange.assets.infrastructure.generated.RegisterSessionEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x5E5500000001L)
+                .sessionClass(com.openexchange.assets.infrastructure.generated.SessionClass.BRIDGE)
+                .readerKind((short) 0)
+                .resumable(com.openexchange.assets.infrastructure.generated.BoolFlag.TRUE)
+                .identity(0x00000000000000B1L)
+                .sourceEpoch(0L);
+        register.channels().clear().acks(true).settlements(true);
+        print("JAVA_REGISTER_SESSION_BRIDGE", buf, header.encodedLength() + register.encodedLength());
+
+        final var unregistered = new com.openexchange.assets.infrastructure.generated.OrderRejectEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x0102030405060708L)
+                .requestIdHigh(0L).requestIdLow(0L).userId(0L).orderId(0L).marketId(0)
+                .refTemplateId(61)
+                .reason(com.openexchange.assets.infrastructure.generated.CoreRejectReason.UNREGISTERED_SESSION)
+                .meReason((short) 255)
+                .detail(0L)
+                .rejectedAtMs(0x1112131415161718L);
+        print("JAVA_ORDER_REJECT_61_UNREGISTERED", buf, header.encodedLength() + unregistered.encodedLength());
+
+        final var invalid = new com.openexchange.assets.infrastructure.generated.OrderRejectEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .correlationId(0x2122232425262728L)
+                .requestIdHigh(0L).requestIdLow(0L).userId(0L).orderId(0L).marketId(0)
+                .refTemplateId(7)
+                .reason(com.openexchange.assets.infrastructure.generated.CoreRejectReason.INVALID)
+                .meReason((short) 255)
+                .detail(7L)
+                .rejectedAtMs(0x3132333435363738L);
+        print("JAVA_ORDER_REJECT_7_INVALID", buf, header.encodedLength() + invalid.encodedLength());
+
+        final var applied = new com.openexchange.assets.infrastructure.generated.SettlementAppliedEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .tradeId(0x4142434445464748L)
+                .buyerUserId(0x5152535455565758L)
+                .sellerUserId(0x6162636465666768L);
+        print("JAVA_SETTLEMENT_APPLIED", buf, header.encodedLength() + applied.encodedLength());
+    }
+
     public static void main(final String[] args) {
         money();
         forwarder();
         bridge();
+        bridgeApp();
     }
 }

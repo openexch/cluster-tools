@@ -77,3 +77,41 @@ TEST_CASE("MetricsTest.everySeriesHasItsFixedLabels")
     CHECK(BridgeMetrics::get(rig.metrics.reportQueries) >= 1);
     CHECK(BridgeMetrics::value(rig.metrics.halted) == 0);
 }
+
+// RC2 S9c W2a (2026-10-31): BridgeView carries the domain's time of its last accepted report and the follower's
+// consumed position as the domain last saw it; a skip walk moves the position without a forward; a session loss
+// resets the report time.
+TEST_CASE("MetricsTest.viewCarriesReportTimeAndConsumedPosition")
+{
+    Rig rig(1);
+    rig.core.bound = EPOCH;
+    rig.core.cursor = 30; // the core already applied 1..30: the walk over them is skips only
+    SimRecording &a = rig.archive(0).record();
+    appendJournal(rig.archive(0), a, 1, 40);
+    CHECK(rig.domain->view().lastReportAt == TimePoint{});
+    rig.up();
+    std::int64_t lastPosition = rig.domain->view().consumedPosition;
+    bool movedWithoutForward = false;
+    REQUIRE(rig.runUntil([&] {
+        const BridgeView v = rig.domain->view();
+        if (v.consumedPosition != lastPosition && v.lastForwardAt == TimePoint{})
+        {
+            movedWithoutForward = true;
+        }
+        lastPosition = v.consumedPosition;
+        return rig.core.cursor == 40;
+    }));
+    CHECK(movedWithoutForward); // the skip walk over 1..30 advanced the consumed position, no forward yet
+    rig.runFor(std::chrono::milliseconds(500));
+    const BridgeView v = rig.domain->view();
+    CHECK(v.lastReportAt != TimePoint{});
+    CHECK(v.lastReportAt <= rig.now);
+    CHECK(v.consumedPosition > 0);
+    CHECK(v.lastForwardAt != TimePoint{});
+    // the next periodic report moves lastReportAt forward
+    const TimePoint first = v.lastReportAt;
+    rig.runFor(std::chrono::milliseconds(11'000));
+    CHECK(rig.domain->view().lastReportAt > first);
+    rig.domain->onSessionDown(rig.now);
+    CHECK(rig.domain->view().lastReportAt == TimePoint{});
+}

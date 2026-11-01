@@ -32,7 +32,7 @@
 //
 //   behaviorVersion         >= 1 (and fits a uint32)
 //   commandLedgerCapacity   in [1, UINT32_MAX]
-//   genesisId               != 0 (the operator's random nonce; meEpoch := genesisId, and 0
+//   genesisId               in [1, 2^63-1] (A7; the operator's random nonce; meEpoch := genesisId, and 0
 //                           is "never set" on the int64 wire field; the tool requires the
 //                           key and never generates one)
 //   maxWireVersion          in [11, 12] (the recorded ingress ceiling)

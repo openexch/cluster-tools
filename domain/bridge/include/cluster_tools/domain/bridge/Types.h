@@ -197,6 +197,10 @@ struct BridgeView
     std::size_t staged = 0;
     TimePoint lastForwardAt{};
     Fatal fatal = Fatal::NONE;
+    // RC2 S9c W2a (2026-10-31, additive, read-only; S9c contract 4.3 bits 4 and 8, review FIX-10):
+    TimePoint lastReportAt{};       // the domain's time of its last accepted report (reset by onSessionDown)
+    std::int64_t consumedPosition = 0; // the follower's consumed replay position as the domain last saw it
+                                       // (JournalFrame.endPosition of an accepted frame, AttachInfo.from)
 };
 
 // One source verdict (8.1), logged once per (source, e, kind); S9c drains them into the log.

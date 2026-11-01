@@ -8,14 +8,16 @@
 #include <cstdint>
 #include <functional>
 
+#include "common/IdleStrategy.h"
+
 #include "MetricsRender.h"
 #include "StatusBoard.h"
 #include "Supervisor.h"
 
 // The fwd-duty thread body (RC2 S12 contract section 3) and the fwd-http routes.
 //
-// Duty: one agent iteration, then the idle strategy when the iteration did no work (spin 100, yield 100,
-// then nanosleep 100 us: the only sleep, between iterations, never inside a step); the heartbeat counter is
+// Duty: one agent iteration, then the idle strategy when the iteration did no work (common::FORWARDER_IDLE: spin
+// 100, yield 100, then nanosleep 100 us: the only sleep, between iterations, never inside a step); the heartbeat counter is
 // bumped every iteration (main's watchdog, F3) and the StatusBoard snapshot is published every 100 ms. The
 // stop and resync flags are main's (signals) and fwd-http's (POST /resync).
 
@@ -24,40 +26,12 @@ namespace cluster_tools { namespace app { namespace forwarder {
 inline constexpr std::int64_t PUBLISH_INTERVAL_NS = 100'000'000LL;
 inline constexpr std::int64_t MAX_CYCLE_WINDOW_NS = 10'000'000'000LL;
 
-class IdleStrategy
-{
-public:
-    void idle(int work) noexcept
-    {
-        if (work > 0)
-        {
-            m_count = 0;
-            return;
-        }
-        m_count++;
-        if (m_count <= 100)
-        {
-            return; // spin
-        }
-        if (m_count <= 200)
-        {
-            sched_yield();
-            return;
-        }
-        timespec ts{ 0, 100'000 };
-        nanosleep(&ts, nullptr);
-    }
-
-private:
-    int m_count = 0;
-};
-
 // errorCount: the Aeron monitor's error count (forwarder_aeron_errors_total); may be empty.
 template<typename Agent>
 int runDuty(Agent &agent, Supervisor &supervisor, StatusBoard &board, const std::function<std::uint64_t()> &errorCount)
 {
     ForwarderSnapshot snapshot;
-    IdleStrategy idle;
+    common::IdleStrategy idle(common::FORWARDER_IDLE);
     std::int64_t nextPublish = 0;
     std::int64_t windowStart = Supervisor::monotonicNs();
     std::uint64_t windowMax = 0;

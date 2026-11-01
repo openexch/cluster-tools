@@ -1,0 +1,7 @@
+# The RED column of RC2 S9c 12.6 (bridge.e3_app): FENCE_OFF must make the real core's state differ from the clean run
+# (reported as "CORE STATE:").
+BridgeE3AppTest.theRealCoreEndsInTheCleanStateThroughTheAppWiring|FENCE_OFF|no fence at a lossy election: the core state differs|CORE STATE:
+# Not listed: REGISTRATION_GATE_OFF (12.6 names it). Measured 2026-10-31: still passes. The serve session is the story's
+# BRIDGE session, already registered (RegisterSession answers DUPLICATE), and the in-order commit puts the
+# RegisterSession before the query, so no feed frame can reach serve unregistered here; the gate's RED is
+# BridgeAgentTest.registerThenQueryThenStream (bridge.app_negative_controls). Same reason as AgentPropertyTest.

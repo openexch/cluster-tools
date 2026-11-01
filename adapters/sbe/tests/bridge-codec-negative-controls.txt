@@ -5,3 +5,4 @@ TranslatorE1Test.theCorpusTranslatesExactlyAsTheJavaReferenceDid|CODEC_SWAP_TAKE
 TranslatorIdentityTest.memcpyIdentitiesHoldOnTheFixturesAndOnRandomRecords|CODEC_HEAD_NOT_PERMUTED|the head copied in schema 4 order|CHECK( failures == 0 )
 RawEnumsAreWrittenVerbatim|CODEC_ENUM_GET|an E::get path clamps raw 2..254|CHECK( wrong == 0 )
 BridgeEgressCodecTest.decodesTheCoreEgressAndEncodesTheControlFramesLikeTheJavaEncoders|EGRESS_VERSION_FLOOR|a v6 report is accepted|CHECK( v6Kind == EgressKind::MALFORMED )
+BridgeAppCodecTest.decodeOrderReject101AndSettlementApplied13|EGRESS_VERSION_FLOOR|a v6 OrderReject 101 accepted|CHECK( v6Refused )

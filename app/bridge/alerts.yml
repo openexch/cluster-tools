@@ -1,0 +1,73 @@
+# Prometheus alert rules for ct-bridge (RC2 S9c contract 9.4). Scrape: GET /metrics on BRIDGE_HTTP_BIND. Every series
+# named here is exported (MetricsRenderTest.everyAlertedSeriesIsExported). Runbook: README "ct-bridge" (9.5).
+groups:
+  - name: bridge
+    rules:
+      - alert: BridgeHalted
+        expr: bridge_halted == 1
+        labels: { severity: page }
+        annotations:
+          summary: "ct-bridge halted (bridge_halt_reason {{ $value }}): runbook 9.5 lines 1-4"
+      - alert: BridgeFeedHaltRejected
+        # a bridge bug that left the gate open until the fallback
+        expr: increase(bridge_feed_halt_rejected_total[5m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "the core REJECTED a FeedHalt of this bridge"
+      - alert: BridgeCoreRefused
+        expr: bridge_halt_reason == 4
+        labels: { severity: page }
+        annotations:
+          summary: "CORE_REFUSED: check every source at bridge_core_cursor + 1, then restart the bridge (never a 76 skip)"
+      - alert: BridgeCursorFlat
+        expr: changes(bridge_core_cursor[2m]) == 0 and bridge_source_backlog_bytes > 0
+        labels: { severity: page }
+        annotations:
+          summary: "journal backlog but the core cursor did not move for 2 minutes"
+      - alert: BridgeNotReady
+        expr: bridge_ready == 0
+        for: 60s
+        labels: { severity: warning }
+        annotations:
+          summary: "ct-bridge not ready (bridge_not_ready_bits {{ $value }})"
+      - alert: BridgeFailovers
+        expr: rate(bridge_source_failovers_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "the bridge is failing over between journal sources"
+      - alert: BridgeStormRotation
+        expr: increase(bridge_storm_rotations_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "the resync storm guard rotated sources"
+      - alert: BridgeSourceRefusedMtu
+        expr: bridge_source_refused{reason="mtu"} == 1
+        labels: { severity: warning }
+        annotations:
+          summary: "source {{ $labels.source }} refused for MTU: unused until the bridge restarts (runbook 9.5 line 6)"
+      - alert: BridgeInvokerGap
+        # the keepalive budget
+        expr: bridge_invoker_max_gap_ms > 1500
+        labels: { severity: warning }
+        annotations:
+          summary: "an archive call kept the core session without a keepalive for {{ $value }} ms"
+      - alert: BridgeSessionReopened
+        expr: increase(bridge_client_sessions_opened_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "the core session was re-opened"
+      - alert: BridgeAeronErrors
+        expr: increase(bridge_aeron_errors_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "the Aeron client reported errors"
+      - alert: BridgeLogDropped
+        expr: increase(bridge_log_dropped_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "log records dropped at the full ring"
+      - alert: BridgeFutureTermWithoutLeaderEvent
+        expr: increase(bridge_core_future_term_total[1m]) > 0 and increase(bridge_client_new_leader_events_total[1m]) == 0
+        labels: { severity: warning }
+        annotations:
+          summary: "core frames of a later term without a NewLeaderEvent (contract 5.3 row 0)"

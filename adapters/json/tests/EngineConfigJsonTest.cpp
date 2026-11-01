@@ -4,6 +4,7 @@
 #include <string>
 
 #include "cluster_tools/adapters/json/EngineConfigJson.h"
+#include "cluster_tools/domain/EngineConfig.h"
 
 // Shape tests for the strict engine-config parser. Semantic rules (ranges, market
 // rules) live in the domain and are tested there — here we prove the parser accepts
@@ -119,8 +120,11 @@ TEST_CASE("the four v12 root keys have no defaults: each missing one is named")
         "{\"configVersion\":1,\"impl\":\"array\",\"bookCapacity\":1,\"maxMatchesPerOrder\":1,"
         "\"maxOrdersPerLevel\":0,\"behaviorVersion\":1,\"commandLedgerCapacity\":1,\"genesisId\":-5,"
         "\"maxWireVersion\":12,\"markets\":[]}");
+    // the parse is schema-only (an int64 is an int64); A7 refuses a negative nonce at the validation every caller runs
+    // next (switch-behavior validates with the engine's rules before the wire): genesisId in [1, 2^63-1]
     REQUIRE(negative.ok());
-    CHECK(negative.value().genesisId == -5); // any non-zero int64 is a valid nonce
+    CHECK(negative.value().genesisId == -5);
+    CHECK(cluster_tools::domain::invalidReason(negative.value()).find("genesisId=-5 must be in [1, 2^63-1]") == 0);
 }
 
 TEST_CASE("unknown and duplicate keys are refused loudly")

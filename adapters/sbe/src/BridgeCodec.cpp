@@ -21,8 +21,10 @@
 #include "com_openexchange_assets_infrastructure_generated/MeJournalTrade.h"
 #include "com_openexchange_assets_infrastructure_generated/MeJournalTradeBatch.h"
 #include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
 #include "com_openexchange_assets_infrastructure_generated/QueryFeedPosition.h"
 #include "com_openexchange_assets_infrastructure_generated/SettleRejected.h"
+#include "com_openexchange_assets_infrastructure_generated/SettlementApplied.h"
 
 namespace cluster_tools { namespace sbe_adapter { namespace bridge_codec {
 
@@ -547,6 +549,114 @@ EgressKind BridgeCodec::decodeEgress(const std::uint8_t *frame, std::size_t leng
             return out.kind;
         }
     }
+}
+
+// ------------------------------------------------------------------ RC2 S9c: the app's egress reads and the O3/O4 getter
+
+static_assert(money::OrderReject::sbeTemplateId() == T_ORDER_REJECT);
+static_assert(money::SettlementApplied::sbeTemplateId() == T_SETTLEMENT_APPLIED);
+static_assert(static_cast<std::uint8_t>(money::CoreRejectReason::INVALID) == CORE_REJECT_INVALID);
+static_assert(static_cast<std::uint8_t>(money::CoreRejectReason::UNAUTHORIZED_CLASS) == CORE_REJECT_UNAUTHORIZED_CLASS);
+static_assert(static_cast<std::uint8_t>(money::CoreRejectReason::UNREGISTERED_SESSION) == CORE_REJECT_UNREGISTERED_SESSION);
+// the 61 root block and the 62 entry carry tradeId and meTimestamp at the same offsets (S9b NOTE-5 pins every field)
+static_assert(money::MeJournalTrade::tradeIdEncodingOffset() == money::MeJournalTradeBatch::Trades::tradeIdEncodingOffset());
+static_assert(money::MeJournalTrade::meTimestampEncodingOffset() ==
+    money::MeJournalTradeBatch::Trades::meTimestampEncodingOffset());
+
+namespace {
+
+bool moneyHeaderIs(const std::uint8_t *frame, std::size_t length, std::uint16_t templateId, std::uint16_t need,
+    std::uint16_t &block, std::uint16_t &version) noexcept
+{
+    if (nullptr == frame || length < MESSAGE_HEADER_LENGTH)
+    {
+        return false;
+    }
+    block = le16(frame);
+    version = le16(frame + 6);
+    if (MONEY_SCHEMA_ID != le16(frame + 4) || templateId != le16(frame + 2))
+    {
+        return false;
+    }
+    const bool versionOk = disabled(Rule::EGRESS_VERSION_FLOOR) ? version >= 6 : MONEY_VERSION == version;
+    return versionOk && block >= need && length >= MESSAGE_HEADER_LENGTH + block;
+}
+
+std::int64_t rd64(const std::uint8_t *p) noexcept
+{
+    std::int64_t v;
+    std::memcpy(&v, p, 8);
+    return v;
+}
+
+}
+
+bool BridgeCodec::decodeOrderReject(const std::uint8_t *frame, std::size_t length, OrderRejectView &out) noexcept
+{
+    std::uint16_t block = 0, version = 0;
+    if (!moneyHeaderIs(frame, length, T_ORDER_REJECT, money::OrderReject::sbeBlockLength(), block, version))
+    {
+        return false;
+    }
+    money::OrderReject d;
+    d.wrapForDecode(asChars(frame), MESSAGE_HEADER_LENGTH, block, version, length);
+    out.correlationId = d.correlationId();
+    out.refTemplateId = d.refTemplateId();
+    out.reasonRaw = d.reasonRaw();
+    return true;
+}
+
+bool BridgeCodec::decodeSettlementApplied(const std::uint8_t *frame, std::size_t length, std::int64_t &tradeId) noexcept
+{
+    std::uint16_t block = 0, version = 0;
+    if (!moneyHeaderIs(frame, length, T_SETTLEMENT_APPLIED, money::SettlementApplied::sbeBlockLength(), block, version))
+    {
+        return false;
+    }
+    money::SettlementApplied d;
+    d.wrapForDecode(asChars(frame), MESSAGE_HEADER_LENGTH, block, version, length);
+    tradeId = d.tradeId();
+    return true;
+}
+
+std::size_t BridgeCodec::visitTrades(const std::uint8_t *frame, std::size_t length, TradeVisitor visitor,
+    void *context) noexcept
+{
+    if (nullptr == frame || nullptr == visitor || length < MESSAGE_HEADER_LENGTH || MONEY_SCHEMA_ID != le16(frame + 4))
+    {
+        return 0;
+    }
+    constexpr std::size_t ID = money::MeJournalTrade::tradeIdEncodingOffset();
+    constexpr std::size_t TS = money::MeJournalTrade::meTimestampEncodingOffset();
+    constexpr std::size_t BLOCK = money::MeJournalTrade::sbeBlockLength();
+    const std::uint16_t templateId = le16(frame + 2);
+    if (bridge::T_ME_JOURNAL_TRADE == templateId)
+    {
+        if (length < MESSAGE_HEADER_LENGTH + BLOCK)
+        {
+            return 0;
+        }
+        const std::uint8_t *b = frame + MESSAGE_HEADER_LENGTH;
+        visitor(context, rd64(b + ID), rd64(b + TS));
+        return 1;
+    }
+    if (bridge::T_ME_JOURNAL_TRADE_BATCH != templateId || length < MESSAGE_HEADER_LENGTH + 4)
+    {
+        return 0;
+    }
+    const std::uint8_t *g = frame + MESSAGE_HEADER_LENGTH + le16(frame); // the root block is 0
+    const std::uint16_t entryBlock = le16(g);
+    const std::uint16_t n = le16(g + 2);
+    if (entryBlock < BLOCK || g + 4 + static_cast<std::size_t>(entryBlock) * n > frame + length)
+    {
+        return 0;
+    }
+    for (std::uint16_t i = 0; i < n; ++i)
+    {
+        const std::uint8_t *e = g + 4 + static_cast<std::size_t>(entryBlock) * i;
+        visitor(context, rd64(e + ID), rd64(e + TS));
+    }
+    return n;
 }
 
 }}}

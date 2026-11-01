@@ -1,4 +1,4 @@
-#include "HttpServer.h"
+#include "common/HttpServer.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -10,7 +10,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-namespace cluster_tools { namespace app { namespace forwarder {
+namespace cluster_tools { namespace app { namespace common {
 
 std::string statusText(int status)
 {
@@ -52,7 +52,7 @@ bool HttpServer::bind(const std::string &host, std::uint16_t port, std::string &
     const std::string h = ("localhost" == host) ? "127.0.0.1" : host;
     if (1 != ::inet_pton(AF_INET, h.c_str(), &addr.sin_addr))
     {
-        error = "FWD_HTTP_BIND host '" + host + "' is not an IPv4 address";
+        error = m_bindKey + " host '" + host + "' is not an IPv4 address";
         return false;
     }
     if (0 != ::bind(m_listenFd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)))

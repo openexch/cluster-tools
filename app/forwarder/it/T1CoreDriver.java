@@ -8,6 +8,8 @@
 //       ADMIN CoreConfig 1 -> 2 -> 3 (behaviour 3, genesisId); BRIDGE RegisterSession + the ME's FRESH record as
 //       MeEngineConfig 68 (journalSeq 1, meEpoch = genesisId: the only feed record the T1 run needs, see below);
 //       ADMIN OPEN GLOBAL (retried until the bind is in the log); TOOL deposits (USD) for users 1..N.
+//       RC2 S9c W7: with a 6th argument "via-bridge" the BRIDGE session and its 68 are skipped: the ME's own FRESH record
+//       reaches the core through ct-bridge (the await-bound genesis of S9c 12.5), and OPEN is retried for up to 60 s.
 //   load <aeronDir> <ingress> <seconds> <perSecond> <users> <orderTag>
 //       GATEWAY RegisterSession, then non-crossing LIMIT GTC BUY CreateOrders (they all rest at the ME) at the rate;
 //       prints "LOAD sent=N rejects=R".
@@ -177,7 +179,7 @@ public final class T1CoreDriver {
     }
 
     private static void genesis(final String aeronDir, final String ingress, final long genesisId, final int ledgerCapacity,
-                                final int users) throws Exception {
+                                final int users, final boolean viaBridge) throws Exception {
         try (Session admin = new Session(aeronDir, ingress, "T1_ADMIN_KEY")) {
             for (long v = 1; v <= 3; v++) {
                 final long corr = 0x7000 + v;
@@ -199,7 +201,23 @@ public final class T1CoreDriver {
                     throw new IllegalStateException("CoreConfig " + v + " refused");
                 }
             }
-            try (Session bridge = new Session(aeronDir, ingress, "T1_BRIDGE_KEY")) {
+            if (viaBridge) {
+                boolean opened = false;
+                for (long corr = 0xAE00; !opened && corr < 0xAE00 + 600; corr++) {
+                    final OrderEntryGateEncoder g = new OrderEntryGateEncoder().wrapAndApplyHeader(admin.out, 0, admin.header)
+                            .correlationId(corr).marketId(0).state(GateState.OPEN).reason(GateReason.ADMIN);
+                    admin.offer(MessageHeaderEncoder.ENCODED_LENGTH + g.encodedLength());
+                    final int result = admin.awaitAck(73, corr);
+                    opened = result == 0 || result == 1;
+                    if (!opened) {
+                        Thread.sleep(100);
+                    }
+                }
+                if (!opened) {
+                    throw new IllegalStateException("ADMIN OPEN GLOBAL never accepted (the bridge did not bind the epoch in 60 s)");
+                }
+                System.out.println("GLOBAL OPEN (bound through the bridge)");
+            } else try (Session bridge = new Session(aeronDir, ingress, "T1_BRIDGE_KEY")) {
                 bridge.register(0x8001, SessionClass.BRIDGE, false, 0);
                 final MeEngineConfigEncoder e = new MeEngineConfigEncoder().wrapAndApplyHeader(bridge.out, 0, bridge.header)
                         .egressSeq(1).journalSeq(1).meEpoch(genesisId).configVersion(1).behaviorVersion(2)
@@ -354,7 +372,8 @@ public final class T1CoreDriver {
         try {
             switch (args[0]) {
                 case "genesis":
-                    genesis(args[1], args[2], Long.decode(args[3]), Integer.parseInt(args[4]), Integer.parseInt(args[5]));
+                    genesis(args[1], args[2], Long.decode(args[3]), Integer.parseInt(args[4]), Integer.parseInt(args[5]),
+                            args.length > 6 && "via-bridge".equals(args[6]));
                     break;
                 case "load":
                     load(args[1], args[2], Integer.parseInt(args[3]), Integer.parseInt(args[4]), Integer.parseInt(args[5]),

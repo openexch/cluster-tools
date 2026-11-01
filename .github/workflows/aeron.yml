@@ -73,7 +73,8 @@ jobs:
         id: deps
         run: |
           set -euo pipefail
-          scripts/fetch-deps.sh "${PWD}/deps-cache" > deps.args
+          # --harness: WITH_BRIDGE=ON requires the S9h feed harness jar (S9b W1)
+          scripts/fetch-deps.sh "${PWD}/deps-cache" --harness > deps.args
           cat deps.args
           echo "args=$(tr '\n' ' ' < deps.args)" >> "$GITHUB_OUTPUT"
 
@@ -114,7 +115,8 @@ jobs:
       - name: Configure
         run: |
           # shellcheck disable=SC2086 # the args are -D flags, one per word
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON -DWITH_BRIDGE=ON \
+          # RC2 S9c: the bridge's negative controls need the seamed test builds (never published)
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON -DWITH_BRIDGE=ON -DCT_BRIDGE_TEST_BUILDS=ON \
             ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
 
       - name: Build

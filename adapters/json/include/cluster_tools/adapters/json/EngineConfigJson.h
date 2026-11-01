@@ -22,7 +22,7 @@
 //     "maxOrdersPerLevel": 0,         // impl=direct only; 0 for array
 //     "behaviorVersion": 1,           // v12: target ME behaviour, >= 1
 //     "commandLedgerCapacity": 100000,// v12: command ledger capacity, [1, UINT32_MAX]
-//     "genesisId": 7301...,           // v12: operator-generated random int64, non-zero
+//     "genesisId": 7301...,           // v12: operator-generated random int64 in [1, 2^63-1]
 //     "maxWireVersion": 12,           // v12: recorded ingress ceiling, [11, 12]
 //     "markets": [
 //       { "marketId": 1, "symbol": "BTC-USD",

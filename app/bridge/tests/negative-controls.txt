@@ -1,0 +1,24 @@
+# The RED column of RC2 S9c contract 12.2 (light method: re-proved on every run). Each line: test case | rule | why |
+# expected text; run by archive/tests/run-negative-controls.sh against ct_bridge_app_tests (linked with the seamed
+# app, codec and domain): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass without it.
+BridgeAgentTest.registerThenQueryThenStream|REGISTRATION_GATE_OFF|onSessionUp at CONNECTED and the domain gate off: feed offer before the ack|CHECK( feedAfterAck )
+BridgeAgentTest.noFeedOfferBeforeNewTermReport|FENCE_WAITS_REPORT_OFF|a leader change re-ups the session instead of fencing: feed offers before the new term's report|CHECK( waitsForTheNewTermReport )
+BridgeAgentTest.noOfferBetweenPublicationSwapAndFence|FENCE_DEFERRED|the fence after poll returned: the same-poll report reaches the domain first (report before fence)|CHECK( fenceBeforeSamePollReport )
+BridgeAgentTest.twoLeaderChangesAndTwoSessionLossesInOneRun|C4_RESTORES_PREVIOUS|C4 -> CONNECTED restores C3: onSessionUp before the new term's ack|CHECK_FALSE( upBeforeAck )
+BridgeAgentTest.lostRegistrationReRegistersAndFences|UP_FLAG_NEVER_RESET|upReportedFor never reset: the re-registration in the same term is never re-upped|CHECK( streamsAgain )
+BridgeAgentTest.lostRegistrationReRegistersAndFences|UNREGISTERED_IGNORED|UNREGISTERED_SESSION only counted: the lost registration is never noticed, the core keeps refusing|CHECK( r.agent->counters().registrationLost >= 1 )
+BridgeAgentTest.stateChangeInsideTheInvokerOnlyRecords|LINK_MACHINE_IN_CALLBACK|the link machine runs in onStateChange: a domain call inside the invoker|CHECK( noDomainCallInInvoker )
+BridgeAgentTest.delayedAdminAckStillRegisters|RESEND_NEW_CORRELATION|a late ack's round abandoned for a new correlation id: never registered|CHECK( registeredOnce )
+BridgeAgentTest.staleTermReportIsDroppedAndCounted|TERM_FILTER_OFF|rule S off: the old-term report reaches the domain|CHECK( domainNeverSaw )
+BridgeAgentTest.registrarRejectedExits78|EXIT_CODES_ALL_70|an observed REJECTED yields 70 (the S9a F4 reading)|CHECK( observedRefusalIs78 )
+BridgeAgentTest.malformedEgressIsCountedNotRelabelled|MALFORMED_IS_CONFIG_ERROR|a malformed 17 stops the process 78 (an input problem relabelled)|CHECK( stillRunning )
+BridgeAgentTest.sessionLossReconnectsWithBackoff|RECONNECT_WITHOUT_SESSION_DOWN|a session loss reconnects without onSessionDown: the domain keeps its query|CHECK( sessionDownOnce )
+BridgeAgentTest.offerStatusMapping|MAX_POSITION_IS_RETRY|MAX_POSITION_EXCEEDED retried in place|CHECK( maxPositionCloses )
+BridgeAgentTest.readyBitsEachFail|READY_IGNORES_REPORT_AGE|no report-age bit: a 35 s old report reads ready|CHECK( reportAgeBit )
+BridgeAgentTest.readySkipWalkIsProgress|READY_COUNTS_FORWARDS_ONLY|backlog progress = forwards only: the skip walk reads not ready|CHECK( readyDuringWalk )
+BridgeAgentTest.everyFaultKindIsCounted|TAP_SWALLOWS|the tap counts a fault but does not forward it|CHECK( forwardedInOrder )
+CodecAppTest.forwardLatencyAndAckLatency|LATENCY_RECORDS_GARBAGE|a future trade timestamp is recorded|CHECK( futureNotRecorded )
+StopPathTest.invokerBeatsDuringABlockedArchiveCall|INVOKER_NO_BEAT|the invoker does not store the heartbeat: the watchdog fires during a 6 s archive call|CHECK( survivedTheBlockedCall )
+AgentPropertyTest.agentOverLaggedCoreRecoversHalts|FENCE_OFF|no fence at a lossy election: an entry above cursor + 1 reaches the core|CHECK( noViolation )
+# Not listed: AgentPropertyTest with REGISTRATION_GATE_OFF (the contract names it): the FIFO ingress puts the RegisterSession before the query, so the stub core registers first and the property cannot see the gate; the gate RED is registerThenQueryThenStream.
+StopPathTest.sigtermDuringABlockedCallOnASlowArchiveReturns0|STOP_DETACH_WHEN_LATE|a late stop still runs stopReplay: the blocked call plus stopReplay pass the 7 s join bound (70)|CHECK( returned0 )

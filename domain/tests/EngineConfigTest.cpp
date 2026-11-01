@@ -59,7 +59,7 @@ EngineConfig validDirect()
     config.maxOrdersPerLevel = 64;
     config.behaviorVersion = 2;
     config.commandLedgerCapacity = 1;
-    config.genesisId = -1;
+    config.genesisId = 1; // the lower bound of [1, 2^63-1] (A7)
     config.maxWireVersion = 11;
     config.markets = { btc() };
     return config;
@@ -120,17 +120,20 @@ TEST_CASE("commandLedgerCapacity must be in [1, UINT32_MAX] (tool-side, RC2 S1)"
     CHECK(invalidReason(config).find("commandLedgerCapacity=") == 0);
 }
 
-TEST_CASE("genesisId must be non-zero; any other int64 is a valid nonce (tool-side, RC2 S1)")
+TEST_CASE("genesisId must be at least 1 and at most 2^63-1 (tool-side RC2 S1 and A7 2026-11-01)")
 {
     EngineConfig config = validArray();
     config.genesisId = 0;
-    CHECK(invalidReason(config).find("genesisId must be non-zero") == 0);
+    CHECK(invalidReason(config).find("genesisId=0 must be in [1, 2^63-1]") == 0);
     config.genesisId = 1;
     CHECK(invalidReason(config) == "");
+    config.genesisId = INT64_MAX;
+    CHECK(invalidReason(config) == "");
     config.genesisId = -1;
-    CHECK(invalidReason(config) == "");
+    const bool minusOneRefused = invalidReason(config).find("genesisId=-1 must be in [1, 2^63-1]") == 0;
+    CHECK(minusOneRefused); // GENESIS_ID_POSITIVE RED: the old "== 0 only" rule takes -1 as a nonce
     config.genesisId = INT64_MIN;
-    CHECK(invalidReason(config) == "");
+    CHECK(invalidReason(config).find("genesisId=-9223372036854775808 must be in [1, 2^63-1]") == 0);
 }
 
 TEST_CASE("maxWireVersion must be in [11, 12] (tool-side, RC2 S1)")

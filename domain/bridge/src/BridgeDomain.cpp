@@ -268,6 +268,8 @@ BridgeView BridgeDomain::view() const noexcept
     v.staged = m_stager.size();
     v.lastForwardAt = m_lastForwardAt;
     v.fatal = m_fatal;
+    v.lastReportAt = m_lastReportAt;
+    v.consumedPosition = m_consumedPosition;
     return v;
 }
 
@@ -275,6 +277,7 @@ BridgeView BridgeDomain::view() const noexcept
 
 void BridgeDomain::noteAccepted(const archive::JournalFrame &frame) noexcept
 {
+    m_consumedPosition = frame.endPosition; // W2a (S9c 4.3 bit 8: a skip walk is progress)
     m_acceptedSinceAttach = true;
     m_dwellRunning = false;
     m_strikes[frame.sourceIndex] = 0;
@@ -602,6 +605,7 @@ void BridgeDomain::onAttached(const archive::AttachInfo &info) noexcept
         switchDone(info.source);
     }
     m_current = info.source;
+    m_consumedPosition = info.from; // W2a
     m_attached = true;
     m_live = true;
     m_exhausted = false;
@@ -1600,6 +1604,7 @@ void BridgeDomain::onReport(const FeedPositionReport &report, TimePoint now) noe
     }
     const std::int64_t covers = m_query.coversSeq;
     m_query.reset();
+    m_lastReportAt = now; // W2a: an accepted report (the outstanding query's correlation id, valid)
     m_degraded &= ~(bit(Degraded::REPORT_INVALID) | bit(Degraded::REPORT_TIMEOUT));
     m_coreHalted = 1 == report.feedHaltedRaw;
     m_coreHaltRaw = report.haltReasonRaw;
@@ -1757,6 +1762,7 @@ void BridgeDomain::onSessionDown(TimePoint now) noexcept
     m_query.reset();
     m_registered = false;
     m_reportThisTerm = false;
+    m_lastReportAt = TimePoint{}; // W2a: the report age restarts with the next session (checklist C4)
     m_awaitSync = false;
     m_closed = false;
     m_command = {};

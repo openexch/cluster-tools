@@ -255,6 +255,8 @@ private:
     std::array<int, archive::MAX_SOURCES> m_regressions{};
     std::size_t m_lastForwardSource = NO_SOURCE;
     TimePoint m_lastForwardAt{};
+    TimePoint m_lastReportAt{};          // W2a: BridgeView.lastReportAt
+    std::int64_t m_consumedPosition = 0; // W2a: BridgeView.consumedPosition
     archive::RecordingKey m_readKey{};
     bool m_expectFirstSeq = false;
     std::array<StepBack, archive::MAX_SOURCES> m_stepBack{};

@@ -48,6 +48,23 @@ struct EgressEvent
     SettleRejected reject;
 };
 
+// RC2 S9c 5.3 rows 6 and 7: the two egress frames the APP reads (never the domain).
+struct OrderRejectView
+{
+    std::int64_t correlationId = 0;
+    std::uint16_t refTemplateId = 0;
+    std::uint8_t reasonRaw = 0; // CoreRejectReason raw byte (UNREGISTERED_SESSION 35, UNAUTHORIZED_CLASS 20, INVALID 15)
+};
+inline constexpr std::uint16_t T_SETTLEMENT_APPLIED = 13;
+inline constexpr std::uint16_t T_ORDER_REJECT = 101;
+inline constexpr std::uint8_t CORE_REJECT_INVALID = 15;
+inline constexpr std::uint8_t CORE_REJECT_UNAUTHORIZED_CLASS = 20;
+inline constexpr std::uint8_t CORE_REJECT_UNREGISTERED_SESSION = 35;
+
+// O3 / O4 (S9c 5.4): one call per trade of a money 61 or 62 frame this codec produced (metrics only, never a
+// validation): the trade's id and its ME timestamp (epoch ms).
+using TradeVisitor = void (*)(void *context, std::int64_t tradeId, std::int64_t meTimestampMs);
+
 class BridgeCodec final : public domain::bridge::FrameEncoder
 {
 public:
@@ -62,6 +79,15 @@ public:
 
     // Raw bytes for every enum (an unknown haltReason or reject reason is mapped by the domain, never thrown).
     static EgressKind decodeEgress(const std::uint8_t *frame, std::size_t length, EgressEvent &out) noexcept;
+
+    // OrderReject 101 v7 / SettlementApplied 13 v7: false when the frame is not that template at money v7 with its
+    // full block (EGRESS_VERSION_FLOOR RED: a v6 frame accepted).
+    static bool decodeOrderReject(const std::uint8_t *frame, std::size_t length, OrderRejectView &out) noexcept;
+    static bool decodeSettlementApplied(const std::uint8_t *frame, std::size_t length, std::int64_t &tradeId) noexcept;
+    // Visits every trade of a 61 / 62 money frame (the generated offsets); returns the number visited (0 for any
+    // other frame).
+    static std::size_t visitTrades(const std::uint8_t *frame, std::size_t length, TradeVisitor visitor,
+        void *context) noexcept;
 
     // The money frame length a schema 4 record becomes (0 when the record is not an admitted shape).
     static std::size_t frameLengthFor(const std::uint8_t *record, std::size_t length) noexcept;

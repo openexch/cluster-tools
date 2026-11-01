@@ -1,7 +1,8 @@
 # app/forwarder - ct-forwarder, the RC2 S12 production forwarder.
 #
 # Every configuration (the WITH_AERON=OFF fast job included):
-#   ct_forwarder_pure          ForwarderConfig (strict env), MetricsRender, HttpServer, Supervisor (main's loop)
+#   ct_forwarder_pure          ForwarderConfig (strict env), MetricsRender; links ct_app_common (HttpServer,
+#                              Supervisor, LogRing, StatusBoardT: moved to app/common by RC2 S9c W1)
 #   ct_forwarder_config_tests  ForwarderConfigTest + MetricsRenderTest
 #   ct_forwarder_main_tests    the watchdog, the 2 s join bound and the stop path against duty stubs (FIX-8)
 # WITH_AERON:
@@ -16,12 +17,10 @@
 
 add_library(ct_forwarder_pure STATIC
     ForwarderConfig.cpp
-    MetricsRender.cpp
-    HttpServer.cpp
-    Supervisor.cpp)
+    MetricsRender.cpp)
 target_include_directories(ct_forwarder_pure PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/domain/forwarder/include")
-target_link_libraries(ct_forwarder_pure PUBLIC ct_client_core Threads::Threads)
+target_link_libraries(ct_forwarder_pure PUBLIC ct_app_common ct_client_core Threads::Threads)
 target_compile_options(ct_forwarder_pure PRIVATE -Wall -Wextra)
 
 if(BUILD_TESTING)
@@ -90,5 +89,10 @@ if(WITH_AERON)
         target_compile_definitions(ct_forwarder_nc_refuse PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_NC_PRESET="AGENT_SEND_INVALID")
         ct_forwarder_binary(ct_forwarder_tc_corrupt ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_tc_corrupt PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_CORRUPT=1)
+        # RC2 S9c 12.5 (T1-G negative control): nc_refuse needs corrupted input to refuse, so the T1-G RED runs the
+        # refusal preset over the test corruption (never published: the publish guard refuses _nc_ and _tc_ names)
+        ct_forwarder_binary(ct_forwarder_nc_refuse_tc ct_forwarder_domain_seamed)
+        target_compile_definitions(ct_forwarder_nc_refuse_tc PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_NC_PRESET="AGENT_SEND_INVALID"
+            CT_FORWARDER_TC_CORRUPT=1)
     endif()
 endif()

@@ -256,7 +256,12 @@ ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, Settings
         errors.push_back("BRIDGE_JOURNAL_MTU must be a multiple of 32 in [" + std::to_string(MAX_FRAME_LENGTH + 32) +
             ", 65504], got " + std::to_string(s.journalMtu));
     }
-    if (SettingsScope::BRIDGE == scope)
+    if (SettingsScope::BRIDGE_EXTERNAL == scope && lookup("BRIDGE_DRIVER_DIR"))
+    {
+        errors.push_back("BRIDGE_DRIVER_DIR is set but the bridge runs on an external driver (BRIDGE_DRIVER_MODE=external): "
+                         "remove it");
+    }
+    if (SettingsScope::BRIDGE_EMBEDDED == scope)
     {
         if (auto dir = required("BRIDGE_DRIVER_DIR"))
         {

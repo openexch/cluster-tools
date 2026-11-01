@@ -142,6 +142,68 @@ bound); 75 an inferred refusal (restart allowed); 78 configuration or an observe
 `app/forwarder/it/run-forwarder-it.sh <build> <assets-cluster.jar> <match-cluster.jar>` (3 AE + 3 ME + 2 forwarders,
 the negative-control binaries need `-DCT_FORWARDER_TEST_BUILDS=ON`; they are never published).
 
+### ct-bridge
+
+The C++ settlement bridge (RC2 S9c): one resumable BRIDGE session on the core, one ME journal archive attached at a
+time (the configured archives in failover order). Every journal record (schema 4) is fed to the core exactly once and
+in order (money v7 61 / 62 / 63 / 64 / 67 / 68, trades batched up to 64 per 62), or the bridge halts loudly with a
+FeedHalt; the core's `lastAppliedJournalSeq` is the only cursor, nothing is written to disk, a restart is a cold start.
+
+```bash
+env BRIDGE_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron BRIDGE_DRIVER_TIMEOUT_MS=5000 \
+    BRIDGE_ME_JOURNAL_ARCHIVES=10.0.1.1:9010,10.0.1.2:9110,10.0.1.3:9210 BRIDGE_JOURNAL_CONTROL_STREAM=4010 \
+    BRIDGE_JOURNAL_STREAM=4001 BRIDGE_JOURNAL_CHANNEL=aeron:ipc BRIDGE_REPLAY_STREAM=9101 BRIDGE_JOURNAL_MTU=1408 \
+    BRIDGE_LOCAL_HOST=10.0.0.9 BRIDGE_AE_CLUSTER_ADDRESSES=10.0.0.1,10.0.0.2,10.0.0.3 BRIDGE_AE_PORT_BASE=9000 \
+    CLUSTER_PORT_STRIDE=100 BRIDGE_AE_EGRESS_ENDPOINT=10.0.0.9:0 AE_AUTH_CREDENTIAL=3:BRIDGE:<64 hex> \
+    BRIDGE_INSTANCE_ID=1 BRIDGE_HTTP_BIND=10.0.0.9:9600 ct-bridge
+```
+
+| Variable | Rule |
+|---|---|
+| `BRIDGE_DRIVER_MODE` | `external` (prod: the host `aeronmd` admin / cloud-console manage) or `embedded` (dev and demo only); no default |
+| `AERON_DIR` | `external` only (refused in `embedded`): the host driver's directory |
+| `BRIDGE_DRIVER_DIR` | `embedded` only (refused in `external`): a writable directory, the driver runs in `<dir>/ct-bridge-<BRIDGE_INSTANCE_ID>`; `<dir>/ct-bridge-<id>.lock` is held (flock) for the process lifetime, so a second instance with that id exits 78 without touching the dir, even in the same instant; a stale dir of an earlier run is reclaimed after a check of about 3 s |
+| `BRIDGE_DRIVER_TIMEOUT_MS` | 3000..60000: the start-up connect wait, the CnC liveness check (a dead or stale driver exits 70) and the conductor-heartbeat threshold. The floor spans two driver heartbeats (the driver stamps its CnC once per 1 s timer interval; a timeout at that cadence reads a live driver as dead) |
+| `BRIDGE_ME_JOURNAL_ARCHIVES` | 1..16 `host:port`, failover order; `BRIDGE_JOURNAL_*`, `BRIDGE_REPLAY_STREAM`, `BRIDGE_JOURNAL_MTU` (multiple of 32, 1144..65504), `BRIDGE_LOCAL_HOST` (loopback only with loopback archives) |
+| `BRIDGE_AE_CLUSTER_ADDRESSES`, `BRIDGE_AE_PORT_BASE`, `CLUSTER_PORT_STRIDE` | core member hosts; ingress `base + i * stride + 2` (`ClusterPorts`) |
+| `BRIDGE_AE_EGRESS_ENDPOINT` | `host:port` (port 0 = driver-assigned), never `0.0.0.0`, loopback only with loopback core members |
+| `AE_AUTH_CREDENTIAL` | `keyId:BRIDGE:secretHex` (another class exits 78) |
+| `BRIDGE_INSTANCE_ID` | 1..INT64_MAX (`RegisterSession.identity`, `FeedHalt.bridgeIdentity`, the embedded driver dir) |
+| `BRIDGE_HTTP_BIND` | `ipv4:port`; `0.0.0.0` only when written out |
+| `BRIDGE_HALT_ON_GAP` | refused if present (the core enforces density) |
+
+Everything else is a constant in code (ingress `aeron:udp?term-length=4m|mtu=8192`, egress `term-length=4m`, keepalive
+1 s, the 5 s duty watchdog, the 7 s stop bound). GET `/health` (`{"halted":..,"aeConnected":..,...}`; 503 iff halted,
+a kept halt across a session loss included, or STALLED), `/ready` (200, or 503 naming every failing conjunct:
+`core_not_connected`, `core_no_leader`, `core_not_registered`, `no_report_this_term`, `report_stale`,
+`no_source_attached`, `halted`, `fatal`, `backlog_without_progress_30s`, ...), `/metrics` (Prometheus; alert rules in
+`app/bridge/alerts.yml`). Exit codes: 0 SIGTERM / SIGINT; 70 process health (a dead or stale driver in either mode, a
+wedged client conductor, the duty watchdog, an escaped exception, the stop join bound, a domain fatal); 75 the
+registration was never answered in three sessions (restart allowed); 78 configuration or an observed refusal (the
+unit sets `RestartPreventExitStatus=78`, `RestartSec >= 2s`, a start limit). SIGHUP is counted, nothing else.
+
+Runbook:
+1. `halted` with `GAP`: the gate is SUSPENDED (BRIDGE_HALT); deposits and withdrawals continue; the bridge re-scans every
+   60 s and resumes by itself when a source delivers `expected`; ADMIN OPEN is manual after the report shows the cursor
+   past `seen - 1`.
+2. `halted` with `SOURCE_SCHEMA` sent by the bridge (skip 0): read `bridge_source_bad_total` and the verdict log per
+   source, fix the source (re-journal) and restart the bridge; a second lane or a core past `expected` also ends it.
+3. `halted` with `EPOCH_MISMATCH`: a genesis-only latch; the bridge stays parked until the core is re-genesised.
+4. `halted` with `CORE_REFUSED`: check every source at `bridge_core_cursor + 1` with `ct-journal-tail`; restart the
+   bridge after the sources were checked; never 76-skip a record another node may hold.
+5. exit 78: read the config errors on stderr. exit 75: the registration was never answered three times; check the
+   core's key table. exit 70: the first CRITICAL / FATAL line names the cause ("MediaDriver keepalive" = the driver
+   died or its CnC is stale, "conductor heartbeat stale" = a wedged client conductor, "duty heartbeat" = a wedged duty
+   thread).
+6. `bridge_source_refused{reason="mtu"} == 1` on one source: unused until the bridge restarts; fix the recording MTU or
+   `BRIDGE_JOURNAL_MTU`, then restart (every source refused: exit 78).
+7. Driver modes: prod runs `external` under the host `aeronmd` (its dir sizing covers the replay image, 3 x the ME
+   journal term, plus this process's 4m ingress and egress terms). `embedded` (dev and demo) needs `BRIDGE_DRIVER_DIR`
+   on a tmpfs of at least 256 MB (measured: R-K0 embedded with a 64m-term journal).
+
+The T1 drills are `app/bridge/it/run-bridge-it.sh <build> <assets-cluster.jar> <harness.jar> <drill|all>` (the test
+builds `ct_bridge_nc_*`, `ct_bridge_negctl`, `ct_bridge_tc_*` need `-DCT_BRIDGE_TEST_BUILDS=ON`; never published).
+
 ### ct-journal-tail
 
 Reads the ME journal (schema 4) from the configured archives through `archive/`, without a core

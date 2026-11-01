@@ -52,7 +52,9 @@ jobs:
       # aeron build tree). The box has no aeron libraries of its own; everything
       # else must resolve to stock system libs, which the closure check enforces.
       # RC2 S12: ct-forwarder, the production forwarder (exit 78 on a missing env is its start smoke below).
-      FILES: switch-behavior ct-forwarder aeronmd libaeron_driver.so libaeron.so
+      # RC2 S9c: ct-bridge, the production settlement bridge (the embedded driver mode links aeron_driver_static from the
+      # same verified tree: no new shared library; the same start smoke).
+      FILES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so
       # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
       # scripts/fetch-deps.sh + scripts/fetch-schemas.sh fetch and sha256-verify them.
       CMAKE_VERSION: 3.31.6
@@ -90,7 +92,8 @@ jobs:
         id: deps
         run: |
           set -euo pipefail
-          scripts/fetch-deps.sh "${PWD}/deps-cache" > deps.args
+          # --harness: WITH_BRIDGE (ct-bridge) requires the S9h feed harness jar the lock pins (feed_harness_url)
+          scripts/fetch-deps.sh "${PWD}/deps-cache" --harness > deps.args
           echo "args=$(tr '\n' ' ' < deps.args)" >> "$GITHUB_OUTPUT"
 
       - name: Read the schema pins
@@ -136,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086 # the args are -D flags, one per word
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWITH_AERON=ON \
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWITH_AERON=ON -DWITH_BRIDGE=ON \
             ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
           cmake --build build -j"$(nproc)"
 
@@ -178,12 +181,20 @@ jobs:
           if echo " ${FILES} " | grep -qE 'ct_forwarder_(nc|tc)_'; then
             echo "::error::FILES names a forwarder test build"; exit 1
           fi
+          # RC2 S9c: the same for the bridge's negative-control and test-corruption builds (CT_BRIDGE_TEST_BUILDS is not set)
+          if find build -type f \( -name 'ct_bridge_nc_*' -o -name 'ct_bridge_tc_*' -o -name 'ct_bridge_negctl' \) | grep -q .; then
+            echo "::error::a ct_bridge_nc_*/ct_bridge_tc_*/ct_bridge_negctl test build is in the publish tree"; exit 1
+          fi
+          if echo " ${FILES} " | grep -qE 'ct_bridge_(nc|tc)_|ct_bridge_negctl'; then
+            echo "::error::FILES names a bridge test build"; exit 1
+          fi
           cp build/app/switch-behavior/switch-behavior dist/
           cp build/app/forwarder/ct-forwarder dist/
+          cp build/app/bridge/ct-bridge dist/
           cp "${AERONMD}" dist/aeronmd
           cp "${LIBDRIVER}" dist/libaeron_driver.so
           cp "${LIBAERON}" dist/libaeron.so
-          strip dist/switch-behavior dist/ct-forwarder dist/aeronmd
+          strip dist/switch-behavior dist/ct-forwarder dist/ct-bridge dist/aeronmd
           # --strip-unneeded for the shared libraries: keep the dynamic symbols
           # the loader resolves against, drop the rest.
           strip --strip-unneeded dist/libaeron_driver.so dist/libaeron.so
@@ -222,6 +233,11 @@ jobs:
           rc=0
           env -i ./ct-forwarder >/dev/null 2>&1 || rc=$?
           [ "$rc" -eq 78 ] || { echo "::error::ct-forwarder without env exited $rc, expected 78"; exit 1; }
+          # ct-bridge: strict env (RC2 S9c section 8): no environment = refuse to start with 78 and name the keys
+          rc=0
+          env -i ./ct-bridge > bridge-smoke.txt 2>&1 || rc=$?
+          [ "$rc" -eq 78 ] || { echo "::error::ct-bridge without env exited $rc, expected 78"; exit 1; }
+          grep -q "BRIDGE_DRIVER_MODE is required" bridge-smoke.txt || { echo "::error::ct-bridge did not name its config errors"; exit 1; }
           # aeronmd runs until killed; surviving the 2s timeout (rc 124) IS the
           # pass — an instant exit would be a load or boot failure.
           rc=0

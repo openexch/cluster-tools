@@ -32,6 +32,9 @@ set(ME_JOURNAL_SCHEMA "" CACHE FILEPATH
     "match me-journal-schema.xml, schemaId 4 (scripts/fetch-schemas.sh) - required when WITH_CODECS=ON or WITH_AERON=ON")
 option(CT_BUILD_MEDIA_DRIVER "Build aeronmd from the verified Aeron tarball (integration tests and the published artifact need it)" ON)
 option(CT_INTEGRATION_TESTS "Register the real-cluster integration test (java + CT_IT_ASSETS_JAR + CT_IT_MATCH_JAR, see client/it/run-it.sh)" OFF)
+# RC2 S9c: the bridge's negative-control and test-corruption binaries (ct_bridge_nc_*, ct_bridge_negctl, ct_bridge_tc_*,
+# contract 12.4). Never published: publish.yml refuses them.
+option(CT_BRIDGE_TEST_BUILDS "Build the never-published ct_bridge_nc_* / ct_bridge_negctl / ct_bridge_tc_* binaries (T1 drills)" OFF)
 # RC2 S12: the forwarder's negative-control and test-corruption binaries (ct_forwarder_nc_*, ct_forwarder_tc_*,
 # contract 11.4). Never published: publish.yml refuses a binary list that names them.
 option(CT_FORWARDER_TEST_BUILDS "Build the never-published ct_forwarder_nc_* / ct_forwarder_tc_* binaries (T1 negative controls)" OFF)
@@ -100,6 +103,7 @@ if(WITH_AERON)
     add_subdirectory(app/switch-behavior)
     add_subdirectory(poc)
 endif()
+add_subdirectory(app/common)    # RC2 S9c W1: the process machinery both C++ processes share (pure; ConductorWatch with WITH_AERON)
 add_subdirectory(app/forwarder) # RC2 S12: pure parts everywhere, ct-forwarder and its agent tests with WITH_AERON
 
 if(WITH_BRIDGE)
@@ -107,3 +111,4 @@ if(WITH_BRIDGE)
     add_subdirectory(archive/aeron)
     add_subdirectory(app/journal-tail)
 endif()
+add_subdirectory(app/bridge) # RC2 S9c: ct_bridge_pure everywhere; ct-bridge and its app tests with WITH_AERON AND WITH_BRIDGE

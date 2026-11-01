@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <random>
 
+#include "com_match_infrastructure_mejournal_generated/Trade.h"
+
 #include "golden/feed_frames.inc"
 #include "golden/golden_frames.inc"
 
@@ -333,4 +335,73 @@ TEST_CASE("BridgeCodecTest.aRecordOffItsTemplateShapeIsNotEncoded")
     CHECK(codec.encodeRecord(r.data(), r.size(), out, sizeof(out)) == 0);
     StagedTrade one[1];
     CHECK(codec.encodeTradeBatch(one, 1, out, sizeof(out)) == 0);
+}
+
+// RC2 S9c 12.3: the two egress frames the app reads (OrderReject 101, SettlementApplied 13) against the Java encoders'
+// goldens, and the O3 / O4 trade getter on the 61 and 62 frames this codec produces (metrics only).
+TEST_CASE("BridgeAppCodecTest.decodeOrderReject101AndSettlementApplied13")
+{
+    using cluster_tools::sbe_adapter::bridge_codec::OrderRejectView;
+    OrderRejectView r;
+    REQUIRE(BridgeCodec::decodeOrderReject(JAVA_ORDER_REJECT_61_UNREGISTERED.data(), JAVA_ORDER_REJECT_61_UNREGISTERED.size(), r));
+    CHECK(r.correlationId == 0x0102030405060708LL);
+    CHECK(r.refTemplateId == 61);
+    CHECK(r.reasonRaw == 35);
+    REQUIRE(BridgeCodec::decodeOrderReject(JAVA_ORDER_REJECT_7_INVALID.data(), JAVA_ORDER_REJECT_7_INVALID.size(), r));
+    CHECK(r.refTemplateId == 7);
+    CHECK(r.reasonRaw == 15);
+    std::int64_t tradeId = 0;
+    REQUIRE(BridgeCodec::decodeSettlementApplied(JAVA_SETTLEMENT_APPLIED.data(), JAVA_SETTLEMENT_APPLIED.size(), tradeId));
+    CHECK(tradeId == 0x4142434445464748LL);
+    // another template, a short frame, another version: refused
+    CHECK_FALSE(BridgeCodec::decodeSettlementApplied(JAVA_ORDER_REJECT_7_INVALID.data(), JAVA_ORDER_REJECT_7_INVALID.size(), tradeId));
+    CHECK_FALSE(BridgeCodec::decodeOrderReject(JAVA_ORDER_REJECT_7_INVALID.data(), 20, r));
+    Bytes v6(JAVA_ORDER_REJECT_61_UNREGISTERED.begin(), JAVA_ORDER_REJECT_61_UNREGISTERED.end());
+    v6[6] = 6;
+    const bool v6Refused = !BridgeCodec::decodeOrderReject(v6.data(), v6.size(), r);
+    CHECK(v6Refused); // EGRESS_VERSION_FLOOR RED: a v6 101 accepted
+}
+
+namespace {
+struct Visited
+{
+    std::vector<std::pair<std::int64_t, std::int64_t>> trades;
+};
+void onTrade(void *context, std::int64_t tradeId, std::int64_t ts)
+{
+    static_cast<Visited *>(context)->trades.emplace_back(tradeId, ts);
+}
+}
+
+TEST_CASE("BridgeAppCodecTest.tradeGetterReadsTheGeneratedOffsets")
+{
+    const Bytes trade = readFile(std::string(CT_MEJOURNAL_FIXTURE_DIR) + "/java-trade.bin");
+    namespace jr = com::match::infrastructure::mejournal::generated;
+    jr::Trade d;
+    d.wrapForDecode(reinterpret_cast<char *>(const_cast<std::uint8_t *>(trade.data())), 8, jr::Trade::sbeBlockLength(), 1,
+        trade.size());
+    BridgeCodec codec;
+    std::uint8_t out[8192];
+    const std::size_t n61 = codec.encodeRecord(trade.data(), trade.size(), out, sizeof(out));
+    REQUIRE(n61 > 0);
+    Visited v;
+    CHECK(1 == BridgeCodec::visitTrades(out, n61, &onTrade, &v));
+    REQUIRE(v.trades.size() == 1);
+    CHECK(v.trades[0].first == d.tradeId());
+    CHECK(v.trades[0].second == d.timestamp());
+    // a cap-64 62
+    std::vector<StagedTrade> staged(64);
+    for (std::size_t i = 0; i < staged.size(); ++i)
+    {
+        std::memcpy(staged[i].record, trade.data(), bridge::TRADE_RECORD_LENGTH);
+        staged[i].seq = static_cast<std::int64_t>(i);
+    }
+    const std::size_t n62 = codec.encodeTradeBatch(staged.data(), staged.size(), out, sizeof(out));
+    REQUIRE(n62 > 0);
+    Visited b;
+    CHECK(64 == BridgeCodec::visitTrades(out, n62, &onTrade, &b));
+    CHECK(b.trades.back().second == d.timestamp());
+    // any other frame: nothing visited
+    const std::size_t nq = codec.encodeQuery(1, out, sizeof(out));
+    CHECK(0 == BridgeCodec::visitTrades(out, nq, &onTrade, &b));
 }

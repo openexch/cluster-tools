@@ -24,7 +24,7 @@ std::map<std::string, std::string> good()
     };
 }
 
-ArchiveSettingsResult parse(const std::map<std::string, std::string> &env, SettingsScope scope = SettingsScope::BRIDGE)
+ArchiveSettingsResult parse(const std::map<std::string, std::string> &env, SettingsScope scope = SettingsScope::BRIDGE_EMBEDDED)
 {
     return parseArchiveSettings(
         [&](const std::string &key) -> std::optional<std::string> {
@@ -206,4 +206,48 @@ TEST_CASE("ArchiveSettingsTest.streamsAndChannel")
     env = good();
     env["BRIDGE_DRIVER_DIR"] = "relative/dir";
     CHECK(mentions(parse(env), "absolute"));
+}
+
+// RC2 S9c W0 (2026-10-31): the external-driver scope needs no BRIDGE_DRIVER_DIR and refuses one that is set.
+TEST_CASE("ArchiveSettingsTest.externalScopeNeedsNoDriverDir")
+{
+    auto env = good();
+    env.erase("BRIDGE_DRIVER_DIR");
+    const auto r = parse(env, SettingsScope::BRIDGE_EXTERNAL);
+    REQUIRE(r.ok());
+    CHECK(r.settings->driverDir.empty());
+    CHECK(r.settings->archives.size() == 3);
+    // present (any value) is refused: the key means nothing on the host aeronmd
+    const auto present = parse(good(), SettingsScope::BRIDGE_EXTERNAL);
+    CHECK_FALSE(present.ok());
+    CHECK(mentions(present, "BRIDGE_DRIVER_DIR is set but the bridge runs on an external driver"));
+    env["BRIDGE_DRIVER_DIR"] = "";
+    CHECK_FALSE(parse(env, SettingsScope::BRIDGE_EXTERNAL).ok());
+    // every other 4.1 key stays required in the external scope
+    for (const auto &[key, value] : good())
+    {
+        if ("BRIDGE_DRIVER_DIR" == key)
+        {
+            continue;
+        }
+        CAPTURE(key);
+        auto missing = good();
+        missing.erase("BRIDGE_DRIVER_DIR");
+        missing.erase(key);
+        CHECK(mentions(parse(missing, SettingsScope::BRIDGE_EXTERNAL), key + " is required"));
+    }
+}
+
+TEST_CASE("ArchiveSettingsTest.embeddedScopeStillRequiresIt")
+{
+    auto env = good();
+    env.erase("BRIDGE_DRIVER_DIR");
+    const auto r = parse(env, SettingsScope::BRIDGE_EMBEDDED);
+    CHECK_FALSE(r.ok());
+    CHECK(mentions(r, "BRIDGE_DRIVER_DIR is required"));
+    env["BRIDGE_DRIVER_DIR"] = "relative/dir";
+    CHECK(mentions(parse(env, SettingsScope::BRIDGE_EMBEDDED), "BRIDGE_DRIVER_DIR must be an absolute path"));
+    const auto ok = parse(good(), SettingsScope::BRIDGE_EMBEDDED);
+    REQUIRE(ok.ok());
+    CHECK(ok.settings->driverDir == "/dev/shm");
 }

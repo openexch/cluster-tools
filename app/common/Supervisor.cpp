@@ -1,4 +1,4 @@
-#include "Supervisor.h"
+#include "common/Supervisor.h"
 
 #include <poll.h>
 #include <pthread.h>
@@ -12,9 +12,18 @@
 #include <exception>
 #include <thread>
 
-namespace cluster_tools { namespace app { namespace forwarder {
+namespace cluster_tools { namespace app { namespace common {
 
 namespace {
+
+std::atomic<const char *> g_processName{ "ct-forwarder" };
+
+std::string seconds(std::int64_t ns)
+{
+    char text[32];
+    std::snprintf(text, sizeof(text), "%g s", static_cast<double>(ns) / 1e9);
+    return text;
+}
 
 sigset_t supervisedSignals()
 {
@@ -29,7 +38,7 @@ sigset_t supervisedSignals()
 
 }
 
-Supervisor::Supervisor(StatusBoard &board, LogRing &log, SupervisorSettings settings, ExitSeam exitSeam, LogWriter writer) :
+Supervisor::Supervisor(const DutyHeartbeat &board, LogRing &log, SupervisorSettings settings, ExitSeam exitSeam, LogWriter writer) :
     m_board(board), m_log(log), m_settings(settings), m_exit(std::move(exitSeam)), m_writer(std::move(writer))
 {
 }
@@ -73,10 +82,16 @@ void Supervisor::ignoreSigpipe()
     ::signal(SIGPIPE, SIG_IGN);
 }
 
+void Supervisor::setProcessName(const char *name) noexcept
+{
+    g_processName.store(name, std::memory_order_release);
+}
+
 void Supervisor::exitProcess(int code, const std::string &why)
 {
     char line[512];
-    const int n = std::snprintf(line, sizeof(line), "ct-forwarder exit %d: %s\n", code, why.c_str());
+    const int n = std::snprintf(line, sizeof(line), "%s exit %d: %s\n", g_processName.load(std::memory_order_acquire), code,
+        why.c_str());
     NonBlockingLogWriter writer(2); // never blocks on a stuck stderr (NOTE-5)
     if (n > 0)
     {
@@ -132,7 +147,9 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
     try
     {
         duty = std::thread([this] {
-            pthread_setname_np(pthread_self(), "fwd-duty");
+            char name[16];
+            std::snprintf(name, sizeof(name), "%s-duty", m_settings.threadPrefix);
+            pthread_setname_np(pthread_self(), name);
             std::atomic<bool> &dutyDone = m_dutyDone;
             std::atomic<int> &dutyCode = m_dutyCode;
             int code = 70;
@@ -157,20 +174,23 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         if (nullptr != http)
         {
             httpThread = std::thread([this, http] {
-                pthread_setname_np(pthread_self(), "fwd-http");
+                char name[16];
+                std::snprintf(name, sizeof(name), "%s-http", m_settings.threadPrefix);
+                pthread_setname_np(pthread_self(), name);
                 try
                 {
                     http->run();
                 }
                 catch (const std::exception &e)
                 {
-                    m_log.push(LogLevel::CRITICAL, monotonicNs(), "fwd-http: exception escaped: %s", e.what());
+                    m_log.push(LogLevel::CRITICAL, monotonicNs(), "%s-http: exception escaped: %s", m_settings.threadPrefix,
+                        e.what());
                     httpFatal.store(70, std::memory_order_release);
                     wake();
                 }
                 catch (...)
                 {
-                    m_log.push(LogLevel::CRITICAL, monotonicNs(), "fwd-http: unknown exception escaped");
+                    m_log.push(LogLevel::CRITICAL, monotonicNs(), "%s-http: unknown exception escaped", m_settings.threadPrefix);
                     httpFatal.store(70, std::memory_order_release);
                     wake();
                 }
@@ -208,6 +228,7 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
     std::uint64_t lastBeat = m_board.heartbeat();
     lastAdvanceNs.store(monotonicNs(), std::memory_order_release);
     std::int64_t stopAt = -1;
+    std::int64_t lastWakeNs = monotonicNs();
     for (;;)
     {
         const std::int64_t waitNs = stopAt >= 0 ? m_settings.stopWaitNs : m_settings.waitNs;
@@ -216,19 +237,32 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         ts.tv_nsec = static_cast<long>(waitNs % 1'000'000'000LL);
         const int sig = ::sigtimedwait(&set, nullptr, &ts);
         const std::int64_t now = monotonicNs();
+        const std::int64_t wakeGapNs = now - lastWakeNs; // >= the watchdog: this process itself did not run (NOTE-4)
+        lastWakeNs = now;
         if ((SIGTERM == sig || SIGINT == sig) && stopAt < 0)
         {
+            stopRequestedAtNs.store(now, std::memory_order_release);
             stopRequested.store(true, std::memory_order_release);
             stopAt = now;
         }
         else if (SIGHUP == sig)
         {
-            resyncRequested.store(true, std::memory_order_release); // T4
+            const std::uint64_t count = sighupCount.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (SighupPolicy::RESYNC_FLAG == m_settings.sighupPolicy)
+            {
+                resyncRequested.store(true, std::memory_order_release); // T4
+            }
+            else if (1 == count)
+            {
+                m_log.push(LogLevel::WARN, now, "SIGHUP ignored: %s has no operator resync (the core's cursor is the only "
+                    "resync input); counted", m_settings.processName);
+            }
         }
         drainLogs();
         if (httpFatal.load(std::memory_order_acquire) >= 0)
         {
-            const int code = exitWith(70, "the fwd-http thread failed (an exception escaped, NOTE-5)");
+            const int code = exitWith(70, std::string("the ") + m_settings.threadPrefix +
+                "-http thread failed (an exception escaped, NOTE-5)");
             abandon();
             return code;
         }
@@ -246,9 +280,22 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         }
         else if (!dutyDone.load(std::memory_order_acquire) && now - lastAdvanceNs.load(std::memory_order_acquire) >= m_settings.watchdogNs)
         {
-            const int code = exitWith(70, "duty heartbeat did not advance for 5 s (F3 watchdog)");
+            const int code = exitWith(70, wakeGapNs >= m_settings.watchdogNs
+                ? "duty heartbeat did not advance across a process pause of " + seconds(wakeGapNs) +
+                    " (this process did not run: SIGSTOP, a VM or GC freeze), not a wedged duty thread (F3 watchdog)"
+                : "duty heartbeat did not advance for " + seconds(m_settings.watchdogNs) + " (F3 watchdog)");
             abandon();
             return code;
+        }
+        if (m_liveness && !dutyDone.load(std::memory_order_acquire))
+        {
+            std::string why;
+            if (!m_liveness(now, why))
+            {
+                const int code = exitWith(70, why);
+                abandon();
+                return code;
+            }
         }
         if (dutyDone.load(std::memory_order_acquire))
         {
@@ -256,7 +303,8 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         }
         if (stopAt >= 0 && now - stopAt >= m_settings.joinBoundNs)
         {
-            const int code = exitWith(70, "the duty thread did not stop within 2 s (F14 join bound)");
+            const int code = exitWith(70, "the duty thread did not stop within " + seconds(m_settings.joinBoundNs) +
+                " (F14 join bound)");
             abandon();
             return code;
         }
@@ -273,7 +321,8 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         }
         if (!http->finished())
         {
-            const int code = exitWith(70, "fwd-http did not stop within 2 s (F14 join bound)");
+            const int code = exitWith(70, std::string(m_settings.threadPrefix) + "-http did not stop within " +
+                seconds(m_settings.joinBoundNs) + " (F14 join bound)");
             abandon();
             return code;
         }
