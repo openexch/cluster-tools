@@ -7,7 +7,7 @@
 //     is stale per record when cursor >= seen - 1 (DUPLICATE, nothing written); a new or changed record is ACCEPTED,
 //     an identical one DUPLICATE; the same identity replaces its record; a replace from ANOTHER session keeps
 //     seen = max and expected = min and marks the record SESSION_SHARED, after which no session lowers it (assets
-//     FeedState.recordGapHalt, eb687f1);
+//     FeedState.recordGapHalt, RC-core d3f9880);
 //   - the core's own GAP record (identity 0, FeedState.recordCoreGap): every FEED_GAP refusal and every unbound s > 1
 //     latches GAP {c + 1, s} into it (an open one merges: seen = max, expected = min), exactly like the real core;
 //   - each record cleared by its own reach condition cursor >= seen_i - 1; the overflow record never clears by reach
@@ -1200,7 +1200,7 @@ struct Run
         }
     }
 
-    // FeedState.recordCoreGap (assets eb687f1 FIX-1): the identity-0 record of a GAP the core detected itself; an open
+    // FeedState.recordCoreGap (assets RC-core d3f9880 FIX-1): the identity-0 record of a GAP the core detected itself; an open
     // one merges (seen = max, expected = min), so its reach never opens the gate below a hole the core refused a frame at
     void recordCoreGap(std::int64_t expected, std::int64_t seen)
     {

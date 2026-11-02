@@ -19,6 +19,17 @@
 //       (the runner compares H with the capture sidecar, N-11), "HELLO meEpoch=E after=Mms", "SENT count=C",
 //       "REPLY template=T count=K" per template (or "REPLY none"). A hello refusal exits 78 with the reason
 //       ("HELLO REFUSED <reason>": the credential rejected, or no hello within 10 s).
+//   book <aeronDir> <ingress>
+//       RC2 S13 contract 12: opens an ME ADMIN session (the open itself triggers a resnapshot, ACS:1613-1616), waits
+//       for one BookSnapshot 22 of every configured market (T1_ME_MARKETS) or 2 s, prints per market
+//       "BOOK market=<m> version=<v> bid=<b> ask=<a>" (bid=0 ask=0 for a versioned empty book after W-ME2) or
+//       "BOOK market=<m> none" (no snapshot: the market was never versioned), closes. Raw little-endian reads.
+//   listen <aeronDir> <ingress> <seconds>
+//       RC2 S13 (TK-I, evidence): an ME ADMIN session for <seconds>; prints "T=<ms> tpl=22|25|26 market=<m> ..." per
+//       book or trade frame (26: "maxTradeId=<id> price=<p>" of the batch's highest tradeId), raw reads.
+//
+// T1_ME_MARKETS (RC2 S13 W8, default 1): genesis configures markets 1..N (market 1 BTC-USD carries the load; the
+// others are configured and never traded, the contract 12 "markets 2..5" lines); book waits for markets 1..N.
 //
 // Credentials: T1_ME_ADMIN_KEY (keyId:ADMIN:secretHex), T1_ME_FORWARDER_KEY (resend). Exit 0 = done, 1 = the step
 // failed, 78 = the hello was refused (resend).
@@ -53,7 +64,18 @@ public final class T1MeDriver {
     private static final long TIMEOUT_MS = 30_000;
     // Only market 1 carries the T1 load (T1CoreDriver load), so the ME creates one book (the array book allocates
     // every price level up front: 0.01 .. 100.00 in 0.01 steps = 1e4 levels).
-    private static final String[] SYMBOLS = { "BTC-USD" };
+    // RC2 S13 W8: T1_ME_MARKETS (1..5) configures more markets, which no command touches (the markets 2..5 lines).
+    private static final String[] ALL_SYMBOLS = { "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD" };
+    private static final String[] SYMBOLS = java.util.Arrays.copyOf(ALL_SYMBOLS, markets());
+
+    private static int markets() {
+        final String v = System.getenv("T1_ME_MARKETS");
+        final int n = v == null || v.isEmpty() ? 1 : Integer.parseInt(v);
+        if (n < 1 || n > ALL_SYMBOLS.length) {
+            throw new IllegalArgumentException("T1_ME_MARKETS must be 1.." + ALL_SYMBOLS.length + ", got " + v);
+        }
+        return n;
+    }
 
     static final class Session implements EgressListener, AutoCloseable {
         final AeronCluster client;
@@ -303,6 +325,96 @@ public final class T1MeDriver {
         }
     }
 
+    private static final java.nio.ByteOrder LE = java.nio.ByteOrder.LITTLE_ENDIAN;
+
+    /** RC2 S13 contract 12: one BookSnapshot per configured market (or 2 s), then the BOOK lines. */
+    private static void book(final String aeronDir, final String ingress) throws Exception {
+        try (Session admin = new Session(aeronDir, ingress)) {
+            final int n = SYMBOLS.length;
+            final String[] line = new String[n + 1];
+            int have = 0;
+            int seen = 0;
+            final long deadline = System.currentTimeMillis() + 2_000;
+            while (have < n && System.currentTimeMillis() < deadline) {
+                admin.poll();
+                for (; seen < admin.frames.size(); seen++) {
+                    final UnsafeBuffer b = new UnsafeBuffer(admin.frames.get(seen));
+                    if (b.capacity() < 8 || (b.getShort(2, LE) & 0xFFFF) != 22) {
+                        continue;
+                    }
+                    final int block = b.getShort(0, LE) & 0xFFFF;
+                    final int p = 8;
+                    final int market = b.getInt(p, LE);
+                    if (market < 1 || market > n || line[market] != null) {
+                        continue;
+                    }
+                    final long version = b.getLong(p + 28, LE);
+                    final int bidsAt = p + block;
+                    final int bidBlock = b.getShort(bidsAt, LE) & 0xFFFF;
+                    final int nBids = b.getShort(bidsAt + 2, LE) & 0xFFFF;
+                    final int asksAt = bidsAt + 4 + nBids * bidBlock;
+                    final int askBlock = b.getShort(asksAt, LE) & 0xFFFF;
+                    final int nAsks = b.getShort(asksAt + 2, LE) & 0xFFFF;
+                    final long bid = nBids > 0 ? b.getLong(bidsAt + 4, LE) : 0;
+                    final long ask = nAsks > 0 ? b.getLong(asksAt + 4, LE) : 0;
+                    line[market] = "BOOK market=" + market + " version=" + version + " bid=" + bid + " ask=" + ask
+                            + " bids=" + nBids + " asks=" + nAsks + " blocks=" + bidBlock + "/" + askBlock;
+                    have++;
+                }
+                Thread.onSpinWait();
+            }
+            for (int m = 1; m <= n; m++) {
+                System.out.println(line[m] != null ? line[m] : "BOOK market=" + m + " none");
+            }
+        }
+    }
+
+    /** RC2 S13 (evidence): the book and trade frames of one ADMIN session for a while. */
+    private static void listen(final String aeronDir, final String ingress, final long seconds) throws Exception {
+        try (Session admin = new Session(aeronDir, ingress)) {
+            System.out.println("LISTEN open T=" + System.currentTimeMillis());
+            int seen = 0;
+            final long end = System.currentTimeMillis() + seconds * 1000;
+            while (System.currentTimeMillis() < end) {
+                admin.poll();
+                for (; seen < admin.frames.size(); seen++) {
+                    final UnsafeBuffer b = new UnsafeBuffer(admin.frames.get(seen));
+                    if (b.capacity() < 8) {
+                        continue;
+                    }
+                    final int block = b.getShort(0, LE) & 0xFFFF;
+                    final int tpl = b.getShort(2, LE) & 0xFFFF;
+                    final int p = 8;
+                    final String t = "T=" + System.currentTimeMillis() + " tpl=" + tpl;
+                    if (tpl == 22) {
+                        final int nb = b.getShort(p + block + 2, LE) & 0xFFFF;
+                        final int at = p + block + 4 + nb * (b.getShort(p + block, LE) & 0xFFFF);
+                        System.out.println(t + " market=" + b.getInt(p, LE) + " bookVersion=" + b.getLong(p + 28, LE)
+                                + " bids=" + nb + " asks=" + (b.getShort(at + 2, LE) & 0xFFFF));
+                    } else if (tpl == 25) {
+                        System.out.println(t + " market=" + b.getInt(p, LE) + " bookVersion=" + b.getLong(p + 28, LE)
+                                + " from=" + b.getLong(p + 36, LE) + " changes=" + (b.getShort(p + block + 2, LE) & 0xFFFF));
+                    } else if (tpl == 26) {
+                        final int eb = b.getShort(p + block, LE) & 0xFFFF;
+                        final int cnt = b.getShort(p + block + 2, LE) & 0xFFFF;
+                        long maxId = 0;
+                        long price = 0;
+                        for (int i = 0; i < cnt; i++) {
+                            final long id = b.getLong(p + block + 4 + i * eb, LE);
+                            if (id > maxId) {
+                                maxId = id;
+                                price = b.getLong(p + block + 4 + i * eb + 40, LE);
+                            }
+                        }
+                        System.out.println(t + " market=" + b.getInt(p, LE) + " trades=" + cnt + " maxTradeId=" + maxId
+                                + " price=" + price);
+                    }
+                }
+                Thread.onSpinWait();
+            }
+        }
+    }
+
     public static void main(final String[] args) throws Exception {
         try {
             switch (args[0]) {
@@ -314,6 +426,12 @@ public final class T1MeDriver {
                     break;
                 case "open-orders":
                     openOrders(args[1], args[2], Path.of(args[3]));
+                    break;
+                case "book":
+                    book(args[1], args[2]);
+                    break;
+                case "listen":
+                    listen(args[1], args[2], Long.parseLong(args[3]));
                     break;
                 case "resend":
                     if (args.length != 4 && args.length != 5) {

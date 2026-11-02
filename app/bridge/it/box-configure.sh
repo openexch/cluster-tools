@@ -3,10 +3,10 @@
 # test build and the integration inputs. Usage: app/bridge/it/box-configure.sh <build-dir> [<harness-jar>]
 # Inputs (already on the box, mirrored paths): s11-work/deps (Aeron tarball, sbe jars), the m2 (aeron-all for the
 # archive IT), the schemas at the lock's pins from assets-rc2corewt / match-melanewt, and the jars:
-#   assets-cluster.jar  RC2 S10': built from <RC> 7bd21f4 (src/main = <RC-core> eb687f1), s10p-jars/7bd21f4/build1
-#                       (S9c used assets-rc2corewt 6fcf66b; contract S10' 0.1)
+#   assets-cluster.jar  RC2 S13: built from <RC> 6fdf6721a8c09c61b7f7d4d249a05cd62d8c0efe (src/main = <RC-core> d3f98809021859f89effadcfbf482ab2ff661145),
+#                       the s13-jars (S10' used 7bd21f4 / eb687f1; S9c used assets-rc2corewt 6fcf66b; contract S10' 0.1)
 #   match-cluster.jar   match-melanewt ed98477 (W9 inside)
-#   the harness jar     the lock's (5ad2068, feed_harness_sha256) unless a second argument names another
+#   the harness jar     the lock's (6fdf672, feed_harness_sha256 30f07242...) unless a second argument names another
 set -euo pipefail
 B=/home/emre/Apps/openexchange/.runtime-handoff/20260927-r00
 WS=$B/workspace

@@ -1086,6 +1086,17 @@ private:
             else
             {
                 codec::decodeBookDelta(m.payload, m.length, h, m_bookFrame);
+#ifdef CT_FORWARDER_TC_BOOKDROP
+                // ct_forwarder_tc_bookdrop (RC2 S13 T1 row TK-D, never published): every 40th BookDelta of market 1 is
+                // dropped before the ladder, a stand-in for a lossy drop at the ME (case B): the next delta's
+                // fromVersion no longer matches and the ladder breaks until the periodic snapshot repairs it.
+                if (1 == m_bookFrame.marketId && 0 == ++m_tcBookDeltasSeen % 40)
+                {
+                    log(LogLevel::INFO, "tc_bookdrop: BookDelta market 1 version %lld dropped (drop %llu)",
+                        static_cast<long long>(m_bookFrame.bookVersion), static_cast<unsigned long long>(m_tcBookDeltasSeen / 40));
+                    return;
+                }
+#endif
             }
             market = m_stitcher.onBookFrame(m_bookFrame, m_now);
             if (market > 0)
@@ -1363,6 +1374,9 @@ private:
     domain::forwarder::BookFrame m_bookFrame;
     domain::forwarder::TradeFrame m_tradeFrame;
     bool m_touched[domain::forwarder::TICK_MARKETS] = {};
+#ifdef CT_FORWARDER_TC_BOOKDROP
+    std::uint64_t m_tcBookDeltasSeen = 0; // market 1 BookDelta frames decoded (tc_bookdrop drops every 40th)
+#endif
     domain::forwarder::TickGate m_lastTickGate = domain::forwarder::TickGate::UNBOUND;
     std::uint64_t m_tickOffersAccepted = 0;
     CoreTickSink m_tickSink;

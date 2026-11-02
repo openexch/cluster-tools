@@ -80,12 +80,17 @@ AERONMD=$(find "$BUILD/aeron" -name aeronmd -type f | head -1)
 [ -x "$FWD" ] || { echo "FATAL: ct-forwarder not built" >&2; exit 1; }
 [ -x "$AERONMD" ] || { echo "FATAL: aeronmd not built" >&2; exit 1; }
 RATE=${IT_RATE:-200}
+# RC2 S13 W8: IT_ME_MARKETS (default 1) markets configured at the ME genesis (T1MeDriver T1_ME_MARKETS); the S13 rows run
+# 5 so the contract 12 "markets 2..5" lines judge configured markets that no command touches
+export T1_ME_MARKETS=${IT_ME_MARKETS:-1}
 SECONDS_LOAD=${IT_SECONDS:-10}
 
 W=${IT_WORK:-$(mktemp -d -t ct-forwarder-it.XXXXXX)}
 mkdir -p "$W"
 SHM=$(mktemp -d /dev/shm/ct-fwd-it.XXXXXX)
 declare -A PID
+declare -A FWD_T0 # RC2 S13 W8: each forwarder's start (now_s); O-T1 counts a forwarder started after the row start from its start
+S13_ROW_T0=0
 cleanup() {
     for name in "${!PID[@]}"; do
         kill -9 "${PID[$name]}" 2>/dev/null || true
@@ -173,6 +178,7 @@ start_fwd() { # name binary aeKey meKey httpPort [aeronDir: forces external on t
         FWD_DRIVER_TIMEOUT_MS=5000 FWD_INSTANCE_ID="$(fwd_instance_id "$name")" "${capEnv[@]}" \
         FWD_HTTP_BIND="127.0.0.1:$port" taskset -c 0-11 "$bin" >> "$W/$name.log" 2>&1 &
     PID[$name]=$!
+    FWD_T0[$name]=$(date +%s.%N)
 }
 
 core_driver() { java "${JAVA_OPTS[@]}" -cp "$AE_JAR" "$HERE/T1CoreDriver.java" "$@"; }
@@ -223,6 +229,39 @@ wait_exit() { # name timeout_s
 }
 now_s() { date +%s.%N; }
 elapsed() { python3 -I -c "import sys; print(f'{float(sys.argv[2]) - float(sys.argv[1]):.2f}')" "$1" "$2"; }
+
+# RC2 S13 W9 (C13, CL-N-6): IT_TICKS_LIVE=1 makes fatal-aeron and fatal-embedded run with MarketTick traffic live. Before the
+# fault a 6 s load must have made fwdA offer market-1 ticks that the core applied; after the fatal exit (70) the process is
+# gone and the core's applied counter stays flat for 2.5 s (the driver loss ends ticks with the process); the restarted fwdA
+# offers ticks again and is ticks_ready. W9_OK / W9_TEXT carry the verdict of each step into the row's result.
+TICKS_LIVE=${IT_TICKS_LIVE:-0}
+W9_OK=1; W9_TEXT=""
+w9_note() { W9_TEXT="${W9_TEXT:+$W9_TEXT; }$*"; }
+w9_live() { # label: ticks must be live before the fault
+    load_bg 6; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+    local o a tr
+    o=$(fwd_sum 24001 forwarder_tick_offered_total 'market="1"'); a=$(ae_counter assets_ticks_applied_total); tr=$(fwd_metric 24001 forwarder_ticks_ready)
+    W9_O0=${o:-0}; W9_A0=${a%.*}; W9_A0=${W9_A0:-0}
+    if [ "$W9_O0" -gt 0 ] && [ "$W9_A0" -gt 0 ] && [ "$tr" = 1 ]; then w9_note "ticks live before the fault (market-1 offered $W9_O0, core applied $W9_A0, ticks_ready 1)"
+    else W9_OK=0; w9_note "TICKS NOT LIVE before the fault (offered $W9_O0, core applied $W9_A0, ticks_ready ${tr:-?})"; fi
+}
+w9_ended() { # the fwdA process is gone: no endpoint, core applied counter flat
+    local a1 a2 up
+    up=$(curl -s --max-time 1 http://127.0.0.1:24001/metrics | wc -l)
+    sleep 0.5; a1=$(ae_counter assets_ticks_applied_total); sleep 2; a2=$(ae_counter assets_ticks_applied_total)
+    a1=${a1%.*}; a2=${a2%.*}
+    if [ "$up" = 0 ] && [ -n "$a1" ] && [ "$a1" = "$a2" ]; then w9_note "ticks ended with the process (no /metrics, core applied flat $a1 -> $a2 over 2 s)"
+    else W9_OK=0; w9_note "TICKS DID NOT END (metrics lines $up, core applied $a1 -> $a2)"; fi
+}
+w9_resumed() { # the restarted fwdA offers ticks again
+    local o tr n=0
+    for _ in $(seq 1 75); do
+        o=$(fwd_sum 24001 forwarder_tick_offered_total 'market="1"'); tr=$(fwd_metric 24001 forwarder_ticks_ready)
+        [ "${o:-0}" -gt 0 ] && [ "$tr" = 1 ] && break; sleep 0.2
+    done
+    if [ "${o:-0}" -gt 0 ] && [ "$tr" = 1 ]; then w9_note "ticks resumed in the new process (market-1 offered $o, ticks_ready 1)"
+    else W9_OK=0; w9_note "TICKS DID NOT RESUME (offered ${o:-?}, ticks_ready ${tr:-?})"; fi
+}
 
 FAILED=()
 PASSED=()
@@ -483,12 +522,23 @@ run_scenario() {
         kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3
         local dir="$SHM/fwdA-driver"; start_driver "$dir" "$W/aeronmd-fwdA.log" driverA
         start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001 "$dir"; wait_ready 24001 60
+        W9_OK=1; W9_TEXT=""
+        [ "$TICKS_LIVE" = 1 ] && { w9_live fatal-aeron; load_bg 40; }
         local t0 rc took; t0=$(now_s); kill -9 "${PID[driverA]}"; wait "${PID[driverA]}" 2>/dev/null; unset "PID[driverA]"
         wait_exit fwdA 10; rc=$WAIT_RC; took=$(elapsed "$t0" "$(now_s)")
+        local verdict=fail vtext="exit $rc after ${took} s"
         if [ "$rc" = 70 ] && python3 -I -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 7.0 else 1)" "$took"; then
-            result fatal-aeron ok "driver SIGKILL -> exit 70 after ${took} s"
-        else result fatal-aeron fail "exit $rc after ${took} s"; fi
-        start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60 ;;
+            verdict=ok; vtext="driver SIGKILL -> exit 70 after ${took} s"
+        fi
+        [ "$TICKS_LIVE" = 1 ] && w9_ended
+        start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
+        if [ "$TICKS_LIVE" = 1 ]; then
+            w9_resumed; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+            oracle fatal-aeron 24001 && w9_note "S12 oracle: $ORACLE_DETAIL" || { W9_OK=0; w9_note "S12 oracle FAILED: $ORACLE_DETAIL"; }
+            [ "$W9_OK" = 1 ] || verdict=fail
+            vtext="$vtext; $W9_TEXT"
+        fi
+        result fatal-aeron "$verdict" "$vtext" ;;
     epoch-fence) # T1-I: re-genesis the ME under a running fwdA: 78 (F8); the restarted fwdA is REJECTED by the core: 78 (F7)
         for i in 0 1 2; do kill -9 "${PID[me$i]}" 2>/dev/null; unset "PID[me$i]"; done
         sleep 1; for i in 0 1 2; do rm -rf "$W/me$i"; done; rm -rf "$SHM"/me-* "$W/me-journal" # S9c: the journal too
@@ -650,6 +700,7 @@ PY
         done
         [ $all_ok -eq 0 ] && result of2 ok "$detail suppressed $(me_counter match_durable_duplicates_suppressed_total)" || result of2 fail "$detail" ;;
     *) { declare -F w6_scenario > /dev/null && w6_scenario "$s"; } || { declare -F lane_c_scenario > /dev/null && lane_c_scenario "$s"; } ||
+        { declare -F s13_scenario > /dev/null && s13_scenario "$s"; } ||
         result "$s" fail "unknown scenario" ;;
     esac
 }
@@ -715,6 +766,7 @@ lane_c_scenario() {
     fatal-embedded)
         [ "$FWD_MODE" = embedded ] || { result fatal-embedded fail "needs IT_FWD_MODE=embedded"; return 0; }
         local sent0 c0 m0 t0 outcome="" rc="" took sent c1 m1
+        W9_OK=1; W9_TEXT=""; [ "$TICKS_LIVE" = 1 ] && w9_live fatal-embedded
         sent0=$(fwd_metric 24001 'forwarder_dispatch_seq{point="last_sent"}')
         c0=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="core"}'); m0=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="me"}')
         log "SIGSTOP fwdA (driver and client) 15 s"
@@ -730,12 +782,14 @@ lane_c_scenario() {
         wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
         case "$outcome" in
         exit)
+            [ "$TICKS_LIVE" = 1 ] && w9_ended
             start_fwd fwdA "$FWD" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60
-            if [ "$rc" = 70 ] && oracle fatal-embedded 24001; then result fatal-embedded ok "exit 70 ${took} s after CONT ($(grep -h 'exit 70\|stale\|timeout' "$W/fwdA.log" | tail -1)); restarted; $ORACLE_DETAIL"
-            else result fatal-embedded fail "exit $rc ${took} s after CONT; $ORACLE_DETAIL"; fi ;;
+            [ "$TICKS_LIVE" = 1 ] && w9_resumed
+            if [ "$rc" = 70 ] && [ "$W9_OK" = 1 ] && oracle fatal-embedded 24001; then result fatal-embedded ok "exit 70 ${took} s after CONT ($(grep -h 'exit 70\|stale\|timeout' "$W/fwdA.log" | tail -1)); restarted; $ORACLE_DETAIL${W9_TEXT:+; $W9_TEXT}"
+            else result fatal-embedded fail "exit $rc ${took} s after CONT; $ORACLE_DETAIL${W9_TEXT:+; $W9_TEXT}"; fi ;;
         progress)
             c1=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="core"}'); m1=$(fwd_metric 24001 'forwarder_session_reconnect_total{cluster="me"}')
-            if oracle fatal-embedded 24001; then result fatal-embedded ok "alive and progressing ${took} s after CONT (last_sent $sent0 -> $sent, reconnects core $c0 -> $c1, me $m0 -> $m1); $ORACLE_DETAIL"
+            if oracle fatal-embedded 24001; then result fatal-embedded ok "alive and progressing ${took} s after CONT (last_sent $sent0 -> $sent, reconnects core $c0 -> $c1, me $m0 -> $m1); $ORACLE_DETAIL${W9_TEXT:+; $W9_TEXT}"
             else result fatal-embedded fail "progressing but the oracle failed: $ORACLE_DETAIL"; fi ;;
         *)
             result fatal-embedded fail "FORBIDDEN: alive without progress for 30 s after CONT (ready $(ready 24001 && echo 1 || echo 0), last_sent $sent0 -> $sent)" ;;
@@ -1211,6 +1265,500 @@ w6_scenario() {
         if [ $rc -eq 1 ] && [[ "$out" == *"OF5 FAIL: "*"0 inversions"* ]] && [ "${inv:-0}" -gt 0 ]; then
             result of5-shuffle ok "RED as required: the '0 inversions' line FAILS ($inv inversions): $out"
         else result of5-shuffle fail "the shuffled map did not fail the '0 inversions' line (rc $rc): $out"; fi ;;
+    *) return 1 ;;
+    esac
+    return 0
+}
+
+# ---------------------------------------------------------------- RC2 S13 W8: the K4 MarketTick rows (contract 12)
+# Rows (dispatched from run_scenario's default arm; one row per invocation = one fresh topology; run with
+# IT_ME_MARKETS=5 so markets 2..5 are configured and never traded):
+#   tk-a / tk-h   tick-clean (tk-h with IT_FWD_MODE=embedded, C13): 10 s load; O-T1; the deeper-level line (no market-1
+#                 offer between second 5 and the load's end while template 25 still arrives); chain breaks 0
+#   tk-b          tick-n2: fwdA + fwdB; O-T1 for both; conservation (core applied + stale == A + B offered), stale > 0,
+#                 applied - max(A, B) recorded, not judged (D-1 / review-w8 NOTE-1: interleaved applies, contract 6.2)
+#   tk-c          tickResumesAfterMeFailoverWithinOneFlush (IT_RATE=50 IT_SECONDS=25): SIGSTOP the ME leader 3 s at 3 s,
+#                 SIGKILL, restart after the load; fwdA's "ME new leader" line -> market 1 OK with template 22 +1 <= 1.0 s;
+#                 leading/trailing offers after the line; core best bid 14.99 at the end; O-T1
+#   tk-c-nc       the RED half on the ed98477 ME jar: STOP L0 3 s right after a periodic 22 (so its 10 s clock is fresh),
+#                 CONT; when L1 leads STOP it 3 s, CONT; RED when L0 leads again and the TK-C line FAILS, else INCONCLUSIVE
+#   tk-d          tick-broken: fwdA = ct_forwarder_tc_bookdrop, 25 s load at IT_RATE=50: breaks (from_mismatch) > 0,
+#                 recoveries == breaks, max sampled broken age <= 10,600 ms, no tick offered while BROKEN (suppressed{broken} printed, not judged), O-T1
+#   tk-e / tk-e-nc tick-empty (IT_BRIDGE + IT_HARNESS): 3 probe-creates at 10.00, tick seen, 3 probe-cancels; core best
+#                 bid and ask 0 within 1.0 s of the last cancel's return; tk-e-nc (ed98477 ME jar) must FAIL "core bestBid
+#                 still <p> 15 s after the book emptied"
+#   tk-f          tick-core-leader: SIGKILL the AE leader at 5 s of a 10 s load, restart; a re-offer after the re-registration;
+#                 O-T1 with the core counters of a surviving follower
+#   tk-g          epoch-fence extended: a 3 s load and an applied tick before the S12 epoch-fence row; epoch drops 0 over
+#                 the row; unbound 0 from the first applied tick on
+#   tk-i          tick-trade (IT_BRIDGE + IT_HARNESS, IT_RATE=50 IT_SECONDS=3): one crossing sell; the trade mark equals the
+#                 ME's last tradeId (a T1MeDriver listen session opened before the sell, W0 answer 7), one offer and a
+#                 version rise after the fill, core last trade id equal, invariants PASS, O-T1
+#   tk-r / tk-r-nc tick-me-restored: 5 s load then quiet, ClusterTool snapshot on the ME leader, each follower SIGKILLed and
+#                 restarted 12 s later (the archive mark file, W0 answer 7), the leader SIGKILLed: within 1.0 s of fwdA's
+#                 "ME new leader" line market 1 template 22 +1, state 1, version > 0; tk-r-nc (W-ME3 off) must FAIL "no
+#                 BookSnapshot for market 1 within 1.0 s of the new leader". The version regression counter is printed,
+#                 not judged (review-lane-m NOTE-2: a restored leader handing over to a replayed node lowers a quiet
+#                 market's version, which rule 1 and E5 absorb)
+# Rule (W0 answer 6): every ME session open resnapshots every session, so no T1MeDriver book / listen session and no
+# tick_oracle is opened inside a judged "template 22 +1" window (TK-C, TK-C-nc, TK-R: from the fault to the line's end).
+TICKPY="$HERE/s13-ticks.py"
+mono_ms() { python3 -I "$TICKPY" mono; }
+S13_LABEL=""; S13_FAILS=(); S13_INFO=(); S13_SAMPLER=""; S13_AE_MEMBER=0
+s13_line() { # ok|fail text
+    if [ "$1" = ok ]; then log "LINE PASS $2"; S13_INFO+=("$2"); else log "LINE FAIL $2"; S13_FAILS+=("$2"); fi
+}
+s13_info() { log "INFO $*"; S13_INFO+=("$*"); }
+tick_sample() { # file: the 100 ms sampler of fwdA, fwdB, the ME and AE nodes (one thread per target, 0.3 s timeouts)
+    python3 -I "$TICKPY" sample "$1" 0.1 fwdA=http://127.0.0.1:24001/metrics fwdB=http://127.0.0.1:24002/metrics \
+        me0=http://127.0.0.1:$((ME_BASE + 90))/metrics me1=http://127.0.0.1:$((ME_BASE + 91))/metrics \
+        me2=http://127.0.0.1:$((ME_BASE + 92))/metrics ae0=http://127.0.0.1:$((AE_BASE + 90))/metrics \
+        ae1=http://127.0.0.1:$((AE_BASE + 91))/metrics ae2=http://127.0.0.1:$((AE_BASE + 92))/metrics > "$1.err" 2>&1 &
+    PID[sampler]=$!
+}
+scrape() { curl -s --max-time 2 "$1" 2> /dev/null > "$2"; }
+fwd_sum() { # port family [label filter regex]: the sum of a forwarder family's series
+    curl -s --max-time 2 "http://127.0.0.1:$1/metrics" 2> /dev/null |
+        awk -v f="$2" -v r="${3:-}" 'index($1, f "{") == 1 && (r == "" || $1 ~ r) { s += $2 } END { printf "%d\n", s + 0 }'
+}
+prom_val() { awk -v n="$2" '$1 == n { printf "%d\n", $2; f = 1; exit } END { if (!f) print "" }' "$1"; }
+s13_row_start() { # label port...
+    S13_LABEL=$1; shift; S13_FAILS=(); S13_INFO=(); S13_ROW_T0=$(date +%s.%N) # O-T1 "row seconds" start (W8 fix FIX-2)
+    local i impl bad=""
+    for i in 0 1 2; do
+        impl=$(metric "http://127.0.0.1:$((ME_BASE + 90 + i))/metrics" match_engine_effective_impl)
+        [ -n "$impl" ] && [ "${impl%.*}" = 0 ] || bad="$bad me$i=${impl:-?}"
+    done
+    [ -z "$bad" ] && s13_line ok "match_engine_effective_impl 0 (ARRAY) on me0..me2 at row start" ||
+        s13_line fail "match_engine_effective_impl not 0 at row start:$bad"
+    local l; l=$(leader_of ae) || l=0
+    S13_AE_MEMBER=$(( (l + 1) % 3 )) # a follower: no row restarts it (TK-F kills the leader)
+    scrape "http://127.0.0.1:$((AE_BASE + 90 + S13_AE_MEMBER))/metrics" "$W/s13-$S13_LABEL-ae$S13_AE_MEMBER-start.prom"
+    for p in "$@"; do scrape "http://127.0.0.1:$p/metrics" "$W/s13-$S13_LABEL-fwd$p-start.prom"; done
+    S13_SAMPLER="$W/s13-$S13_LABEL-sampler.txt"; rm -f "$S13_SAMPLER"; tick_sample "$S13_SAMPLER"
+    s13_info "row $S13_LABEL: AE leader $l, counter member ae$S13_AE_MEMBER; ME leader $(leader_of me); ME markets $T1_ME_MARKETS"
+}
+s13_row_end() { # stops the sampler, writes the change-only evidence copy
+    [ -n "${PID[sampler]:-}" ] && { kill "${PID[sampler]}" 2> /dev/null; wait_exit sampler 3; }
+    python3 -I "$TICKPY" changes "$S13_SAMPLER" > "$W/s13-$S13_LABEL-sampler-changes.txt" 2> /dev/null
+}
+s13_result() { # name [extra]
+    s13_row_end
+    if [ ${#S13_FAILS[@]} -eq 0 ]; then result "$1" ok "${2:+$2; }$(IFS=';'; echo "${S13_INFO[*]}")"
+    else result "$1" fail "$(IFS=';'; echo "${S13_FAILS[*]}")${2:+; $2}"; fi
+}
+# O-T1 (contract 12): the barrier, then 350 ms, then the BOOK lines and the judge. TICK_ORACLE_LINE = its verdict.
+TICK_ORACLE_LINE=""
+tick_oracle() { # label port...
+    local label=$1; shift
+    local t0 ok=0 detail p body tr pend brk now
+    t0=$(date +%s%N)
+    while :; do
+        local all=1; detail=""
+        for p in "$@"; do
+            body=$(curl -s --max-time 1 "http://127.0.0.1:$p/metrics" 2> /dev/null)
+            tr=$(awk '$1 == "forwarder_ticks_ready" { print $2 }' <<< "$body")
+            pend=$(awk '$1 ~ /^forwarder_tick_pending_age_ms\{/ && $2 != 0 { n++ } END { print n + 0 }' <<< "$body")
+            brk=$(awk '$1 ~ /^forwarder_book_state\{/ && $2 == 2 { n++ } END { print n + 0 }' <<< "$body")
+            ready "$p" || { all=0; detail="$detail $p not ready;"; }
+            [ "$tr" = 1 ] && [ "$pend" = 0 ] && [ "$brk" = 0 ] || { all=0; detail="$detail $p ticks_ready=${tr:-?} pending>0=$pend broken=$brk;"; }
+        done
+        now=$(date +%s%N)
+        [ $all -eq 1 ] && { ok=1; break; }
+        [ $(( now - t0 )) -ge 12000000000 ] && break
+        sleep 0.2
+    done
+    local bs; bs=$(python3 -I -c "import sys; print('%.2f' % ((int(sys.argv[2]) - int(sys.argv[1])) / 1e9))" "$t0" "$now")
+    [ $ok -eq 1 ] && detail="every forwarder ready, ticks_ready 1, pending age 0, no BROKEN market"
+    sleep 0.35
+    local spec="$W/tick-oracle-$label.json" fwds="" names="" lead
+    for p in "$@"; do
+        scrape "http://127.0.0.1:$p/metrics" "$W/s13-$label-fwd$p-end.prom"
+        local n; n=$([ "$p" = 24001 ] && echo fwdA || echo fwdB)
+        # O-T1 offered line (W8 fix FIX-2): row seconds = row start (or this forwarder's start, if later) to now; a
+        # forwarder started after the row start counts from 0 (its start prom belongs to an older process)
+        local rs fresh; read -r rs fresh < <(python3 -I -c "import sys; r, f, n = map(float, sys.argv[1:4]); print('%.2f %s' % (n - max(r, f), 'true' if f > r else 'false'))" "$S13_ROW_T0" "${FWD_T0[$n]}" "$(date +%s.%N)")
+        fwds="$fwds${fwds:+,}\"$p\": {\"start\": \"$W/s13-$S13_LABEL-fwd$p-start.prom\", \"end\": \"$W/s13-$label-fwd$p-end.prom\", \"row_s\": $rs, \"fresh\": $fresh}"
+        names="$names${names:+,}\"$p\": \"$n\""
+    done
+    lead=$(leader_of ae) || lead=$S13_AE_MEMBER
+    scrape "http://127.0.0.1:$((AE_BASE + 90 + lead))/metrics" "$W/s13-$label-ae-leader-end.prom"
+    scrape "http://127.0.0.1:$((AE_BASE + 90 + S13_AE_MEMBER))/metrics" "$W/s13-$label-ae$S13_AE_MEMBER-end.prom"
+    me_driver book "$DRIVER_DIR" "$ME_INGRESS" > "$W/book-$label.txt" 2>&1
+    cat > "$spec" <<JSON
+{"barrier_ok": $([ $ok -eq 1 ] && echo true || echo false), "barrier_s": $bs, "barrier_detail": "$detail",
+ "book": "$W/book-$label.txt", "ae_leader_end": "$W/s13-$label-ae-leader-end.prom", "ae_member": "ae$S13_AE_MEMBER",
+ "ae_member_name": "ae$S13_AE_MEMBER", "ae_member_start": "$W/s13-$S13_LABEL-ae$S13_AE_MEMBER-start.prom",
+ "ae_member_end": "$W/s13-$label-ae$S13_AE_MEMBER-end.prom", "sampler": "$S13_SAMPLER",
+ "forwarders": {$fwds}, "fwd_names": {$names}}
+JSON
+    python3 -I "$TICKPY" oracle "$spec" > "$W/tick-oracle-$label.txt" 2>&1
+    local rc=$?
+    sed 's/^/  O-T1 /' "$W/tick-oracle-$label.txt"
+    TICK_ORACLE_LINE=$(tail -1 "$W/tick-oracle-$label.txt")
+    [ $rc -eq 0 ] && s13_line ok "O-T1 $label (core counters ae$S13_AE_MEMBER)" || s13_line fail "$TICK_ORACLE_LINE"
+    return $rc
+}
+s13_s12_oracle() { # label port...: the S12 delivery oracle (ticks must not disturb dispatch)
+    local label=$1; shift
+    oracle "$label" "$@" && s13_line ok "S12 oracle $label: $ORACLE_DETAIL" || s13_line fail "S12 oracle $label: $ORACLE_DETAIL"
+}
+s13_breaks() { # port -> chain breaks of market 1 by cause, and the ME's dropped market messages (carry X3)
+    local c out=""
+    for c in from_mismatch level_op depth crossed malformed; do
+        out="$out $c=$(fwd_sum "$1" forwarder_book_chain_breaks_total "market=\"1\",cause=\"$c\"")"
+    done
+    local i d=""; for i in 0 1 2; do d="$d me$i=$(metric "http://127.0.0.1:$((ME_BASE + 90 + i))/metrics" match_dropped_market_msgs_total)"; done
+    echo "market 1 chain breaks:$out; match_dropped_market_msgs_total$d"
+}
+s13_drain_capped() { # the max sampled match_egress_drain_capped_total per ME node over the row (8.1)
+    local i out=""
+    for i in 0 1 2; do
+        out="$out me$i=$(python3 -I "$TICKPY" series "$S13_SAMPLER" "me$i" match_egress_drain_capped_total | awk '{ if ($2 > m) m = $2 } END { printf "%d", m + 0 }')"
+    done
+    echo "match_egress_drain_capped_total max sampled:$out"
+}
+leader_wait_except() { # node seconds -> the first node != $1 whose match_cluster_role is 2 (0.5 s probes, wall-clock bound)
+    local deadline i v; deadline=$(( $(date +%s%N) + $2 * 1000000000 ))
+    while [ "$(date +%s%N)" -lt "$deadline" ]; do
+        for i in 0 1 2; do
+            [ "$i" = "$1" ] && continue
+            v=$(curl -s --max-time 0.5 "http://127.0.0.1:$((ME_BASE + 90 + i))/metrics" 2> /dev/null | awk '$1 == "match_cluster_role" { print $2; exit }')
+            [ "$v" = 2 ] && { echo "$i"; return 0; }
+        done
+        sleep 0.1
+    done
+    return 1
+}
+core_quote() { # aeIndex market -> "bid ask"
+    curl -s --max-time 0.5 "http://127.0.0.1:$((AE_BASE + 90 + $1))/metrics" 2> /dev/null |
+        awk -v m="$2" '$1 == "assets_market_best_bid{market=\"" m "\"}" { b = $2 } $1 == "assets_market_best_ask{market=\"" m "\"}" { a = $2 }
+            END { printf "%d %d\n", b, a }'
+}
+s13_tick_clean() { # label (tk-a, tk-h)
+    local label=$1
+    s13_row_start "$label" 24001
+    load_bg "$SECONDS_LOAD"; local lp=$LOAD_PID; sleep 5
+    local o5 f5 o1 f1
+    o5=$(fwd_sum 24001 forwarder_tick_offered_total 'market="1"'); f5=$(fwd_sum 24001 forwarder_book_frames_total 'market="1",template="25"')
+    wait "$lp"; grep LOAD "$W/load$LOAD_TAG.log"
+    o1=$(fwd_sum 24001 forwarder_tick_offered_total 'market="1"'); f1=$(fwd_sum 24001 forwarder_book_frames_total 'market="1",template="25"')
+    [ "$o1" = "$o5" ] && [ "$f1" -gt "$f5" ] &&
+        s13_line ok "deeper-level line: market-1 offers from second 5 to the load's end $o5 -> $o1 (0) while template 25 rose $f5 -> $f1" ||
+        s13_line fail "deeper-level line: market-1 offers from second 5 to the load's end $o5 -> $o1, template 25 $f5 -> $f1"
+    tick_oracle "$label" 24001
+    local br; br=$(fwd_sum 24001 forwarder_book_chain_breaks_total)
+    [ "$br" = 0 ] && s13_line ok "chain breaks 0 (every market, every cause)" || s13_line fail "chain breaks $br: $(s13_breaks 24001)"
+    s13_info "offered market 1 by edge: $(for e in leading trailing reoffer retry; do printf '%s=%s ' $e "$(fwd_sum 24001 forwarder_tick_offered_total "market=\"1\",edge=\"$e\"")"; done)"
+    s13_s12_oracle "$label" 24001
+    s13_result "$label"
+}
+s13_scenario() {
+    local s=$1
+    case "$s" in
+    tk-a) s13_tick_clean tk-a ;;
+    tk-h) [ "$FWD_MODE" = embedded ] || { result tk-h fail "needs IT_FWD_MODE=embedded"; return 0; }; s13_tick_clean tk-h ;;
+    tk-b)
+        start_fwd fwdB "$FWD" "$FWDB_AE" "$FWDB_ME" 24002; wait_ready 24002 60 || log "fwdB not ready"
+        s13_row_start tk-b 24001 24002
+        load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        tick_oracle tk-b 24001 24002
+        python3 -I - "$W"/s13-tk-b-fwd24001-start.prom "$W"/s13-tk-b-fwd24001-end.prom "$W"/s13-tk-b-fwd24002-start.prom \
+            "$W"/s13-tk-b-fwd24002-end.prom "$W/s13-tk-b-ae$S13_AE_MEMBER-start.prom" "$W/s13-tk-b-ae$S13_AE_MEMBER-end.prom" \
+            > "$W/tk-b-conservation.txt" <<'PY'
+import sys
+def prom(p):
+    d = {}
+    for l in open(p):
+        if l.strip() and l[0] != "#":
+            k, v = l.rsplit(" ", 1); d[k] = float(v)
+    return d
+def fam(d, n, sub=""):
+    return sum(v for k, v in d.items() if k.startswith(n + "{") and sub in k)
+a0, a1, b0, b1, c0, c1 = map(prom, sys.argv[1:7])
+A = fam(a1, "forwarder_tick_offered_total") - fam(a0, "forwarder_tick_offered_total")
+B = fam(b1, "forwarder_tick_offered_total") - fam(b0, "forwarder_tick_offered_total")
+RA = fam(a1, "forwarder_tick_offered_total", 'edge="reoffer"') - fam(a0, "forwarder_tick_offered_total", 'edge="reoffer"')
+RB = fam(b1, "forwarder_tick_offered_total", 'edge="reoffer"') - fam(b0, "forwarder_tick_offered_total", 'edge="reoffer"')
+d = lambda n: c1.get(n, 0) - c0.get(n, 0)
+ap, st = d("assets_ticks_applied_total"), d("assets_ticks_stale_total")
+ok1 = ap + st == A + B
+ok2 = st > 0
+print("%s conservation: core applied %d + stale %d = %d == A offered %d + B offered %d = %d" % ("PASS" if ok1 else "FAIL", ap, st, ap + st, A, B, A + B))
+print("%s core stale delta > 0: %d" % ("PASS" if ok2 else "FAIL", st))
+print("INFO core applied %d - max(A %d, B %d) = %d, re-offers %d (recorded, not judged: D-1, the two coalescing phases "
+      "interleave, contract 6.2; applied <= A + B follows from the conservation line)" % (ap, A, B, ap - max(A, B), RA + RB))
+PY
+        while read -r v rest; do case "$v" in PASS) s13_line ok "$rest" ;; INFO) s13_info "$rest" ;; *) s13_line fail "$rest" ;; esac
+        done < "$W/tk-b-conservation.txt"
+        s13_s12_oracle tk-b 24001 24002
+        kill -TERM "${PID[fwdB]}"; wait_exit fwdB 3
+        s13_result tk-b ;;
+    tk-c)
+        s13_row_start tk-c 24001
+        load_bg "$SECONDS_LOAD"; local lp=$LOAD_PID; sleep 3
+        local l nl m0; l=$(leader_of me); m0=$(mono_ms)
+        log "SIGSTOP ME leader $l (mono $m0)"; kill -STOP "${PID[me$l]}"; sleep 3
+        log "SIGKILL ME leader $l"; kill -9 "${PID[me$l]}"; unset "PID[me$l]"
+        nl=$(leader_wait_except "$l" 30) || nl=""
+        log "new ME leader ${nl:-none}: $(grep -h 'onRoleChange: LEADER' "$W/me${nl:-x}.log" 2> /dev/null | wc -l) LEADER lines in its log"
+        sleep 3 # the judged window (1.0 s from the line) plus margin, no ME session opened in it
+        local dl; dl=$(python3 -I "$TICKPY" delay "$W/fwdA.log" "$S13_SAMPLER" fwdA 1 "$m0" 1000); local drc=$?
+        [ $drc -eq 0 ] && s13_line ok "tickResumesAfterMeFailoverWithinOneFlush: $dl" || s13_line fail "tickResumesAfterMeFailoverWithinOneFlush: $dl"
+        local lm; lm=$(sed -n 's/.*line_mono=\([0-9]*\).*/\1/p' <<< "$dl")
+        wait "$lp"; grep -E "LOAD|FAIL" "$W/load$LOAD_TAG.log"; start_me "$l"
+        local r; r=$(python3 -I "$TICKPY" rise "$S13_SAMPLER" fwdA "${lm:-$m0}" 'forwarder_tick_offered_total{market="1",edge="leading"}' \
+            'forwarder_tick_offered_total{market="1",edge="trailing"}' | tr '\n' ' ')
+        local rb re; rb=$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^before=/) { sub("before=", "", $i); s += $i } } END { print s + 0 }' <<< "$r")
+        re=$(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^end=/) { sub("end=", "", $i); s += $i } } END { print s + 0 }' <<< "$r")
+        [ "$re" -gt "$rb" ] && s13_line ok "leading+trailing offers of market 1 rise after the line: $rb -> $re" ||
+            s13_line fail "leading+trailing offers of market 1 do not rise after the line: $rb -> $re"
+        tick_oracle tk-c 24001
+        local bid; bid=$(prom_val "$W/s13-tk-c-ae-leader-end.prom" 'assets_market_best_bid{market="1"}')
+        [ "$bid" = 1499000000 ] && s13_line ok "core best bid at the end 14.99 ($bid)" || s13_line fail "core best bid at the end $bid, not 14.99 (1499000000)"
+        local climb; climb=$(python3 -I "$TICKPY" series "$S13_SAMPLER" "ae$S13_AE_MEMBER" 'assets_market_best_bid{market="1"}' | awk '$2 >= 1499000000 { print $1; exit }')
+        s13_info "recorded: climb end (core member best bid 14.99) at mono ${climb:-never} vs the new-leader line at mono ${lm:-?} ($([ -n "$climb" ] && [ -n "$lm" ] && echo "$((climb - lm)) ms after the line"))"
+        s13_info "recorded: $(s13_breaks 24001); $(s13_drain_capped)"
+        s13_s12_oracle tk-c 24001
+        s13_result tk-c ;;
+    tk-c-nc)
+        s13_row_start tk-c-nc 24001
+        load_bg "$SECONDS_LOAD"; local lp=$LOAD_PID; sleep 3
+        # STOP L0 right after a periodic 22 reached fwdA, so its 10 s periodic clock is fresh when it may lead again
+        local k='forwarder_book_frames_total{market="1",template="22"}' c0 c1 waited=0
+        c0=$(fwd_metric 24001 "$k")
+        while [ $waited -lt 120 ]; do c1=$(fwd_metric 24001 "$k"); [ "${c1:-0}" -gt "${c0:-0}" ] && break; sleep 0.1; waited=$((waited + 1)); done
+        local l0 l1="" l2="" m0 m1 t22
+        t22=$(mono_ms); l0=$(leader_of me); m0=$(mono_ms)
+        log "periodic 22 seen at fwdA ($c0 -> $c1, mono $t22): SIGSTOP L0 = me$l0"; kill -STOP "${PID[me$l0]}"; sleep 3
+        kill -CONT "${PID[me$l0]}"; log "SIGCONT me$l0"
+        l1=$(leader_wait_except "$l0" 8) || l1=""
+        if [ -n "$l1" ]; then
+            # IT_NC_L1_HOLD_S (default 2, the row's method, D-3): let the CONTed L0 catch up as a follower before L1
+            # stops, so the election can pick it (W8 attempts 1-3 with hold 0 always elected the third node); still
+            # inside L0's 10 s clock. The contract's "within 8 s of L0's last leader flush" is asserted below (NOTE-2).
+            sleep "${IT_NC_L1_HOLD_S:-2}"
+            m1=$(mono_ms); log "L1 = me$l1 leads ($((m1 - t22)) ms after the 22): SIGSTOP it"; kill -STOP "${PID[me$l1]}"; sleep 3
+            kill -CONT "${PID[me$l1]}"; log "SIGCONT me$l1"
+            l2=$(leader_wait_except "$l1" 8) || l2=""
+        fi
+        local m2; m2=$(mono_ms); log "L2 = me${l2:-none} ($((m2 - t22)) ms after L0's last observed periodic 22)"
+        sleep 3
+        local dl drc; dl=$(python3 -I "$TICKPY" delay "$W/fwdA.log" "$S13_SAMPLER" fwdA 1 "${m1:-$m0}" 1000 --which first); drc=$?
+        wait "$lp"; grep -E "LOAD|FAIL" "$W/load$LOAD_TAG.log"
+        for i in 0 1 2; do s13_info "me$i alive $(kill -0 "${PID[me$i]}" 2> /dev/null && echo yes || echo no), LEADER lines $(grep -c 'onRoleChange: LEADER' "$W/me$i.log")"; done
+        s13_info "leader history L0=me$l0 L1=me${l1:-none} L2=me${l2:-none}; L0's last observed periodic 22 at mono $t22"
+        tick_oracle tk-c-nc 24001 > /dev/null; s13_info "O-T1 (printed, not judged in the RED half): $TICK_ORACLE_LINE"
+        oracle tk-c-nc 24001; s13_info "S12 oracle: $ORACLE_DETAIL"
+        s13_row_end
+        local hist="L0=me$l0 L1=me${l1:-none} L2=me${l2:-none}" pre=""
+        # preconditions (review-w8 NOTE-2): L1 stopped within 8 s of L0's last observed periodic 22, and L0 leads again
+        # within 10 s of it ("the new leader led within the last 10 s"); otherwise a slow election is INCONCLUSIVE
+        [ -n "$l1" ] && [ $((m1 - t22)) -gt 8000 ] && pre="L1 me$l1 stopped $((m1 - t22)) ms after L0's last periodic 22 (> 8000)"
+        [ -z "$pre" ] && [ -n "$l2" ] && [ "$l2" = "$l0" ] && [ $((m2 - t22)) -gt 10000 ] &&
+            pre="L0 me$l0 led again $((m2 - t22)) ms after its last periodic 22 (> 10000)"
+        [ -n "$pre" ] && s13_info "precondition not met: $pre"
+        if [ -n "$pre" ]; then
+            result tk-c-nc fail "INCONCLUSIVE: precondition not met: $pre ($hist); the TK-C line: $dl; $(IFS=';'; echo "${S13_INFO[*]}")"
+        elif [ -n "$l2" ] && [ "$l2" = "$l0" ]; then
+            if [ $drc -ne 0 ]; then result tk-c-nc ok "RED as required: the recent leader me$l0 returned ($hist, $((m2 - t22)) ms after its last periodic 22) and the TK-C line FAILS: $dl; $(IFS=';'; echo "${S13_INFO[*]}")"
+            else result tk-c-nc fail "INCONCLUSIVE: the recent leader me$l0 returned ($hist) but the TK-C line held: $dl; $(IFS=';'; echo "${S13_INFO[*]}")"; fi
+        else result tk-c-nc fail "INCONCLUSIVE: no recent leader returned ($hist); the TK-C line on the second change: $dl; $(IFS=';'; echo "${S13_INFO[*]}")"; fi ;;
+    tk-d)
+        local tc; tc=$(find "$BUILD" -name ct_forwarder_tc_bookdrop -type f | head -1)
+        [ -x "$tc" ] || { result tk-d fail "ct_forwarder_tc_bookdrop not built (-DCT_FORWARDER_TEST_BUILDS=ON)"; return 0; }
+        kill -TERM "${PID[fwdA]}"; wait_exit fwdA 3
+        start_fwd fwdA "$tc" "$FWDA_AE" "$FWDA_ME" 24001; wait_ready 24001 60 || log "fwdA (tc_bookdrop) not ready"
+        s13_row_start tk-d 24001
+        load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        tick_oracle tk-d 24001
+        local br rc sup mx drops
+        br=$(fwd_sum 24001 forwarder_book_chain_breaks_total 'market="1",cause="from_mismatch"')
+        rc=$(fwd_sum 24001 forwarder_book_recoveries_total 'market="1"')
+        sup=$(fwd_sum 24001 forwarder_tick_suppressed_total 'market="1",reason="broken"')
+        mx=$(python3 -I "$TICKPY" series "$S13_SAMPLER" fwdA 'forwarder_book_broken_age_ms{market="1"}' | awk '{ if ($2 > m) m = $2 } END { printf "%d", m + 0 }')
+        drops=$(grep -c 'tc_bookdrop: BookDelta' "$W/fwdA.log")
+        [ "$br" -gt 0 ] && s13_line ok "chain breaks{from_mismatch} market 1 $br > 0 (tc_bookdrop drops $drops)" || s13_line fail "no from_mismatch break (drops $drops)"
+        [ "$rc" = "$br" ] && s13_line ok "recoveries $rc == breaks{from_mismatch} $br at the end" || s13_line fail "recoveries $rc != breaks{from_mismatch} $br at the end"
+        [ "$mx" -le 10600 ] && s13_line ok "max sampled forwarder_book_broken_age_ms{market=\"1\"} $mx <= 10600" || s13_line fail "max sampled broken age $mx > 10600"
+        # W9 D-9 (2026-11-02): suppressed{broken} is counted only when an edge was already due at a BROKEN step
+        # (TickEmitter.cpp step()), so "> 0" passed 5 of 7 runs: printed, not judged. The judged property is E1 itself.
+        local no norc; no=$(python3 -I "$TICKPY" nooffer "$S13_SAMPLER" fwdA 1); norc=$?
+        [ $norc -eq 0 ] && s13_line ok "no MarketTick offered for market 1 while its ladder is BROKEN: ${no#NOOFFER PASS }" || s13_line fail "${no#NOOFFER FAIL }"
+        s13_info "forwarder_tick_suppressed_total{market=\"1\",reason=\"broken\"} $sup (printed, not judged)"
+        s13_info "recorded: $(s13_breaks 24001)"
+        s13_s12_oracle tk-d 24001
+        s13_result tk-d ;;
+    tk-e|tk-e-nc)
+        [ -n "$HARNESS" ] && [ -n "$BRIDGE_BIN" ] || { result "$s" fail "needs IT_HARNESS and IT_BRIDGE"; return 0; }
+        s13_row_start "$s" 24001
+        local ids=() r id i px=1000000000
+        for i in 1 2 3; do
+            r=$(t1core probe-create $i 1 --side buy --price $px --qty 100000000 2>&1 | tail -1); log "create user $i: $r"
+            id=$(sed -n 's/^OrderAck order=\([0-9]*\) .*/\1/p' <<< "$r"); [ -n "$id" ] && ids+=("$id")
+        done
+        [ ${#ids[@]} -eq 3 ] && s13_line ok "three probe-creates at 10.00: order ids ${ids[*]}" || s13_line fail "probe-create ids: ${ids[*]:-none}"
+        local al q seen=""; al=$(leader_of ae) || al=0
+        for _ in $(seq 1 100); do q=$(core_quote "$al" 1); [ "${q%% *}" = "$px" ] && { seen=yes; break; }; sleep 0.1; done
+        [ -n "$seen" ] && s13_line ok "tick seen: core best bid $px" || s13_line fail "no tick: core quote $q"
+        for id in "${ids[@]}"; do r=$(t1core probe-cancel "$id" 2>&1 | tail -1); log "cancel $id: $r"; done
+        local tc0; tc0=$(date +%s%N); log "last probe-cancel returned"
+        local t="" n=0 qq
+        while [ $(( $(date +%s%N) - tc0 )) -lt 15000000000 ]; do
+            qq=$(core_quote "$al" 1); [ "$qq" = "0 0" ] && { t=$(( ($(date +%s%N) - tc0) / 1000000 )); break; }; sleep 0.05
+        done
+        local text
+        if [ -n "$t" ] && [ "$t" -le 1000 ]; then text="PASS core best bid 0 and best ask 0 for market 1 ${t} ms after the last cancel's return (<= 1000)"
+        elif [ -n "$t" ]; then text="FAIL core best bid 0 and best ask 0 only ${t} ms after the last cancel's return (> 1000)"
+        else text="FAIL core bestBid still ${qq%% *} 15 s after the book emptied"; fi
+        log "TK-E line: $text"
+        sleep 1; me_driver book "$DRIVER_DIR" "$ME_INGRESS" > "$W/book-$s-after.txt" 2>&1; s13_info "after the window: $(grep '^BOOK market=1 ' "$W/book-$s-after.txt")"
+        t1core dump --orders <(printf '%s\n' "${ids[@]}") 2>&1 | grep -E '^(ABSENT|O) ' > "$W/$s-dump.txt"; s13_info "dump: $(tr '\n' ' ' < "$W/$s-dump.txt")"
+        local u; u=$(t1core invariants 2>&1 | grep -v '^feed-harness ' | tail -1)
+        [[ "$u" == *PASS* ]] && s13_line ok "t1core invariants: $u" || s13_line fail "t1core invariants: $u"
+        if [ "$s" = tk-e ]; then
+            [[ "$text" == PASS* ]] && s13_line ok "${text#PASS }" || s13_line fail "${text#FAIL }"
+            tick_oracle tk-e 24001; s13_s12_oracle tk-e 24001; s13_result tk-e
+        else
+            tick_oracle tk-e-nc 24001 > /dev/null; s13_info "O-T1 (printed, not judged in the RED half): $TICK_ORACLE_LINE"
+            oracle tk-e-nc 24001; s13_info "S12 oracle: $ORACLE_DETAIL"; s13_row_end
+            [[ "$text" == "FAIL core bestBid still "*" 15 s after the book emptied" ]] &&
+                result tk-e-nc ok "RED as required: FAILS \"${text#FAIL }\"; $(IFS=';'; echo "${S13_INFO[*]}")" ||
+                result tk-e-nc fail "not RED: $text; $(IFS=';'; echo "${S13_INFO[*]}")"
+        fi ;;
+    tk-f)
+        s13_row_start tk-f 24001
+        load_bg "$SECONDS_LOAD"; local lp=$LOAD_PID; sleep 5
+        local l nl m0; l=$(leader_of ae); m0=$(mono_ms)
+        [ "$l" != "$S13_AE_MEMBER" ] || s13_line fail "the counter member ae$S13_AE_MEMBER is the AE leader"
+        log "SIGKILL AE leader $l"; kill -9 "${PID[ae$l]}"; unset "PID[ae$l]"
+        for _ in $(seq 1 60); do nl=$(leader_of ae) && [ "$nl" != "$l" ] && break; sleep 0.5; done
+        log "new AE leader ${nl:-none}"; sleep 2; start_ae "$l"
+        wait "$lp"; grep -E "LOAD|FAIL" "$W/load$LOAD_TAG.log"
+        tick_oracle tk-f 24001
+        local reg; reg=$(python3 -I "$TICKPY" logline "$W/fwdA.log" '\] registered \(term [1-9]' "$m0")
+        local r; r=$(python3 -I "$TICKPY" rise "$S13_SAMPLER" fwdA "${reg/none/$m0}" 'forwarder_tick_offered_total{market="1",edge="reoffer"}')
+        local rb re; rb=$(sed -n 's/.* before=\([0-9]*\).*/\1/p' <<< "$r"); re=$(sed -n 's/.* end=\([0-9]*\).*/\1/p' <<< "$r")
+        [ "$reg" != none ] && [ "${re:-0}" -gt "${rb:-0}" ] && s13_line ok "re-offer after the re-registration (log mono $reg): reoffer $rb -> $re" ||
+            s13_line fail "no re-offer after the re-registration (log mono $reg): reoffer ${rb:-?} -> ${re:-?}"
+        s13_info "fwdA: $(grep -h 'core new leader\|registered (term' "$W/fwdA.log" | tr '\n' ' ')"
+        s13_info "recorded: $(s13_breaks 24001)"
+        s13_s12_oracle tk-f 24001
+        s13_result tk-f ;;
+    tk-g)
+        s13_row_start tk-g 24001
+        load_bg 3; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        local mp="http://127.0.0.1:$((AE_BASE + 90 + S13_AE_MEMBER))/metrics" a0 a1
+        a0=$(prom_val "$W/s13-tk-g-ae$S13_AE_MEMBER-start.prom" assets_ticks_applied_total)
+        for _ in $(seq 1 50); do a1=$(metric "$mp" assets_ticks_applied_total); [ "${a1%.*}" -gt "${a0:-0}" ] 2> /dev/null && break; sleep 0.1; done
+        [ "${a1%.*}" -gt "${a0:-0}" ] 2> /dev/null && s13_line ok "assets_ticks_applied_total delta > 0 before the re-genesis: $a0 -> ${a1%.*}" ||
+            s13_line fail "no tick applied before the re-genesis: $a0 -> $a1"
+        run_scenario epoch-fence
+        local last=""; [ ${#PASSED[@]} -gt 0 ] && last=${PASSED[-1]}
+        [ "$last" = epoch-fence ] && s13_line ok "the S12 epoch-fence row PASSES" || s13_line fail "the S12 epoch-fence row FAILED"
+        sleep 2
+        scrape "$mp" "$W/s13-tk-g-ae$S13_AE_MEMBER-end.prom"
+        python3 -I - "$W/s13-tk-g-ae$S13_AE_MEMBER-start.prom" "$W/s13-tk-g-ae$S13_AE_MEMBER-end.prom" "$S13_SAMPLER" "ae$S13_AE_MEMBER" > "$W/tk-g-lines.txt" <<'PY'
+import sys
+def prom(p):
+    d = {}
+    for l in open(p):
+        if l.strip() and l[0] != "#":
+            k, v = l.rsplit(" ", 1); d[k] = float(v)
+    return d
+s, e = prom(sys.argv[1]), prom(sys.argv[2])
+ed = e.get("assets_ticks_epoch_drop_total", 0) - s.get("assets_ticks_epoch_drop_total", 0)
+print("%s assets_ticks_epoch_drop_total delta 0 across the whole row: %d" % ("PASS" if ed == 0 else "FAIL", ed))
+a0, u0 = s.get("assets_ticks_applied_total", 0), s.get("assets_ticks_unbound_total", 0)
+snaps = {}
+for line in open(sys.argv[3]):
+    p = line.split()
+    if len(p) == 5 and p[2] == sys.argv[4]:
+        snaps.setdefault((int(p[0]), int(p[1])), {})[p[3]] = float(p[4])
+first = next((v for k, v in sorted(snaps.items()) if v.get("assets_ticks_applied_total", 0) > a0), None)
+if first is None:
+    print("FAIL no applied tick in the sampler (unbound line vacuous)")
+else:
+    u1 = first.get("assets_ticks_unbound_total", 0); ue = e.get("assets_ticks_unbound_total", 0)
+    print("%s assets_ticks_unbound_total delta 0 from the first applied tick to the end: %d (before it: %d, printed)" % (
+        "PASS" if ue - u1 == 0 else "FAIL", ue - u1, u1 - u0))
+PY
+        while read -r v rest; do [ "$v" = PASS ] && s13_line ok "$rest" || s13_line fail "$rest"; done < "$W/tk-g-lines.txt"
+        s13_result tk-g ;;
+    tk-i)
+        [ -n "$HARNESS" ] && [ -n "$BRIDGE_BIN" ] || { result tk-i fail "needs IT_HARNESS and IT_BRIDGE"; return 0; }
+        s13_row_start tk-i 24001
+        load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
+        me_driver listen "$DRIVER_DIR" "$ME_INGRESS" 15 > "$W/tk-i-listen.txt" 2>&1 &
+        PID[listen]=$!
+        for _ in $(seq 1 100); do grep -q '^LISTEN open' "$W/tk-i-listen.txt" 2> /dev/null && break; sleep 0.1; done
+        sleep 1.5 # the listener's own session-open resnapshot is applied before the baseline
+        local o0 v0 o1 v1 d r
+        o0=$(fwd_sum 24001 forwarder_tick_offered_total 'market="1"'); v0=$(fwd_metric 24001 'forwarder_tick_last_offered_version{market="1"}')
+        d=$(t1core deposit 1 1 1000000000 2>&1 | tail -1); log "deposit BTC user 1: $d"
+        r=$(t1core probe-create 1 1 --side sell --price 1000000000 --qty 100000000 2>&1 | tail -1); log "sell: $r"
+        sleep 3
+        o1=$(fwd_sum 24001 forwarder_tick_offered_total 'market="1"'); v1=$(fwd_metric 24001 'forwarder_tick_last_offered_version{market="1"}')
+        wait_exit listen 20
+        local meid fid cid
+        meid=$(awk '/tpl=26 market=1 / { for (i = 1; i <= NF; i++) if ($i ~ /^maxTradeId=/) { sub("maxTradeId=", "", $i); if ($i + 0 > m) m = $i + 0 } } END { print m + 0 }' "$W/tk-i-listen.txt")
+        fid=$(fwd_metric 24001 'forwarder_trade_last_id{market="1"}')
+        s13_info "listener: $(grep -E 'tpl=(25|26) ' "$W/tk-i-listen.txt" | tail -3 | tr '\n' ' ')"
+        [ "$meid" -gt 0 ] && [ "${fid%.*}" = "$meid" ] && s13_line ok "forwarder_trade_last_id{market=\"1\"} $fid == the ME's last tradeId $meid (26 maxTradeId)" ||
+            s13_line fail "forwarder_trade_last_id $fid != the ME's last tradeId $meid"
+        [ $((o1 - o0)) -ge 1 ] && [ "${v1%.*}" -gt "${v0%.*}" ] && s13_line ok "after the fill: offered market 1 +$((o1 - o0)) ($o0 -> $o1), last offered version $v0 -> $v1" ||
+            s13_line fail "after the fill: offered market 1 +$((o1 - o0)), last offered version $v0 -> $v1"
+        tick_oracle tk-i 24001
+        cid=$(prom_val "$W/s13-tk-i-ae-leader-end.prom" 'assets_market_last_trade_id{market="1"}')
+        [ "$cid" = "$meid" ] && s13_line ok "core assets_market_last_trade_id{market=\"1\"} $cid == the ME's $meid" || s13_line fail "core last trade id $cid != the ME's $meid"
+        local u; u=$(t1core invariants 2>&1 | grep -v '^feed-harness ' | tail -1)
+        [[ "$u" == *PASS* ]] && s13_line ok "t1core invariants: $u" || s13_line fail "t1core invariants: $u"
+        s13_s12_oracle tk-i 24001
+        s13_result tk-i ;;
+    tk-r|tk-r-nc)
+        s13_row_start "$s" 24001
+        load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"; sleep 2
+        local l f dir nl ok=1 restored=""; l=$(leader_of me); dir=$(dirname "$(find "$W/me$l" -name cluster-mark.dat | head -1)")
+        log "ClusterTool snapshot on ME leader $l ($dir)"
+        java "${JAVA_OPTS[@]}" -cp "$ME_JAR" io.aeron.cluster.ClusterTool "$dir" snapshot 2>&1 | tail -2 | sed 's/^/  ClusterTool /'; sleep 3
+        for f in 0 1 2; do
+            [ "$f" = "$l" ] && continue
+            log "SIGKILL ME follower $f"; kill -9 "${PID[me$f]}"; wait_exit "me$f" 5; sleep 12; start_me "$f"
+            local r=""; for _ in $(seq 1 120); do
+                kill -0 "${PID[me$f]}" 2> /dev/null || { r=dead; break; }
+                r=$(curl -s --max-time 0.5 "http://127.0.0.1:$((ME_BASE + 90 + f))/metrics" | awk '$1 == "match_cluster_role" { print $2; exit }')
+                [ "$r" = 0 ] && break; sleep 0.5; done
+            log "follower $f role ${r:-none}"; [ "$r" = 0 ] || ok=0
+            grep -q 'loadSnapshot called' "$W/me$f.log" && restored="$restored me$f" || ok=0
+        done
+        [ $ok = 1 ] && s13_line ok "both followers restored from the snapshot ($restored; $(grep -h 'republished the restored' "$W"/me*.log | head -1))" ||
+            s13_line fail "followers not both restored ($restored)"
+        local m0; m0=$(mono_ms); log "SIGKILL ME leader $l (mono $m0)"; kill -9 "${PID[me$l]}"; unset "PID[me$l]"
+        nl=$(leader_wait_except "$l" 30) || nl=""
+        log "new ME leader ${nl:-none}"
+        [ -n "$nl" ] && s13_line ok "a restored node leads: me$nl" || s13_line fail "no new ME leader in 30 s"
+        sleep 3 # the judged window plus margin, no ME session opened in it
+        local dl drc; dl=$(python3 -I "$TICKPY" delay "$W/fwdA.log" "$S13_SAMPLER" fwdA 1 "$m0" 1000 --version-positive); drc=$?
+        local lm; lm=$(sed -n 's/.*line_mono=\([0-9]*\).*/\1/p' <<< "$dl")
+        local mk m st sts=""
+        for m in 2 3 4 5; do
+            st=$(python3 -I "$TICKPY" series "$S13_SAMPLER" fwdA "forwarder_book_state{market=\"$m\"}" "${lm:-$m0}" | awk '{ if ($2 > x) x = $2 } END { printf "%d", x + 0 }')
+            sts="$sts $m=$st"; [ "$st" -le 1 ] || mk=bad
+        done
+        local tr; tr=$(fwd_metric 24001 forwarder_ticks_ready)
+        s13_info "recorded: forwarder_book_version_regressions_total market 1 $(fwd_metric 24001 'forwarder_book_version_regressions_total{market="1"}') (NOTE-2: not judged); $(s13_drain_capped)"
+        s13_info "fwdA after the line: book version market 1 $(fwd_metric 24001 'forwarder_book_version{market="1"}'), markets 2..5 versions $(for m in 2 3 4 5; do printf '%s ' "$(fwd_metric 24001 "forwarder_book_version{market=\"$m\"}")"; done)"
+        if [ "$s" = tk-r ]; then
+            [ $drc -eq 0 ] && s13_line ok "$dl" || s13_line fail "no BookSnapshot for market 1 within 1.0 s of the new leader ($dl)"
+            [ -z "${mk:-}" ] && s13_line ok "markets 2..5 state 0 or 1 after the line (max sampled:$sts)" || s13_line fail "markets 2..5 state after the line:$sts"
+            [ "$tr" = 1 ] && s13_line ok "forwarder_ticks_ready 1" || s13_line fail "forwarder_ticks_ready $tr"
+            tick_oracle tk-r 24001; s13_s12_oracle tk-r 24001; s13_result tk-r
+        else
+            tick_oracle tk-r-nc 24001 > /dev/null; s13_info "O-T1 (printed, not judged in the RED half): $TICK_ORACLE_LINE"
+            oracle tk-r-nc 24001; s13_info "S12 oracle: $ORACLE_DETAIL"; s13_row_end
+            [ $drc -ne 0 ] && result tk-r-nc ok "RED as required: FAILS \"no BookSnapshot for market 1 within 1.0 s of the new leader\" ($dl); $(IFS=';'; echo "${S13_INFO[*]}")" ||
+                result tk-r-nc fail "not RED: $dl; $(IFS=';'; echo "${S13_INFO[*]}")"
+        fi ;;
     *) return 1 ;;
     esac
     return 0

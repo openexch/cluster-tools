@@ -17,6 +17,7 @@
 #   ct_forwarder_tc_corrupt                                 T1-G: a core defect simulated after decode
 #   ct_forwarder_tc_conductorstall                          S10' 8.3: SIGUSR2 parks the Aeron client conductor
 #   ct_forwarder_tc_capture                                 S10' 7.1 item 2: every ME frame offered -> FWD_CAPTURE_DIR
+#   ct_forwarder_tc_bookdrop                                RC2 S13 TK-D: every 40th market-1 BookDelta dropped before the ladder
 #
 # The domain and app seam flavours are chosen by each final target (production or seamed), never by a library, so a
 # binary holds exactly one copy of each.
@@ -157,6 +158,9 @@ if(WITH_AERON)
         # RC2 S10' 8.3 MainAeronTest.conductorStallExits70 (and its CONDUCTOR_WATCH_OFF RED through the env seam)
         ct_forwarder_binary(ct_forwarder_tc_conductorstall ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_tc_conductorstall PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_CONDUCTORSTALL=1)
+        # RC2 S13 T1 row TK-D (contract 12): every 40th BookDelta of market 1 is dropped before the ladder (case B)
+        ct_forwarder_binary(ct_forwarder_tc_bookdrop ct_forwarder_domain_seamed)
+        target_compile_definitions(ct_forwarder_tc_bookdrop PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_BOOKDROP=1)
         # RC2 S10' Q1: the storage-starved-nc RED of run-forwarder-it.sh (storage starvation never ends the process)
         ct_forwarder_binary(ct_forwarder_nc_storagekeep ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_nc_storagekeep PRIVATE CT_TEST_SEAMS=1
