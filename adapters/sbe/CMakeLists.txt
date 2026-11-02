@@ -145,10 +145,15 @@ if(BUILD_TESTING)
     endif()
 
     add_executable(ct_forwarder_codec_tests tests/ForwarderCodecTest.cpp)
-    target_link_libraries(ct_forwarder_codec_tests PRIVATE ct_forwarder_codec ct_forwarder_domain ct_sbe_codecs)
+    # RC2 S13 W1: the seamed domain flavour, so the 4.2 frame-validation rules (MarketData.cpp) can be switched off
+    target_link_libraries(ct_forwarder_codec_tests PRIVATE ct_forwarder_codec ct_forwarder_domain_seamed ct_sbe_codecs)
     target_include_directories(ct_forwarder_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_compile_options(ct_forwarder_codec_tests PRIVATE -Wall -Wextra)
     add_test(NAME forwarder.codec COMMAND ct_forwarder_codec_tests)
+    add_test(NAME forwarder.codec_negative_controls
+        COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh" "$<TARGET_FILE:ct_forwarder_codec_tests>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/forwarder-codec-negative-controls.txt")
+    set_tests_properties(forwarder.codec_negative_controls PROPERTIES TIMEOUT 300)
 
     # Codec layout pins: the generated money/match codecs must have the block lengths and
     # template ids the Java engines encode (golden bytes in the test).

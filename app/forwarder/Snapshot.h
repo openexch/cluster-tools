@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "cluster_tools/domain/forwarder/BookLadder.h"
 #include "cluster_tools/domain/forwarder/Counters.h"
 #include "cluster_tools/domain/forwarder/ResyncMachine.h"
+#include "cluster_tools/domain/forwarder/TickEmitter.h"
 
 // ForwarderSnapshot - everything /health, /ready and /metrics show (RC2 S12 contract section 10), written by
 // the duty thread every 100 ms into the StatusBoard and read by fwd-http and main. Plain data: trivially
@@ -61,6 +63,46 @@ enum class MeLink : std::uint8_t
     CONNECTING = 1,
     UNVERIFIED = 2,
     BOUND = 3,
+};
+
+// RC2 S13 10.2: BOOK_STALE is a TICK-readiness condition (PO-1): it drives forwarder_ticks_ready, /health.ticksReady
+// and ForwarderTicksNotReady, never a bit of the dispatch /ready mask above (COUNT stays 10).
+namespace ticks_not_ready {
+inline constexpr std::uint8_t NONE = 0;
+inline constexpr std::uint8_t BROKEN_30S = 1;        // a ladder BROKEN for >= 30 s
+inline constexpr std::uint8_t PENDING_5S = 2;        // E11 pending age >= 5 s (a stuck emitter)
+inline constexpr std::uint8_t SNAPSHOT_AGE_30S = 3;  // an OK ladder without a snapshot for >= 30 s while the ME is BOUND
+inline constexpr std::int64_t BROKEN_NS = 30'000'000'000LL;
+inline constexpr std::int64_t PENDING_NS = 5'000'000'000LL;
+inline constexpr std::int64_t SNAPSHOT_AGE_NS = 30'000'000'000LL;
+}
+
+inline const char *ticksNotReadyName(std::uint8_t condition) noexcept
+{
+    switch (condition)
+    {
+        case ticks_not_ready::NONE: return "none";
+        case ticks_not_ready::BROKEN_30S: return "book_stale_broken_30s";
+        case ticks_not_ready::PENDING_5S: return "book_stale_tick_pending_5s";
+        case ticks_not_ready::SNAPSHOT_AGE_30S: return "book_stale_snapshot_age_30s";
+    }
+    return "?";
+}
+
+// One market's ladder, trade mark and emitter slot as the render shows them (10.1, 10.2).
+struct BookView
+{
+    std::uint8_t state = 0;              // LadderState: 0 EMPTY, 1 OK, 2 BROKEN
+    std::int64_t version = 0;            // 0 when EMPTY
+    std::int64_t brokenAgeMs = 0;        // 0 unless BROKEN
+    std::int64_t snapshotAgeMs = -1;     // -1 never
+    std::int64_t brokenNsTotal = 0;      // closed episodes plus the open one
+    std::int64_t lastOfferedVersion = 0;
+    std::int64_t pendingAgeMs = 0;       // E11
+    std::int64_t lastTradeId = 0;
+    std::uint64_t tradeMalformed = 0;
+    domain::forwarder::LadderCounters ladder;
+    domain::forwarder::TickSlotCounters tick;
 };
 
 struct ClusterStats
@@ -125,6 +167,14 @@ struct ForwarderSnapshot
     std::uint64_t driverDirReclaimed = 0;
     // S10' Q1: seconds an ingress publication has been refused for storage space (closed episodes + the current one)
     std::uint64_t storageStarvedSeconds = 0;
+
+    // RC2 S13 (K4): the five ladders / emitter slots, the stitcher's frame-level counters and the tick readiness
+    BookView books[domain::forwarder::TICK_MARKETS];
+    std::uint64_t bookForeignMarket = 0;
+    std::uint64_t bookMalformedNoMarket = 0;
+    bool ticksReady = true;
+    std::int32_t ticksNotReadyMarket = 0;   // the first market that cleared it (0 none)
+    std::uint8_t ticksNotReadyCondition = 0; // ticks_not_ready::*
 };
 
 static_assert(std::is_trivially_copyable_v<ForwarderSnapshot>);

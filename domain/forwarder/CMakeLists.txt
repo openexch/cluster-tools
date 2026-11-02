@@ -8,10 +8,13 @@
 
 set(CT_FORWARDER_DOMAIN_SOURCES
     src/DispatchRules.cpp
+    src/BookLadder.cpp
     src/EpochBinder.cpp
+    src/MarketData.cpp
     src/ResyncMachine.cpp
     src/SendRing.cpp
-    src/TestSeams.cpp)
+    src/TestSeams.cpp
+    src/TickEmitter.cpp)
 
 add_library(ct_forwarder_domain STATIC ${CT_FORWARDER_DOMAIN_SOURCES})
 add_library(cluster_tools::forwarder_domain ALIAS ct_forwarder_domain)
@@ -35,7 +38,10 @@ if(BUILD_TESTING)
         tests/EpochBinderTest.cpp
         tests/AdmissionWatcherTest.cpp
         tests/ResyncMachineTest.cpp
-        tests/ResyncPropertyTest.cpp)
+        tests/ResyncPropertyTest.cpp
+        tests/BookLadderTest.cpp
+        tests/TickEmitterTest.cpp
+        tests/StitcherPropertyTest.cpp)
     target_link_libraries(ct_forwarder_domain_tests PRIVATE ct_forwarder_domain_seamed)
     target_include_directories(ct_forwarder_domain_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_compile_options(ct_forwarder_domain_tests PRIVATE -Wall -Wextra)

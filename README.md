@@ -27,7 +27,8 @@ repo is where those tools live.
 - **[`app/journal-tail/`](app/journal-tail/)**: `ct-journal-tail`, see below.
 - **[`domain/forwarder/`](domain/forwarder/) + [`app/forwarder/`](app/forwarder/)**: `ct-forwarder`, the production
   forwarder (RC2 S12), see below. The pure core (classification and the INVALID carrier, the send ring, the resync
-  machine with its 10,000-seed property test, the epoch binder, the admission watcher) builds in every configuration;
+  machine with its 10,000-seed property test, the epoch binder, the admission watcher; RC2 S13: the K4 book ladder, the
+  tick emitter and the stitcher property test) builds in every configuration;
   the codec is in `adapters/sbe`, the agent and the binary need `WITH_AERON`.
 - **[`poc/`](poc/)** — a minimal (~470 LOC) C++ cluster client, proven against a
   3-node dockerized match cluster: session connect (with follower REDIRECT handling),
@@ -168,6 +169,28 @@ is retried for 30 s and then exits 70 too, so a passing squeeze of a shared `/de
 good. The T1 integration run is `app/forwarder/it/run-forwarder-it.sh <build> <assets-cluster.jar>
 <match-cluster.jar>` (3 AE + 3 ME + 2 forwarders, `IT_FWD_MODE=external|embedded`; the negative-control binaries need
 `-DCT_FORWARDER_TEST_BUILDS=ON`; they are never published).
+
+Market ticks (RC2 S13, K4): every forwarder also turns the ME's book egress it already receives (`BookSnapshot` 22,
+`BookDelta` 25, `TradeExecutionBatch` 26) into `MarketTick` 60 on its core FORWARDER session, stamped with the bound ME
+epoch. Per market 1..5 a top-20 ladder is stitched from the snapshot and the chained deltas; a ladder that cannot prove
+it equals the ME's book (a delta whose `fromVersion` is not the ladder's version, a level operation the ME cannot
+produce, a crossed or malformed frame) is BROKEN and emits nothing until the next snapshot (the ME sends one on every
+session open, every 10 s, and on every ME leader change). Frames of an ended ME term are dropped
+(`forwarder_me_stale_term_total`); an ME session end empties every ladder. The emitter decides once per duty iteration
+after the whole ME poll: a top-of-book change after a quiet 100 ms is offered at once, later ones at most once per
+100 ms with the newest state; a deeper-level or trade-only change emits nothing; nothing is offered while unregistered,
+unbound or without a core leader; every (re-)registration re-offers each market once (the core dedupes by
+`bookVersion`). A core reject of a 60 for session authority re-registers (`forwarder_tick_rejected_total`). Every tick
+constant is compiled (no `FWD_TICK_*` key). Metrics: `forwarder_book_*{market}`, `forwarder_trade_*{market}`,
+`forwarder_tick_*{market}`, `forwarder_me_frames_total{template}` (23 / 24 / 27, known and unused) and
+`forwarder_ticks_ready`; `/health` carries `books` (state, version, broken and snapshot age, last offered version,
+pending age, last trade id per market) and `ticksReady` (the first market and condition that cleared it).
+`BOOK_STALE` (a ladder BROKEN for 30 s, a change pending for 5 s, or an OK ladder without a snapshot for 30 s while the
+ME is bound) clears `forwarder_ticks_ready` and pages through `ForwarderTicksNotReady`; it is **not** a `/ready`
+conjunct, so a market-data defect never removes dispatch readiness from every forwarder at once. The forwarder takes no
+automatic action on a long BROKEN (no ME reconnect): it alerts (`ForwarderBookBroken` 15 s, `ForwarderBookDefect`,
+`ForwarderBookLossy`, `ForwarderTickStuck`, `ForwarderTickRefused`, `ForwarderTickRejected`). Exactness is claimed for
+the ME's ARRAY engine (the default).
 
 ### ct-bridge
 

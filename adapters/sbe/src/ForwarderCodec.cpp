@@ -5,15 +5,22 @@
 
 #include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
 #include "com_openexchange_assets_infrastructure_generated/MeDispatch.h"
+#include "com_openexchange_assets_infrastructure_generated/MarketTick.h"
 #include "com_openexchange_assets_infrastructure_generated/MeDispatchBatch.h"
 #include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
 #include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
 #include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
 #include "com_openexchange_assets_infrastructure_generated/RequestPendingDispatch.h"
+#include "com_match_infrastructure_generated/BookDelta.h"
+#include "com_match_infrastructure_generated/BookSnapshot.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/DurableOrderCommand.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
+#include "com_match_infrastructure_generated/OpenOrdersSnapshot.h"
+#include "com_match_infrastructure_generated/OrderStatusBatch.h"
 #include "com_match_infrastructure_generated/ReleaseCommandIds.h"
+#include "com_match_infrastructure_generated/TradeExecutionBatch.h"
+#include "com_match_infrastructure_generated/TradesBatch.h"
 
 namespace cluster_tools { namespace sbe_adapter { namespace forwarder_codec {
 
@@ -79,6 +86,54 @@ static_assert(money::MeDispatchBatch::Dispatches::budgetEncodingOffset() == 71);
 static_assert(money::MeDispatchBatch::Dispatches::timeInForceEncodingOffset() == 79);
 static_assert(money::MeDispatchBatch::Dispatches::releaseScopeEncodingOffset() == 80);
 static_assert(money::MeDispatchBatch::Dispatches::expectedOldRemainingEncodingOffset() == 81);
+
+// RC2 S13 contract 4.2 / 11.3: the book egress layouts the raw reads below use. A schema change that moves a field
+// fails the build here, not on the wire. (CodecLayoutTest pins the same numbers from the test side.)
+static_assert(me::BookSnapshot::sbeTemplateId() == T_BOOK_SNAPSHOT);
+static_assert(me::BookDelta::sbeTemplateId() == T_BOOK_DELTA);
+static_assert(me::TradeExecutionBatch::sbeTemplateId() == T_TRADE_EXECUTION_BATCH);
+static_assert(me::TradesBatch::sbeTemplateId() == T_TRADES_BATCH);
+static_assert(me::OrderStatusBatch::sbeTemplateId() == T_ORDER_STATUS_BATCH);
+static_assert(me::OpenOrdersSnapshot::sbeTemplateId() == T_OPEN_ORDERS_SNAPSHOT);
+static_assert(money::MarketTick::sbeTemplateId() == T_MARKET_TICK);
+static_assert(me::BookSnapshot::sbeBlockLength() == domain::forwarder::SNAPSHOT_BLOCK_MIN);
+static_assert(me::BookDelta::sbeBlockLength() == domain::forwarder::DELTA_BLOCK_MIN);
+static_assert(me::TradeExecutionBatch::sbeBlockLength() == domain::forwarder::TRADE_BLOCK_MIN);
+static_assert(me::BookSnapshot::Bids::sbeBlockLength() == domain::forwarder::SNAPSHOT_ENTRY_MIN);
+static_assert(me::BookSnapshot::Asks::sbeBlockLength() == domain::forwarder::SNAPSHOT_ENTRY_MIN);
+static_assert(me::BookDelta::Changes::sbeBlockLength() == domain::forwarder::DELTA_ENTRY_MIN);
+static_assert(me::TradeExecutionBatch::Trades::sbeBlockLength() == domain::forwarder::TRADE_ENTRY_MIN);
+static_assert(me::BookSnapshot::Bids::sbeHeaderSize() == 4);
+static_assert(me::BookSnapshot::Asks::sbeHeaderSize() == 4);
+static_assert(me::BookDelta::Changes::sbeHeaderSize() == 4);
+static_assert(me::TradeExecutionBatch::Trades::sbeHeaderSize() == 4);
+static_assert(me::BookSnapshot::marketIdEncodingOffset() == 0);
+static_assert(me::BookSnapshot::bookVersionEncodingOffset() == 28);
+static_assert(me::BookSnapshot::Bids::priceEncodingOffset() == 0);
+static_assert(me::BookSnapshot::Bids::quantityEncodingOffset() == 8);
+static_assert(me::BookSnapshot::Bids::orderCountEncodingOffset() == 16);
+static_assert(me::BookSnapshot::Asks::priceEncodingOffset() == 0);
+static_assert(me::BookSnapshot::Asks::quantityEncodingOffset() == 8);
+static_assert(me::BookSnapshot::Asks::orderCountEncodingOffset() == 16);
+static_assert(me::BookDelta::marketIdEncodingOffset() == 0);
+static_assert(me::BookDelta::bookVersionEncodingOffset() == 28);
+static_assert(me::BookDelta::fromVersionEncodingOffset() == 36);
+static_assert(me::BookDelta::Changes::priceEncodingOffset() == 0);
+static_assert(me::BookDelta::Changes::quantityEncodingOffset() == 8);
+static_assert(me::BookDelta::Changes::orderCountEncodingOffset() == 16);
+static_assert(me::BookDelta::Changes::sideEncodingOffset() == 20);
+static_assert(me::BookDelta::Changes::updateTypeEncodingOffset() == 21);
+static_assert(me::TradeExecutionBatch::marketIdEncodingOffset() == 0);
+static_assert(me::TradeExecutionBatch::Trades::tradeIdEncodingOffset() == 0);
+static_assert(me::TradeExecutionBatch::Trades::priceEncodingOffset() == 40);
+static_assert(MESSAGE_HEADER_LENGTH + money::MarketTick::sbeBlockLength() == MARKET_TICK_FRAME_LENGTH);
+static_assert(money::MarketTick::marketIdEncodingOffset() == 0);
+static_assert(money::MarketTick::bookVersionEncodingOffset() == 4);
+static_assert(money::MarketTick::bestBidEncodingOffset() == 12);
+static_assert(money::MarketTick::bestAskEncodingOffset() == 20);
+static_assert(money::MarketTick::lastTradePriceEncodingOffset() == 28);
+static_assert(money::MarketTick::lastTradeIdEncodingOffset() == 36);
+static_assert(money::MarketTick::meEpochEncodingOffset() == 44);
 
 namespace {
 
@@ -332,6 +387,228 @@ std::size_t encodeReleaseCommandIds(std::uint8_t *out, std::size_t capacity, std
                     i * RELEASE_ENTRY_LENGTH + me::ReleaseCommandIds::Releases::scopeEncodingOffset(),
                 &entries[i].scope, 1);
         }
+        return MESSAGE_HEADER_LENGTH + e.encodedLength();
+    }
+    catch (const std::exception &)
+    {
+        return 0;
+    }
+}
+
+namespace {
+
+using domain::forwarder::BookLevel;
+using domain::forwarder::LADDER_LEVELS;
+using domain::forwarder::DELTA_MAX_CHANGES;
+using domain::forwarder::Malformed;
+
+void resetBook(BookFrame &out, bool snapshot) noexcept
+{
+    // scalars only: the entry arrays are delimited by nBids / nAsks / nChanges, never read past them
+    out.snapshot = snapshot;
+    out.marketReadable = false;
+    out.lengthOk = false;
+    out.malformed = Malformed::NONE;
+    out.marketId = 0;
+    out.bookVersion = 0;
+    out.fromVersion = 0;
+    out.headerBlockLength = 0;
+    out.groupBlockLength[0] = out.groupBlockLength[1] = 0;
+    out.statedCount[0] = out.statedCount[1] = 0;
+    out.nBids = out.nAsks = out.nChanges = 0;
+}
+
+void readMarket(const std::uint8_t *frame, std::size_t length, const Header &header, std::int32_t &market, bool &readable) noexcept
+{
+    // marketId is the first field (offset 0, 4 bytes) of 22, 25 and 26
+    if (header.blockLength >= 4 && length >= MESSAGE_HEADER_LENGTH + 4)
+    {
+        market = read<std::int32_t>(frame + MESSAGE_HEADER_LENGTH);
+        readable = true;
+    }
+}
+
+// Reads one group header at `at` and checks that `count` entries of the STATED block length fit. False = the group
+// header is missing or the entries do not fit (the frame is short). A stated block below `entryMin` or a count above
+// `cap` is not a "short frame": the caller sees the raw numbers and the validator names the rule; no entry is read.
+bool groupHeader(const std::uint8_t *frame, std::size_t length, std::size_t at, std::uint16_t &block, std::uint16_t &count) noexcept
+{
+    if (length < at + 4 || at + 4 < at)
+    {
+        return false;
+    }
+    block = read<std::uint16_t>(frame + at);
+    count = read<std::uint16_t>(frame + at + 2);
+    return true;
+}
+
+bool entriesFit(std::size_t length, std::size_t first, std::uint16_t block, std::uint16_t count) noexcept
+{
+    return first <= length && static_cast<std::size_t>(block) * count <= length - first;
+}
+
+}
+
+bool decodeBookSnapshot(const std::uint8_t *frame, std::size_t length, const Header &header, BookFrame &out) noexcept
+{
+    resetBook(out, true);
+    if (T_BOOK_SNAPSHOT != header.templateId)
+    {
+        out.malformed = Malformed::TEMPLATE;
+        return false;
+    }
+    out.headerBlockLength = header.blockLength;
+    readMarket(frame, length, header, out.marketId, out.marketReadable);
+    if (header.blockLength >= domain::forwarder::SNAPSHOT_BLOCK_MIN && length >= MESSAGE_HEADER_LENGTH + domain::forwarder::SNAPSHOT_BLOCK_MIN)
+    {
+        out.bookVersion = read<std::int64_t>(frame + MESSAGE_HEADER_LENGTH + 28);
+    }
+    std::size_t at = MESSAGE_HEADER_LENGTH + header.blockLength;
+    bool fits = length >= at;
+    BookLevel *sides[2] = { out.bids, out.asks };
+    std::uint16_t *stored[2] = { &out.nBids, &out.nAsks };
+    for (unsigned g = 0; g < 2 && fits; g++)
+    {
+        fits = groupHeader(frame, length, at, out.groupBlockLength[g], out.statedCount[g]);
+        if (!fits)
+        {
+            break;
+        }
+        at += 4;
+        const std::uint16_t block = out.groupBlockLength[g];
+        const std::uint16_t count = out.statedCount[g];
+        fits = entriesFit(length, at, block, count);
+        if (fits && block >= domain::forwarder::SNAPSHOT_ENTRY_MIN && count <= LADDER_LEVELS)
+        {
+            for (std::uint16_t i = 0; i < count; i++)
+            {
+                const std::uint8_t *e = frame + at + static_cast<std::size_t>(i) * block;
+                sides[g][i].price = read<std::int64_t>(e + 0);
+                sides[g][i].quantity = read<std::int64_t>(e + 8);
+                sides[g][i].orderCount = read<std::int32_t>(e + 16);
+            }
+            *stored[g] = count;
+        }
+        at += static_cast<std::size_t>(block) * count; // only reached when the entries fit
+    }
+    out.lengthOk = fits;
+    out.malformed = domain::forwarder::validateBookFrame(out);
+    return Malformed::NONE == out.malformed;
+}
+
+bool decodeBookDelta(const std::uint8_t *frame, std::size_t length, const Header &header, BookFrame &out) noexcept
+{
+    resetBook(out, false);
+    if (T_BOOK_DELTA != header.templateId)
+    {
+        out.malformed = Malformed::TEMPLATE;
+        return false;
+    }
+    out.headerBlockLength = header.blockLength;
+    readMarket(frame, length, header, out.marketId, out.marketReadable);
+    if (header.blockLength >= domain::forwarder::DELTA_BLOCK_MIN && length >= MESSAGE_HEADER_LENGTH + domain::forwarder::DELTA_BLOCK_MIN)
+    {
+        out.bookVersion = read<std::int64_t>(frame + MESSAGE_HEADER_LENGTH + 28);
+        out.fromVersion = read<std::int64_t>(frame + MESSAGE_HEADER_LENGTH + 36);
+    }
+    std::size_t at = MESSAGE_HEADER_LENGTH + header.blockLength;
+    bool fits = length >= at && groupHeader(frame, length, at, out.groupBlockLength[0], out.statedCount[0]);
+    if (fits)
+    {
+        at += 4;
+        const std::uint16_t block = out.groupBlockLength[0];
+        const std::uint16_t count = out.statedCount[0];
+        fits = entriesFit(length, at, block, count);
+        if (fits && block >= domain::forwarder::DELTA_ENTRY_MIN && count <= DELTA_MAX_CHANGES)
+        {
+            for (std::uint16_t i = 0; i < count; i++)
+            {
+                const std::uint8_t *e = frame + at + static_cast<std::size_t>(i) * block;
+                out.changes[i].price = read<std::int64_t>(e + 0);
+                out.changes[i].quantity = read<std::int64_t>(e + 8);
+                out.changes[i].orderCount = read<std::int32_t>(e + 16);
+                out.changes[i].side = e[20];       // raw: no generated enum getter (it throws on an unknown value)
+                out.changes[i].updateType = e[21]; // raw
+            }
+            out.nChanges = count;
+        }
+    }
+    out.lengthOk = fits;
+    out.malformed = domain::forwarder::validateBookFrame(out);
+    return Malformed::NONE == out.malformed;
+}
+
+bool decodeTradeBatch(const std::uint8_t *frame, std::size_t length, const Header &header, TradeFrame &out) noexcept
+{
+    out.marketReadable = false;
+    out.lengthOk = false;
+    out.entryInvalid = false;
+    out.malformed = Malformed::NONE;
+    out.marketId = 0;
+    out.headerBlockLength = header.blockLength;
+    out.entryBlockLength = 0;
+    out.statedCount = 0;
+    out.maxTradeId = 0;
+    out.priceAtMax = 0;
+    if (T_TRADE_EXECUTION_BATCH != header.templateId)
+    {
+        out.malformed = Malformed::TEMPLATE;
+        return false;
+    }
+    readMarket(frame, length, header, out.marketId, out.marketReadable);
+    std::size_t at = MESSAGE_HEADER_LENGTH + header.blockLength;
+    bool fits = length >= at && groupHeader(frame, length, at, out.entryBlockLength, out.statedCount);
+    if (fits)
+    {
+        at += 4;
+        fits = entriesFit(length, at, out.entryBlockLength, out.statedCount);
+        if (fits && out.entryBlockLength >= domain::forwarder::TRADE_ENTRY_MIN)
+        {
+            for (std::uint16_t i = 0; i < out.statedCount; i++)
+            {
+                const std::uint8_t *e = frame + at + static_cast<std::size_t>(i) * out.entryBlockLength;
+                const std::int64_t tradeId = read<std::int64_t>(e + 0);
+                const std::int64_t price = read<std::int64_t>(e + 40);
+                if (tradeId <= 0 || price <= 0)
+                {
+                    out.entryInvalid = true;
+                }
+                if (tradeId > out.maxTradeId)
+                {
+                    out.maxTradeId = tradeId;
+                    out.priceAtMax = price;
+                }
+            }
+        }
+    }
+    out.lengthOk = fits;
+    out.malformed = domain::forwarder::validateTradeFrame(out);
+    if (Malformed::NONE != out.malformed)
+    {
+        out.maxTradeId = 0; // dropped whole: nothing of it is used
+        out.priceAtMax = 0;
+        return false;
+    }
+    return true;
+}
+
+std::size_t encodeMarketTick(std::uint8_t *out, std::size_t capacity, const MarketTick &t) noexcept
+{
+    if (nullptr == out || capacity < MARKET_TICK_FRAME_LENGTH)
+    {
+        return 0;
+    }
+    try
+    {
+        money::MarketTick e;
+        e.wrapAndApplyHeader(reinterpret_cast<char *>(out), 0, capacity)
+            .marketId(t.marketId)
+            .bookVersion(t.bookVersion)
+            .bestBid(t.bestBid)
+            .bestAsk(t.bestAsk)
+            .lastTradePrice(t.lastTradePrice)
+            .lastTradeId(t.lastTradeId)
+            .meEpoch(t.meEpoch);
         return MESSAGE_HEADER_LENGTH + e.encodedLength();
     }
     catch (const std::exception &)

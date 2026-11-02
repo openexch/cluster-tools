@@ -16,7 +16,7 @@
   "money_schema_sha256": "678c9dd117b6f3ea25d5179dd6ddf19637d0e28f5b883ab1c0ef0ef5d4a0163b",
   "money_schema_id": 2,
   "money_schema_min_version": 7,
-  "money_schema_required_templates": [7, 13, 17, 61, 62, 63, 64, 65, 66, 67, 68, 80, 101, 104, 105, 108, 109, 110, 114],
+  "money_schema_required_templates": [7, 13, 17, 60, 61, 62, 63, 64, 65, 66, 67, 68, 80, 101, 104, 105, 108, 109, 110, 114],
   "match_schema_repo": "openexch/match",
   "match_schema_ref": "68a9375b89c39c0fa9f48bd926dc232eac4f4866",
   "match_schema_path": "match-common/src/main/resources/sbe/order-schema.xml",

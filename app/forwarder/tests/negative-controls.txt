@@ -29,3 +29,13 @@ ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds|AGENT_ME_SESSION_BEFORE_POLL|
 MainTest.identityIsTheConfiguredIdOnBothClusters|IDENTITY_RANDOM|a random identity per start (the S12 shape): RegisterSession.identity is not FWD_INSTANCE_ID|CHECK( id == 4242 )
 # RC2 S10' Q1 (coordinator decision 2026-11-01): 30 s of storage-refused ingress publications end the process 70
 ForwarderAgentTest.storageStarvedIngressExits70|STORAGE_STARVED_EXIT_OFF|a publication starved of storage space never ends the process: alive and not ready forever (the 2026-07-25 shape)|alive after 30 s of storage starvation
+# RC2 S13 contract 11.7 (app): the K4 MarketTick producer in the agent (domain seams of TestSeams.h, the seamed domain
+# library this binary links)
+ForwarderAgentTest.noTickBeforeTheMeEpochIsBound|AGENT_TICK_GATE|ticks offered without the section 3 gate: a tick with meEpoch 0 before the bind|CHECK( tickOffers == 0 )
+ForwarderAgentTest.aBurstInOnePollIsDecidedAfterThePoll|AGENT_TICK_AFTER_POLL|the emitter decides inside the ME poll callback: the burst's first (old) state leads and the newest is coalesced away (F-S13-4)|CHECK( firstTick.bid == burstNewestBid )
+ForwarderAgentTest.knownMeTemplatesAreNotUnknown|AGENT_KNOWN_TEMPLATES|23 / 24 / 27 counted as unknown ME templates (F-S13-5)|CHECK( unknownMe == 1 )
+ForwarderAgentTest.bookStaleClearsTicksReadyNotDispatchReady|AGENT_BOOK_STALE|no BOOK_STALE condition: a stuck emitter or a dead resnapshot rhythm reads ticks-ready|CHECK( snap.ticksReady == 0 )
+ForwarderAgentTest.unversionedMarketsStayEmptyAndTicksReady|STITCH_UNVERSIONED_EMPTY|a version-0 empty snapshot is malformed: never-versioned markets turn BROKEN and clear tick readiness (rule U, CL-B-1)|CHECK( snap.ticksReady == 1 )
+ForwarderAgentTest.resyncRequestPrecedesTicksOnTheCorePublication|AGENT_TICK_BEFORE_REQUEST|step 5a before step 5: the ticks take the core publication ahead of the 65 (CL-F-3)|CHECK( r.coreOffers(65).size() == 1 )
+ForwarderAgentTest.oldTermBookFrameAfterMeNewLeaderIsDropped|AGENT_ME_STALE_TERM_FILTER|an ended ME term's late snapshot reaches the ladder and rolls it back (RC-F1, F-S13-8)|CHECK( ladderVersion(1) == newTermVersion )
+ForwarderAgentTest.coreRejectOfATickReRegisters|AGENT_TICK_REJECT_HANDLED|a core reject naming 60 is an unknown core template: the lost registration is never repaired (F-S13-9)|CHECK( registerOffers == 2 )

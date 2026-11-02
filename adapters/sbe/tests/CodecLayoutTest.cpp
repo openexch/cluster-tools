@@ -17,15 +17,19 @@
 #include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
 #include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
 #include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
+#include "com_openexchange_assets_infrastructure_generated/MarketTick.h"
 #include "com_openexchange_assets_infrastructure_generated/MeDispatch.h"
 #include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
 #include "com_openexchange_assets_infrastructure_generated/RequestPendingDispatch.h"
+#include "com_match_infrastructure_generated/BookDelta.h"
+#include "com_match_infrastructure_generated/BookSnapshot.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/DurableOrderCommand.h"
 #include "com_match_infrastructure_generated/EngineConfig.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
 #include "com_match_infrastructure_generated/OrderStatusBatch.h"
 #include "com_match_infrastructure_generated/ReleaseCommandIds.h"
+#include "com_match_infrastructure_generated/TradeExecutionBatch.h"
 #include "com_match_infrastructure_mejournal_generated/MessageHeader.h"
 #include "com_match_infrastructure_mejournal_generated/Trade.h"
 
@@ -312,4 +316,173 @@ TEST_CASE("ME journal codecs are generated: schemaId 4 v1, templates 1..5")
     CHECK(journal::Trade::sbeTemplateId() == 1);
     CHECK(journal::Trade::sbeSchemaId() == 4);
     CHECK(journal::Trade::sbeSchemaVersion() == 1);
+}
+
+// ============================================================================================================
+// RC2 S13 W1 (contract 11.3): the K4 templates. The forwarder reads 22 / 25 / 26 by raw offsets and writes 60 with the
+// generated encoder; these are the numbers the raw reads rest on (ForwarderCodec.cpp static_asserts the same).
+// ============================================================================================================
+
+TEST_CASE("RC2 S13 floors: ids, block lengths and group headers of 22, 25, 26 and 60")
+{
+    CHECK(me::BookSnapshot::sbeTemplateId() == 22);
+    CHECK(me::BookSnapshot::sbeBlockLength() == 36);
+    CHECK(me::BookSnapshot::bookVersionSinceVersion() == 4);
+    CHECK(me::BookSnapshot::Bids::sbeBlockLength() == 20);
+    CHECK(me::BookSnapshot::Asks::sbeBlockLength() == 20);
+    CHECK(me::BookSnapshot::Bids::sbeHeaderSize() == 4);
+    CHECK(me::BookSnapshot::Asks::sbeHeaderSize() == 4);
+    CHECK(me::BookDelta::sbeTemplateId() == 25);
+    CHECK(me::BookDelta::sbeBlockLength() == 44);
+    CHECK(me::BookDelta::bookVersionSinceVersion() == 4);
+    CHECK(me::BookDelta::fromVersionSinceVersion() == 4);
+    CHECK(me::BookDelta::Changes::sbeBlockLength() == 22);
+    CHECK(me::BookDelta::Changes::sbeHeaderSize() == 4);
+    CHECK(me::TradeExecutionBatch::sbeTemplateId() == 26);
+    CHECK(me::TradeExecutionBatch::sbeBlockLength() == 12);
+    CHECK(me::TradeExecutionBatch::Trades::sbeBlockLength() == 89);
+    CHECK(me::TradeExecutionBatch::Trades::sbeHeaderSize() == 4);
+    CHECK(money::MarketTick::sbeTemplateId() == 60);
+    CHECK(money::MarketTick::sbeBlockLength() == 52);
+    CHECK(money::MarketTick::sbeSchemaId() == 2);
+    CHECK(money::MarketTick::sbeSchemaVersion() == 7);
+}
+
+TEST_CASE("BookSnapshot 20x20: Java golden decodes through the generated codec")
+{
+    std::vector<std::uint8_t> golden = JAVA_BOOK_SNAPSHOT_20x20;
+    me::MessageHeader h(bytes(golden), 0, golden.size(), 0);
+    CHECK(h.templateId() == 22);
+    CHECK(h.blockLength() == 36);
+    CHECK(h.version() == 12);
+    me::BookSnapshot s(bytes(golden), 8, golden.size(), h.blockLength(), h.version());
+    CHECK(s.marketId() == 3);
+    CHECK(s.timestamp() == 1'700'000'000'000LL + 0x0000010203040506LL);
+    CHECK(s.bookVersion() == 0x0000010203040506LL);
+    auto &bids = s.bids();
+    REQUIRE(bids.count() == 20);
+    int i = 0;
+    while (bids.hasNext())
+    {
+        bids.next();
+        CHECK(bids.price() == 1'499'000'000LL - i * 1'000'000LL);
+        CHECK(bids.quantity() == 100'000'000LL + i);
+        CHECK(bids.orderCount() == 1 + i);
+        i++;
+    }
+    auto &asks = s.asks();
+    REQUIRE(asks.count() == 20);
+    i = 0;
+    while (asks.hasNext())
+    {
+        asks.next();
+        CHECK(asks.price() == 1'500'000'000LL + i * 1'000'000LL);
+        CHECK(asks.quantity() == 200'000'000LL + i);
+        CHECK(asks.orderCount() == 21 + i);
+        i++;
+    }
+    CHECK(i == 20);
+}
+
+TEST_CASE("BookDelta 80 changes: Java golden decodes through the generated codec")
+{
+    std::vector<std::uint8_t> golden = JAVA_BOOK_DELTA_80;
+    me::MessageHeader h(bytes(golden), 0, golden.size(), 0);
+    CHECK(h.templateId() == 25);
+    CHECK(h.blockLength() == 44);
+    me::BookDelta d(bytes(golden), 8, golden.size(), h.blockLength(), h.version());
+    CHECK(d.marketId() == 3);
+    CHECK(d.bookVersion() == 0x0000020000000050LL);
+    CHECK(d.fromVersion() == 0x0000020000000001LL);
+    auto &changes = d.changes();
+    REQUIRE(changes.count() == 80);
+    int n = 0, news = 0, deletes = 0;
+    while (changes.hasNext())
+    {
+        changes.next();
+        if (changes.updateType() == me::BookUpdateType::NEW_LEVEL)
+        {
+            news++;
+        }
+        else if (changes.updateType() == me::BookUpdateType::DELETE_LEVEL)
+        {
+            deletes++;
+        }
+        n++;
+    }
+    CHECK(n == 80);
+    CHECK(news == 40);
+    CHECK(deletes == 40);
+    CHECK(golden.size() == 8 + 44 + 4 + 80 * 22);
+}
+
+TEST_CASE("TradeExecutionBatch: Java golden decodes through the generated codec; the bad-group golden states 88")
+{
+    std::vector<std::uint8_t> golden = JAVA_TRADE_EXECUTION_BATCH_3;
+    me::MessageHeader h(bytes(golden), 0, golden.size(), 0);
+    CHECK(h.templateId() == 26);
+    CHECK(h.blockLength() == 12);
+    me::TradeExecutionBatch t(bytes(golden), 8, golden.size(), h.blockLength(), h.version());
+    CHECK(t.marketId() == 3);
+    CHECK(t.timestamp() == 1'700'000'000'777LL);
+    auto &trades = t.trades();
+    REQUIRE(trades.count() == 3);
+    const std::int64_t ids[3] = { 41, 43, 42 };
+    int i = 0;
+    while (trades.hasNext())
+    {
+        trades.next();
+        CHECK(trades.tradeId() == ids[i]);
+        CHECK(trades.takerOrderId() == 9000 + i);
+        CHECK(trades.makerOrderId() == 9100 + i);
+        CHECK(trades.takerUserId() == 3000 + i);
+        CHECK(trades.makerUserId() == 3100 + i);
+        CHECK(trades.price() == 1'499'000'000LL + 10 * i);
+        CHECK(trades.quantity() == 50'000'000LL + i);
+        CHECK(trades.takerSide() == me::OrderSide::ASK);
+        CHECK(trades.takerOmsOrderId() == 4000 + i);
+        CHECK(trades.makerOmsOrderId() == 4100 + i);
+        CHECK(trades.egressSeq() == 600 + i);
+        CHECK(trades.clusterTimestamp() == 1'700'000'000'000LL + i);
+        i++;
+    }
+    CHECK(i == 3);
+    // the CL-F-9 golden is the same bytes except the group header's blockLength (offset 20) = 88
+    std::vector<std::uint8_t> bad = JAVA_TRADE_EXECUTION_BATCH_BAD_GROUP_BL;
+    REQUIRE(bad.size() == golden.size());
+    CHECK(bad[20] == 88);
+    CHECK(bad[21] == 0);
+    golden[20] = 88;
+    CHECK(bad == golden);
+}
+
+TEST_CASE("MarketTick 60: Java golden decodes, C++ re-encodes byte-equal")
+{
+    std::vector<std::uint8_t> golden = JAVA_MARKET_TICK_V7;
+    money::MessageHeader h(bytes(golden), 0, golden.size(), 0);
+    CHECK(h.templateId() == 60);
+    CHECK(h.blockLength() == 52);
+    CHECK(h.schemaId() == 2);
+    CHECK(h.version() == 7);
+    money::MarketTick t(bytes(golden), money::MessageHeader::encodedLength(), golden.size(), h.blockLength(), h.version());
+    CHECK(t.marketId() == 3);
+    CHECK(t.bookVersion() == 0x0102030405060708LL);
+    CHECK(t.bestBid() == 1'499'000'001LL);
+    CHECK(t.bestAsk() == 1'500'000'002LL);
+    CHECK(t.lastTradePrice() == 1'499'500'003LL);
+    CHECK(t.lastTradeId() == 0x1112131415161718LL);
+    CHECK(t.meEpoch() == 0x2122232425262728LL);
+
+    std::vector<std::uint8_t> mine(golden.size() + 16, 0xEE);
+    money::MarketTick encoder;
+    encoder.wrapAndApplyHeader(bytes(mine), 0, mine.size())
+        .marketId(3)
+        .bookVersion(0x0102030405060708LL)
+        .bestBid(1'499'000'001LL)
+        .bestAsk(1'500'000'002LL)
+        .lastTradePrice(1'499'500'003LL)
+        .lastTradeId(0x1112131415161718LL)
+        .meEpoch(0x2122232425262728LL);
+    mine.resize(money::MessageHeader::encodedLength() + encoder.encodedLength());
+    CHECK(mine == golden);
 }

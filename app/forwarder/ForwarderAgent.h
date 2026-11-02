@@ -14,12 +14,14 @@
 #include "cluster_tools/client/ClusterClient.h"
 #include "cluster_tools/client/CoreSessionRegistrar.h"
 #include "cluster_tools/domain/forwarder/AdmissionWatcher.h"
+#include "cluster_tools/domain/forwarder/BookLadder.h"
 #include "cluster_tools/domain/forwarder/Counters.h"
 #include "cluster_tools/domain/forwarder/DispatchRules.h"
 #include "cluster_tools/domain/forwarder/EpochBinder.h"
 #include "cluster_tools/domain/forwarder/ResyncMachine.h"
 #include "cluster_tools/domain/forwarder/SendRing.h"
 #include "cluster_tools/domain/forwarder/TestSeams.h"
+#include "cluster_tools/domain/forwarder/TickEmitter.h"
 
 #include "common/StorageStarvation.h"
 
@@ -39,8 +41,11 @@
 //
 // One iteration (section 3): (1) both clients' doWork (connect steps, keepalive every 1 s, deadlines);
 // (2) core poll, 256 frames, rule S first (a frame of another leadership term than the client's is dropped);
-// (3) the registrar; (4) ME poll, 256 frames (heartbeats to the binder; everything else counted and
-// dropped); (5) the resync timers and the RequestPendingDispatch offer; (6) up to 64 ME offers from the ring,
+// (3) the registrar; (4) ME poll, 256 frames (heartbeats to the binder; RC2 S13: 22 / 25 / 26 of an ended ME term
+// dropped, then 22 / 25 into the market's ladder and 26 into its trade mark, 23 / 24 / 27 counted as known-ignored,
+// everything else counted unknown); (5) the resync timers and the RequestPendingDispatch offer; (5a, RC2 S13
+// section 3) the tick emitter, after the whole ME poll, for every touched or due market in market order (at most one
+// MarketTick 60 per market on the core publication); (6) up to 64 ME offers from the ring,
 // stopping at the first non-OK result (never retried in place); (7) link supervision (reconnects with an
 // exponential 1-30 s backoff, terminal refusals end the agent with a StopReason); main maps the StopReason to
 // the process exit code (0, 70, 75, 78).
@@ -101,6 +106,7 @@ public:
         m_settings(settings),
         m_log(log),
         m_resync(m_ring),
+        m_tickSink(*this),
         m_coreBackoff(settings.reconnectBackoffInitialNs, settings.reconnectBackoffMaxNs),
         m_meBackoff(settings.reconnectBackoffInitialNs, settings.reconnectBackoffMaxNs)
     {
@@ -182,7 +188,18 @@ public:
         }
 
         m_resync.tick(m_now);
+        // RC2 S13 section 3: step 5 (the resync request) keeps its priority on the shared core publication; step 5a
+        // offers ticks after it and before the ME drain
+        const bool ticksFirst = domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_TICK_BEFORE_REQUEST);
+        if (ticksFirst)
+        {
+            work += stepTicks(); // RED shape (CL-F-3): ticks ahead of the 65
+        }
         work += offerRequest();
+        if (!ticksFirst)
+        {
+            work += stepTicks();
+        }
         work += drainRing();
         if (m_ring.empty())
         {
@@ -253,6 +270,29 @@ public:
         s.resync = m_resync.counters();
         s.counters = m_counters;
         s.logDropped = nullptr == m_log ? 0 : m_log->dropped();
+        for (int m = 1; m <= domain::forwarder::TICK_MARKETS; m++)
+        {
+            const domain::forwarder::BookLadder &l = m_stitcher.ladder(m);
+            BookView &b = s.books[m - 1];
+            b.state = static_cast<std::uint8_t>(l.state());
+            b.version = domain::forwarder::LadderState::EMPTY == l.state() ? 0 : l.version();
+            b.brokenAgeMs = l.brokenAgeNs(m_now) / 1'000'000;
+            const std::int64_t snapAge = l.snapshotAgeNs(m_now);
+            b.snapshotAgeMs = snapAge < 0 ? -1 : snapAge / 1'000'000;
+            b.brokenNsTotal = l.brokenNsIncludingOpen(m_now);
+            b.lastOfferedVersion = m_emitter.lastOffered(m).version;
+            b.pendingAgeMs = m_emitter.pendingAgeNs(m, m_now) / 1'000'000;
+            b.lastTradeId = m_stitcher.mark(m).tradeId();
+            b.tradeMalformed = m_stitcher.counters().tradeMalformed[m - 1];
+            b.ladder = l.counters();
+            b.tick = m_emitter.counters(m);
+        }
+        s.bookForeignMarket = m_stitcher.counters().foreignMarket;
+        s.bookMalformedNoMarket = m_stitcher.counters().malformedNoMarket;
+        const TicksReadiness t = ticksReadiness();
+        s.ticksReady = t.ready;
+        s.ticksNotReadyMarket = t.market;
+        s.ticksNotReadyCondition = t.condition;
     }
 
     // How long the ring's head slot has waited for a positive ME offer (0 when the ring is empty).
@@ -266,6 +306,52 @@ public:
     const domain::forwarder::ForwarderCounters &counters() const noexcept { return m_counters; }
     const Registrar *registrar() const noexcept { return m_registrar ? &*m_registrar : nullptr; }
     std::int64_t lastSentSeq() const noexcept { return m_lastSentSeq; }
+    const domain::forwarder::BookStitcher &stitcher() const noexcept { return m_stitcher; }
+    const domain::forwarder::TickEmitter &emitter() const noexcept { return m_emitter; }
+
+    // RC2 S13 10.2 BOOK_STALE (tick readiness, never the dispatch /ready): the first market and condition that clear it.
+    // EMPTY markets never set it.
+    struct TicksReadiness
+    {
+        bool ready = true;
+        std::int32_t market = 0;
+        std::uint8_t condition = ticks_not_ready::NONE;
+    };
+    TicksReadiness ticksReadiness() const noexcept
+    {
+        using domain::forwarder::LadderState;
+        TicksReadiness r;
+        if (domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_BOOK_STALE))
+        {
+            return r; // RED shape: no BOOK_STALE condition, a stuck stitcher reads healthy
+        }
+        for (int m = 1; m <= domain::forwarder::TICK_MARKETS; m++)
+        {
+            const domain::forwarder::BookLadder &l = m_stitcher.ladder(m);
+            std::uint8_t c = ticks_not_ready::NONE;
+            if (LadderState::BROKEN == l.state() && l.brokenAgeNs(m_now) >= ticks_not_ready::BROKEN_NS)
+            {
+                c = ticks_not_ready::BROKEN_30S;
+            }
+            else if (m_emitter.pendingAgeNs(m, m_now) >= ticks_not_ready::PENDING_NS)
+            {
+                c = ticks_not_ready::PENDING_5S;
+            }
+            else if (LadderState::OK == l.state() && MeLink::BOUND == m_meLink &&
+                l.snapshotAgeNs(m_now) >= ticks_not_ready::SNAPSHOT_AGE_NS)
+            {
+                c = ticks_not_ready::SNAPSHOT_AGE_30S;
+            }
+            if (ticks_not_ready::NONE != c)
+            {
+                r.ready = false;
+                r.market = m;
+                r.condition = c;
+                return r;
+            }
+        }
+        return r;
+    }
 
 private:
     using Dispatch = domain::forwarder::Dispatch;
@@ -489,7 +575,7 @@ private:
             else if (m_registrationLost)
             {
                 m_counters.registrationLost++;
-                log(LogLevel::WARN, "core says this session is unregistered (OrderReject naming 65): re-registering");
+                log(LogLevel::WARN, "core says this session is unregistered (OrderReject naming 65 or 60): re-registering");
                 leaveC3();
                 if (m_registrar)
                 {
@@ -507,6 +593,7 @@ private:
             log(LogLevel::INFO, "registered (term %lld, sourceEpoch %lld): T1 head probe, then RESYNC(0)",
                 static_cast<long long>(m_registeredTerm), static_cast<long long>(m_binder.epoch()));
             m_resync.onRegistered(m_now); // T1
+            m_emitter.onRegistered();     // RC2 S13 E7: every market that offered re-offers once (D-S13-5)
         }
     }
 
@@ -627,6 +714,16 @@ private:
 
     void meDown(bool immediate)
     {
+        if (MeLink::UNVERIFIED == m_meLink || MeLink::BOUND == m_meLink)
+        {
+            // RC2 S13 4.1 rule 6: an ME session end empties every ladder and trade mark (frames between two sessions
+            // are lost; the next session's open triggers a snapshot); step 5a sees every market once (E11, 6.0)
+            m_stitcher.onMeSessionEnd(m_now);
+            for (bool &t : m_touched)
+            {
+                t = true;
+            }
+        }
         m_binder.onSessionEnd();
         m_meLink = MeLink::DOWN;
         m_meNextConnectNs = immediate ? m_now : m_now + m_meBackoff.next();
@@ -866,6 +963,12 @@ private:
     void onOrderReject(const sbe_adapter::forwarder_codec::OrderRejectView &r)
     {
         namespace codec = sbe_adapter::forwarder_codec;
+        if (codec::T_MARKET_TICK == r.refTemplateId &&
+            !domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_TICK_REJECT_HANDLED))
+        {
+            onTickReject(r);
+            return;
+        }
         if (codec::T_REQUEST_PENDING_DISPATCH != r.refTemplateId)
         {
             m_counters.unknown(domain::forwarder::CLUSTER_CORE, codec::T_ORDER_REJECT);
@@ -883,6 +986,30 @@ private:
             return;
         }
         m_counters.unknown(domain::forwarder::CLUSTER_CORE, codec::T_ORDER_REJECT);
+    }
+
+    // RC2 S13 7.3 (F-S13-9): the core refuses a 60 only by session authority (DMX:455-466). UNREGISTERED / UNAUTHORIZED
+    // re-register exactly like the 65 case (the gate closes at supervision, E7 re-offers once REGISTERED again); any
+    // other reason is a defect. Never an unknown core template (C8).
+    void onTickReject(const sbe_adapter::forwarder_codec::OrderRejectView &r)
+    {
+        namespace codec = sbe_adapter::forwarder_codec;
+        if (codec::REJECT_UNREGISTERED_SESSION == r.reason || codec::REJECT_UNAUTHORIZED_CLASS == r.reason)
+        {
+            const unsigned which = codec::REJECT_UNREGISTERED_SESSION == r.reason ? 0u : 1u;
+            if (shouldLog(++m_counters.tickRejected[which]))
+            {
+                log(LogLevel::WARN, "core refused a MarketTick (%s): re-registering",
+                    0 == which ? "UNREGISTERED_SESSION" : "UNAUTHORIZED_CLASS");
+            }
+            m_registrationLost = true;
+            return;
+        }
+        if (shouldLog(++m_counters.tickRejected[2]))
+        {
+            log(LogLevel::ERROR, "core refused a MarketTick with reason %u (only session authority is expected: a defect)",
+                static_cast<unsigned>(r.reason));
+        }
     }
 
     // ------------------------------------------------------------------ ME egress
@@ -922,7 +1049,147 @@ private:
             }
             return;
         }
-        m_counters.unknown(domain::forwarder::CLUSTER_ME, h.templateId); // book/trade frames: S13
+        onMeMarketData(m, h);
+    }
+
+    // RC2 S13 section 3 step 4: the book egress. The emission decision is NOT taken here (F-S13-4): step 5a decides once
+    // per iteration after the whole poll, on the newest state of the burst.
+    void onMeMarketData(const client::EgressMessage &m, const sbe_adapter::forwarder_codec::Header &h)
+    {
+        namespace codec = sbe_adapter::forwarder_codec;
+        namespace seams = domain::forwarder::test_seams;
+        const std::uint16_t t = h.templateId;
+        if (codec::T_BOOK_SNAPSHOT == t || codec::T_BOOK_DELTA == t || codec::T_TRADE_EXECUTION_BATCH == t)
+        {
+            // F-S13-8 / D-S13-11: a frame of an ended ME term (a stopped old leader's late egress) never reaches the
+            // ladder; rule 1's lower-version acceptance is only safe within one term. 21 is not filtered (S12 binder).
+            if (m.leadershipTermId < m_me.leadershipTermId() && !seams::disabled(seams::Rule::AGENT_ME_STALE_TERM_FILTER))
+            {
+                if (shouldLog(++m_counters.meStaleTerm))
+                {
+                    log(LogLevel::WARN, "ME book frame %u of ended term %lld dropped (client term %lld)", static_cast<unsigned>(t),
+                        static_cast<long long>(m.leadershipTermId), static_cast<long long>(m_me.leadershipTermId()));
+                }
+                return;
+            }
+            int market = 0;
+            if (codec::T_TRADE_EXECUTION_BATCH == t)
+            {
+                codec::decodeTradeBatch(m.payload, m.length, h, m_tradeFrame); // a malformed batch is counted, dropped whole
+                m_stitcher.onTradeFrame(m_tradeFrame);
+                return; // section 5: the mark rides on ticks only, it never makes one
+            }
+            if (codec::T_BOOK_SNAPSHOT == t)
+            {
+                codec::decodeBookSnapshot(m.payload, m.length, h, m_bookFrame); // malformed: the market's ladder breaks
+            }
+            else
+            {
+                codec::decodeBookDelta(m.payload, m.length, h, m_bookFrame);
+            }
+            market = m_stitcher.onBookFrame(m_bookFrame, m_now);
+            if (market > 0)
+            {
+                m_touched[market - 1] = true;
+                if (seams::disabled(seams::Rule::AGENT_TICK_AFTER_POLL))
+                {
+                    stepMarket(market, tickGate()); // RED shape: decided per frame, inside the poll
+                }
+            }
+            return;
+        }
+        const int known = codec::T_TRADES_BATCH == t ? 0 : codec::T_ORDER_STATUS_BATCH == t ? 1 :
+            codec::T_OPEN_ORDERS_SNAPSHOT == t ? 2 : -1;
+        if (known >= 0 && !seams::disabled(seams::Rule::AGENT_KNOWN_TEMPLATES))
+        {
+            m_counters.meKnownIgnored[known]++; // F-S13-5: known, not used by the forwarder
+            return;
+        }
+        m_counters.unknown(domain::forwarder::CLUSTER_ME, t);
+    }
+
+    // ------------------------------------------------------------------ RC2 S13 step 5a: ticks
+
+    // Section 3 gate: REGISTERED, the registration not lost (7.3), MeLink BOUND (E != 0), a core leader, no stop.
+    domain::forwarder::TickGate tickGate() const noexcept
+    {
+        using domain::forwarder::TickGate;
+        if (domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_TICK_GATE))
+        {
+            return TickGate::OPEN; // RED shape: no gate
+        }
+        if (MeLink::BOUND != m_meLink)
+        {
+            return TickGate::UNBOUND;
+        }
+        if (CoreLink::REGISTERED != m_coreLink || m_registrationLost || m_stopRequested || m_stopReason.set() ||
+            client::ClientState::AWAIT_NEW_LEADER == m_core.state())
+        {
+            return TickGate::UNREGISTERED;
+        }
+        return TickGate::OPEN;
+    }
+
+    void stepMarket(int market, domain::forwarder::TickGate gate)
+    {
+        m_emitter.step(market, m_stitcher.ladder(market), m_stitcher.mark(market), m_now, gate, m_tickSink);
+    }
+
+    // Every touched market, every market the emitter says is due (trailing edge, retry, re-offer), and every market
+    // once when the gate changes (a held candidate goes when the gate opens; E11's clock stops when it closes), in
+    // market order 1..5: at most one 60 per market per iteration. The touched set is cleared here.
+    int stepTicks()
+    {
+        const domain::forwarder::TickGate gate = tickGate();
+        const bool gateChanged = gate != m_lastTickGate;
+        m_lastTickGate = gate;
+        const std::uint64_t before = m_tickOffersAccepted;
+        for (int m = 1; m <= domain::forwarder::TICK_MARKETS; m++)
+        {
+            if (m_touched[m - 1] || gateChanged || m_emitter.due(m, m_now))
+            {
+                stepMarket(m, gate);
+            }
+            m_touched[m - 1] = false;
+        }
+        return static_cast<int>(m_tickOffersAccepted - before);
+    }
+
+    // The core publication as the emitter sees it: encode 60 with the bound epoch (E8), one tryOffer, never retried in
+    // place (E6 retries at the next iteration).
+    struct CoreTickSink final : domain::forwarder::TickSink
+    {
+        explicit CoreTickSink(ForwarderAgent &agent) noexcept : a(agent) {}
+        bool tryOffer(int market, const domain::forwarder::TickCandidate &c, domain::forwarder::TickEdge) noexcept override
+        {
+            return a.offerTick(market, c);
+        }
+        ForwarderAgent &a;
+    };
+
+    bool offerTick(int market, const domain::forwarder::TickCandidate &c) noexcept
+    {
+        namespace codec = sbe_adapter::forwarder_codec;
+        domain::forwarder::MarketTick tick;
+        tick.marketId = market;
+        tick.bookVersion = c.version;
+        tick.bestBid = c.bid;
+        tick.bestAsk = c.ask;
+        tick.lastTradePrice = c.tradePrice;
+        tick.lastTradeId = c.tradeId;
+        tick.meEpoch = m_binder.epoch();
+        const std::size_t length = codec::encodeMarketTick(m_tickFrame, sizeof(m_tickFrame), tick);
+        if (0 == length)
+        {
+            stop(EXIT_SOFTWARE, "F2_ENCODE_60", "MarketTick did not encode (market %d)", market);
+            return false;
+        }
+        if (m_core.tryOffer(m_tickFrame, length).ok())
+        {
+            m_tickOffersAccepted++;
+            return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ verdicts, request, drain
@@ -1090,6 +1357,15 @@ private:
     domain::forwarder::ResyncMachine m_resync;
     domain::forwarder::EpochBinder m_binder;
     domain::forwarder::AdmissionWatcher m_watcher;
+    // RC2 S13 (K1: heap only, a restart starts EMPTY): the five ladders and trade marks, the emitter, the decode scratch
+    domain::forwarder::BookStitcher m_stitcher;
+    domain::forwarder::TickEmitter m_emitter;
+    domain::forwarder::BookFrame m_bookFrame;
+    domain::forwarder::TradeFrame m_tradeFrame;
+    bool m_touched[domain::forwarder::TICK_MARKETS] = {};
+    domain::forwarder::TickGate m_lastTickGate = domain::forwarder::TickGate::UNBOUND;
+    std::uint64_t m_tickOffersAccepted = 0;
+    CoreTickSink m_tickSink;
     domain::forwarder::ForwarderCounters m_counters;
     std::uint64_t m_invalidPerRule[domain::forwarder::RULE_COUNT] = {};
     std::optional<Registrar> m_registrar;
@@ -1121,6 +1397,7 @@ private:
     common::ClientStorageFeed<MeClient> m_storageFeed1;
 
     std::uint8_t m_requestFrame[64] = {};
+    std::uint8_t m_tickFrame[sbe_adapter::forwarder_codec::MARKET_TICK_FRAME_LENGTH + 4] = {};
     std::uint8_t m_meFrame[sbe_adapter::forwarder_codec::RELEASE_FRAME_MAX_LENGTH + 64] = {};
     domain::forwarder::ReleaseEntry m_releaseScratch[sbe_adapter::forwarder_codec::RELEASE_FRAME_MAX_ENTRIES] = {};
 };

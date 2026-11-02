@@ -80,6 +80,45 @@ enum class Rule : unsigned
     AGENT_ME_SESSION_BEFORE_POLL, // RED shape (review FIX-1): the ME session starts only at supervision, after the poll
     AGENT_T2,                  // the property model's ME-loss recovery (T2) switched off (review FIX-4)
     RESYNC_SEQ_BELOW_ONE,      // RED shape (review NOTE-2): a dispatchSeq below 1 is pushed / held
+    // RC2 S13 4.2 frame validation (MarketData.cpp)
+    STITCH_HEADER_BLOCK,               // RED shape: a header blockLength below the template's accepted (4.2)
+    STITCH_GROUP_BLOCK_LENGTH,         // RED shape (CL-F-9): a group blockLength below the entry size accepted (22, 25, 26)
+    STITCH_COUNT_CAP,                  // RED shape: a group count above 20 (22) or 80 (25) accepted
+    STITCH_FRAME_LENGTH,               // RED shape: a frame shorter than header + block + groups accepted
+    STITCH_UNVERSIONED_EMPTY,          // RED shape (rule U): bookVersion 0 with two empty groups is malformed
+    STITCH_VALUE_CHECK,                // RED shape: price / qty / count <= 0 accepted (22, 25)
+    STITCH_DELTA_VERSION,              // RED shape (RC-N3): bookVersion <= fromVersion (or 0) accepted on a 25
+    STITCH_RAW_ENUM_CHECK,             // RED shape: a raw side above 1 or updateType above 2 accepted
+    STITCH_TRADE_VALIDATE,             // RED shape: a 26 entry with tradeId <= 0 or price <= 0 accepted
+    // RC2 S13 section 4 ladder (BookLadder.cpp)
+    STITCH_CHAIN_CHECK,                // RED shape: a delta with fromVersion != version applied anyway (4.1 rule 3)
+    STITCH_STRICT_LEVEL_OPS,           // RED shape: NEW of a present price updates, UPDATE / DELETE of an absent one is lenient
+    STITCH_DEPTH_CHECK,                // RED shape: more than 20 levels at the frame end accepted
+    STITCH_40_SLOTS,                   // RED shape (CL-N-11): the insert bound check caps a side at 20 mid frame (DEPTH on the 21st)
+    LADDER_RESET_ON_SESSION_END,       // RED shape: an ME session end keeps every ladder and trade mark (4.1 rule 6)
+    // RC2 S13 section 6 emitter (TickEmitter.cpp)
+    TICK_BROKEN_HOLD,                  // RED shape: a BROKEN ladder's (discarded) state is offered (E1)
+    TICK_VALIDATE,                     // RED shape: no validation before the offer (E9)
+    TICK_TOP_ONLY,                     // RED shape: any version move is a change (deeper levels emit)
+    TICK_TRADE_ONLY_SILENT,            // RED shape: a newer trade is a change without a version move (the RC1 X6 text)
+    TICK_LEADING_EDGE,                 // RED shape: every change waits for the window end
+    TICK_TRAILING_NEWEST,              // RED shape: the trailing offer carries the state that set the flag
+    TICK_TRAILING_EDGE,                // RED shape: a change inside the window is dropped (no flag)
+    TICK_RATE_CAP,                     // RED shape: the window never starts (every change offered at once)
+    TICK_VERSION_ABOVE,                // RED shape: a candidate at or below lastOffered.version is offered (E5)
+    TICK_CONFIRMED_ONLY,               // RED shape: a failed offer moves lastOffered (E6)
+    TICK_REOFFER_ON_REGISTER,          // RED shape: a (re-)registration re-offers nothing (E7)
+    TICK_REOFFER_OUTSIDE_RATE,         // RED shape (review F-1): a re-offer restarts the T_cap window (6.0, E10)
+    TICK_PENDING_AGE_GATED,            // RED shape: the pending-age clock keeps running while BROKEN / EMPTY / gated (E11)
+    TICK_EPISODE_RESET,                // RED shape: the suppressed episode flag never clears (6.0)
+    // RC2 S13 sections 3, 7.3, 10 agent integration (app/forwarder ForwarderAgent.h)
+    AGENT_ME_STALE_TERM_FILTER,        // RED shape (F-S13-8): 22 / 25 / 26 of an ended ME term reach the ladder
+    AGENT_TICK_GATE,                   // RED shape: ticks offered without the section 3 gate (unbound, unregistered)
+    AGENT_TICK_AFTER_POLL,             // RED shape (F-S13-4): the emitter steps inside the ME poll callback, per frame
+    AGENT_KNOWN_TEMPLATES,             // RED shape (F-S13-5): 23 / 24 / 27 counted as unknown ME templates
+    AGENT_BOOK_STALE,                  // RED shape: forwarder_ticks_ready never drops (no BOOK_STALE conditions)
+    AGENT_TICK_BEFORE_REQUEST,         // RED shape (CL-F-3): step 5a runs before step 5 (ticks ahead of the 65)
+    AGENT_TICK_REJECT_HANDLED,         // RED shape (F-S13-9): a core reject naming 60 is an unknown core template
     COUNT
 };
 

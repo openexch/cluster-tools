@@ -72,3 +72,62 @@ groups:
         labels: { severity: page }
         annotations:
           summary: "ct-forwarder starved of storage in the media driver dir (it exits 70 after 30 s): grow or clean the tmpfs"
+      # RC2 S13 (K4 MarketTick) contract 10.3. BOOK_STALE drives forwarder_ticks_ready only, never the dispatch /ready
+      # (PO-1): one ME market-data defect must not take dispatch readiness from every forwarder at once.
+      - alert: ForwarderBookBroken
+        expr: forwarder_book_broken_age_ms > 15000
+        labels: { severity: warning }
+        annotations:
+          summary: "market {{ $labels.market }} book chain BROKEN for more than 15 s (no snapshot repaired it)"
+      - alert: ForwarderBookSnapshotStale
+        expr: forwarder_book_snapshot_age_ms > 25000 and forwarder_book_state == 1
+        labels: { severity: warning }
+        annotations:
+          summary: "market {{ $labels.market }}: no BookSnapshot for 25 s on an OK ladder (the ME resnapshot rhythm is dead)"
+      - alert: ForwarderTickStuck
+        # E11: 0 while BROKEN, EMPTY or gated, so a case-B break or a core election never pages
+        expr: forwarder_tick_pending_age_ms > 2000
+        for: 10s
+        labels: { severity: page }
+        annotations:
+          summary: "market {{ $labels.market }}: a book change the emitter may send has waited more than 2 s"
+      - alert: ForwarderTicksNotReady
+        expr: forwarder_ticks_ready == 0
+        for: 10s
+        labels: { severity: page }
+        annotations:
+          summary: "tick readiness lost (BOOK_STALE; GET /health ticksReady names the market and condition)"
+      - alert: ForwarderTickRefused
+        # E9: a candidate the stitcher cannot vouch for (crossed, negative, version 0): a stitcher or ME defect
+        expr: increase(forwarder_tick_refused_total[5m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "market {{ $labels.market }}: the forwarder refused its own MarketTick candidate"
+      - alert: ForwarderTickRejected
+        # 7.3: the core refused a 60 for session authority; repaired by re-registration
+        expr: increase(forwarder_tick_rejected_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "the core rejected a MarketTick ({{ $labels.reason }}): registration lost under the ticks"
+      - alert: ForwarderBookDefect
+        # a correct ME and stitcher never produce these causes (from_mismatch is the expected lossy / failover cause)
+        expr: increase(forwarder_book_chain_breaks_total{cause=~"level_op|depth|crossed|malformed"}[5m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "market {{ $labels.market }} book chain broke with cause {{ $labels.cause }} (a stitcher or ME defect)"
+      - alert: ForwarderBookLossy
+        expr: increase(forwarder_book_broken_seconds_total[10m]) > 60
+        labels: { severity: warning }
+        annotations:
+          summary: "market {{ $labels.market }} book spent more than 60 s of the last 10 min BROKEN (persistently lossy)"
+      - alert: ForwarderBookForeignMarket
+        expr: increase(forwarder_book_foreign_market_total[10m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "ME book frames for a market outside 1..5 (deployment mismatch with the core's market count)"
+      - alert: ForwarderMeUnknownTemplate
+        # 22 / 25 / 26 are stitched and 23 / 24 / 27 known-ignored since S13 (F-S13-5): anything else is a schema drift
+        expr: increase(forwarder_unknown_template_total{cluster="me"}[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "ME egress template {{ $labels.template }} unknown to this forwarder"

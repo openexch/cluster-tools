@@ -15,7 +15,10 @@
 #include "FakeTransport.h"
 #include "ForwarderAgent.h"
 
+#include "com_match_infrastructure_generated/BookDelta.h"
+#include "com_match_infrastructure_generated/BookSnapshot.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
+#include "com_match_infrastructure_generated/TradeExecutionBatch.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
 #include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
 #include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
@@ -186,6 +189,77 @@ inline Bytes meOther(std::uint16_t templateId)
     return b;
 }
 
+// ---- RC2 S13 ME book egress (order-schema v12, the match pin's own generated encoders)
+struct Level
+{
+    std::int64_t price = 0;
+    std::int64_t qty = 0;
+    std::int32_t count = 1;
+};
+
+inline Bytes bookSnapshot(std::int32_t market, std::int64_t version, const std::vector<Level> &bids,
+    const std::vector<Level> &asks)
+{
+    Bytes b(8 + 36 + 4 + 20 * 40 + 4 + 20 * 40 + 64);
+    me::BookSnapshot e;
+    e.wrapAndApplyHeader(reinterpret_cast<char *>(b.data()), 0, b.size())
+        .marketId(market).timestamp(1).bidVersion(version).askVersion(version).bookVersion(version);
+    auto &bg = e.bidsCount(static_cast<std::uint16_t>(bids.size()));
+    for (const Level &l : bids)
+    {
+        bg.next().price(l.price).quantity(l.qty).orderCount(l.count);
+    }
+    auto &ag = e.asksCount(static_cast<std::uint16_t>(asks.size()));
+    for (const Level &l : asks)
+    {
+        ag.next().price(l.price).quantity(l.qty).orderCount(l.count);
+    }
+    b.resize(8 + e.encodedLength());
+    return b;
+}
+
+struct Change
+{
+    std::int64_t price = 0;
+    std::int64_t qty = 0;
+    std::int32_t count = 1;
+    bool bid = true;
+    me::BookUpdateType::Value type = me::BookUpdateType::NEW_LEVEL;
+};
+
+inline Bytes bookDelta(std::int32_t market, std::int64_t from, std::int64_t version, const std::vector<Change> &changes)
+{
+    Bytes b(8 + 44 + 4 + 22 * 80 + 64);
+    me::BookDelta e;
+    e.wrapAndApplyHeader(reinterpret_cast<char *>(b.data()), 0, b.size())
+        .marketId(market).timestamp(1).bidVersion(version).askVersion(version).bookVersion(version).fromVersion(from);
+    auto &g = e.changesCount(static_cast<std::uint16_t>(changes.size()));
+    for (const Change &c : changes)
+    {
+        g.next().price(c.price).quantity(c.qty).orderCount(c.count).side(c.bid ? me::OrderSide::BID : me::OrderSide::ASK)
+            .updateType(c.type);
+    }
+    b.resize(8 + e.encodedLength());
+    return b;
+}
+
+// One bid UPDATE that moves the best bid from `oldBid` to `newBid` on a one-level bid side: NEW newBid, DELETE oldBid.
+inline Bytes moveBestBid(std::int32_t market, std::int64_t from, std::int64_t version, std::int64_t oldBid, std::int64_t newBid)
+{
+    return bookDelta(market, from, version,
+        { Change{ newBid, 10, 1, true, me::BookUpdateType::NEW_LEVEL }, Change{ oldBid, 0, 0, true, me::BookUpdateType::DELETE_LEVEL } });
+}
+
+inline Bytes tradeBatch(std::int32_t market, std::int64_t tradeId, std::int64_t price)
+{
+    Bytes b(8 + 12 + 4 + 128 + 64);
+    me::TradeExecutionBatch e;
+    e.wrapAndApplyHeader(reinterpret_cast<char *>(b.data()), 0, b.size()).marketId(market).timestamp(1);
+    e.tradesCount(1).next().tradeId(tradeId).price(price).quantity(1);
+    b.resize(8 + e.encodedLength());
+    return b;
+}
+
 // What the agent offered on one transport: app payloads (after the 32 B session header), in order.
 struct Offered
 {
@@ -338,6 +412,7 @@ struct Rig
     }
     void core_(const Bytes &payload) { core_(payload, coreTerm); }
     void me_(const Bytes &payload) { meT.pushAppMessage(meSession, payload, ME_IMAGE, meTerm); }
+    void me_(const Bytes &payload, std::int64_t term) { meT.pushAppMessage(meSession, payload, ME_IMAGE, term); }
 
     std::vector<Offered> coreOffers(std::uint16_t templateId) const
     {
@@ -392,8 +467,10 @@ struct Rig
         const Request65 probe = last65();
         REQUIRE(probe.max == 0);
         core_(pendingEnd(probe.correlationId, 0, head));
+        answered65.insert(probe.correlationId);
         cycles(3);
         const Request65 page = last65();
+        answered65.insert(page.correlationId);
         REQUIRE(page.max == 4096);
         REQUIRE(page.from == 0);
         if (!reply.empty())
@@ -404,6 +481,49 @@ struct Rig
         cycles(3);
         REQUIRE(agent.resync().mode() == domain::forwarder::Mode::LIVE);
     }
+
+    // RC2 S13: a long run in LIVE that keeps the dispatch side healthy (an ME heartbeat every 100 ms keeps the egress
+    // fresh; every head probe is answered at once), so only tick readiness can change. `each` runs once per second.
+    template<typename Each>
+    void runLive(std::int64_t ns, Each &&each, std::int64_t head = 0)
+    {
+        const std::int64_t end = coreT.now + ns;
+        std::int64_t nextHeartbeat = coreT.now;
+        std::int64_t nextEach = coreT.now + SECOND;
+        while (coreT.now < end && !agent.stopped())
+        {
+            if (coreT.now >= nextHeartbeat)
+            {
+                me_(heartbeat(EPOCH));
+                nextHeartbeat += 100 * MS;
+            }
+            if (0 == (++liveCycles % 10))
+            {
+                answerProbes(head);
+            }
+            cycle(MS);
+            if (coreT.now >= nextEach)
+            {
+                each();
+                nextEach += SECOND;
+            }
+        }
+    }
+    void runLive(std::int64_t ns) { runLive(ns, [] {}); }
+
+    void answerProbes(std::int64_t head = 0)
+    {
+        for (const Offered &o : coreOffers(65))
+        {
+            const Request65 q = decode65(o.payload);
+            if (answered65.insert(q.correlationId).second)
+            {
+                core_(pendingEnd(q.correlationId, 0, head));
+            }
+        }
+    }
+    std::set<std::int64_t> answered65;
+    std::uint64_t liveCycles = 0;
 
     void bringUp(std::int64_t head = 0)
     {

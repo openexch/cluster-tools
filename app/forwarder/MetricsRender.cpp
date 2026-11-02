@@ -63,6 +63,124 @@ const char *kindLabel(unsigned bucket)
     return bucket < 5 ? labels[bucket] : "?";
 }
 
+// RC2 S13 10.1 label values. Local tables (not the domain's nameOf) so this pure translation unit needs no domain
+// library symbol; MetricsRenderTest pins them against the enums' order.
+const char *breakCauseLabel(unsigned cause)
+{
+    static const char *labels[] = { "none", "from_mismatch", "level_op", "depth", "crossed", "malformed" };
+    return cause < 6 ? labels[cause] : "?";
+}
+static_assert(static_cast<unsigned>(fd::BreakCause::COUNT) == 6, "breakCauseLabel covers every BreakCause");
+
+const char *edgeLabel(unsigned edge)
+{
+    static const char *labels[] = { "leading", "trailing", "reoffer", "retry" };
+    return edge < 4 ? labels[edge] : "?";
+}
+static_assert(static_cast<unsigned>(fd::TickEdge::COUNT) == 4, "edgeLabel covers every TickEdge");
+
+const char *suppressedLabel(unsigned reason)
+{
+    static const char *labels[] = { "broken", "unbound", "unregistered", "version_not_above" };
+    return reason < 4 ? labels[reason] : "?";
+}
+static_assert(static_cast<unsigned>(fd::TickSuppressed::COUNT) == 4, "suppressedLabel covers every TickSuppressed");
+
+const char *bookStateLabel(std::uint8_t state)
+{
+    return 0 == state ? "EMPTY" : 1 == state ? "OK" : 2 == state ? "BROKEN" : "?";
+}
+
+void perMarketGauge(std::string &out, const char *name, const ForwarderSnapshot &s, std::int64_t (*value)(const BookView &))
+{
+    type(out, name, "gauge");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        line(out, "%s{market=\"%d\"} %" PRId64, name, m, value(s.books[m - 1]));
+    }
+}
+
+void perMarketCounter(std::string &out, const char *name, const ForwarderSnapshot &s, std::uint64_t (*value)(const BookView &))
+{
+    type(out, name, "counter");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        line(out, "%s{market=\"%d\"} %" PRIu64, name, m, value(s.books[m - 1]));
+    }
+}
+
+// RC2 S13 10.1: every series is a fixed-size family over markets 1..5 (render on fwd-http from the snapshot)
+void renderBooks(std::string &out, const ForwarderSnapshot &s)
+{
+    perMarketGauge(out, "forwarder_book_state", s, [](const BookView &b) { return static_cast<std::int64_t>(b.state); });
+    perMarketGauge(out, "forwarder_book_version", s, [](const BookView &b) { return b.version; });
+    type(out, "forwarder_book_frames_total", "counter");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        line(out, "forwarder_book_frames_total{market=\"%d\",template=\"22\"} %" PRIu64, m, s.books[m - 1].ladder.snapshots);
+        line(out, "forwarder_book_frames_total{market=\"%d\",template=\"25\"} %" PRIu64, m, s.books[m - 1].ladder.deltas);
+    }
+    perMarketCounter(out, "forwarder_book_frames_ignored_total", s, [](const BookView &b) { return b.ladder.ignored; });
+    type(out, "forwarder_book_chain_breaks_total", "counter");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        for (unsigned c = 1; c < static_cast<unsigned>(fd::BreakCause::COUNT); c++)
+        {
+            line(out, "forwarder_book_chain_breaks_total{market=\"%d\",cause=\"%s\"} %" PRIu64, m, breakCauseLabel(c),
+                s.books[m - 1].ladder.chainBreaks[c]);
+        }
+    }
+    perMarketCounter(out, "forwarder_book_recoveries_total", s, [](const BookView &b) { return b.ladder.recoveries; });
+    perMarketGauge(out, "forwarder_book_broken_age_ms", s, [](const BookView &b) { return b.brokenAgeMs; });
+    perMarketGauge(out, "forwarder_book_snapshot_age_ms", s, [](const BookView &b) { return b.snapshotAgeMs; });
+    perMarketCounter(out, "forwarder_book_version_regressions_total", s,
+        [](const BookView &b) { return b.ladder.versionRegressions; });
+    counter(out, "forwarder_book_malformed_total", s.bookMalformedNoMarket);
+    perMarketCounter(out, "forwarder_book_unversioned_total", s, [](const BookView &b) { return b.ladder.unversioned; });
+    counter(out, "forwarder_book_foreign_market_total", s.bookForeignMarket);
+    type(out, "forwarder_book_broken_seconds_total", "counter");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        const std::int64_t ns = s.books[m - 1].brokenNsTotal;
+        line(out, "forwarder_book_broken_seconds_total{market=\"%d\"} %" PRId64 ".%03" PRId64, m,
+            static_cast<std::int64_t>(ns / 1'000'000'000), static_cast<std::int64_t>((ns % 1'000'000'000) / 1'000'000));
+    }
+    perMarketCounter(out, "forwarder_trade_malformed_total", s, [](const BookView &b) { return b.tradeMalformed; });
+    counter(out, "forwarder_me_stale_term_total", s.counters.meStaleTerm);
+    perMarketGauge(out, "forwarder_trade_last_id", s, [](const BookView &b) { return b.lastTradeId; });
+    type(out, "forwarder_tick_offered_total", "counter");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        for (unsigned e = 0; e < static_cast<unsigned>(fd::TickEdge::COUNT); e++)
+        {
+            line(out, "forwarder_tick_offered_total{market=\"%d\",edge=\"%s\"} %" PRIu64, m, edgeLabel(e),
+                s.books[m - 1].tick.offered[e]);
+        }
+    }
+    type(out, "forwarder_tick_suppressed_total", "counter");
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        for (unsigned r = 0; r < static_cast<unsigned>(fd::TickSuppressed::COUNT); r++)
+        {
+            line(out, "forwarder_tick_suppressed_total{market=\"%d\",reason=\"%s\"} %" PRIu64, m, suppressedLabel(r),
+                s.books[m - 1].tick.suppressed[r]);
+        }
+    }
+    perMarketCounter(out, "forwarder_tick_offer_failures_total", s, [](const BookView &b) { return b.tick.offerFailures; });
+    perMarketCounter(out, "forwarder_tick_refused_total", s, [](const BookView &b) { return b.tick.refused; });
+    type(out, "forwarder_tick_rejected_total", "counter");
+    line(out, "forwarder_tick_rejected_total{reason=\"unregistered\"} %" PRIu64, s.counters.tickRejected[0]);
+    line(out, "forwarder_tick_rejected_total{reason=\"unauthorized\"} %" PRIu64, s.counters.tickRejected[1]);
+    line(out, "forwarder_tick_rejected_total{reason=\"other\"} %" PRIu64, s.counters.tickRejected[2]);
+    gauge(out, "forwarder_ticks_ready", s.ticksReady ? 1 : 0);
+    perMarketGauge(out, "forwarder_tick_last_offered_version", s, [](const BookView &b) { return b.lastOfferedVersion; });
+    perMarketGauge(out, "forwarder_tick_pending_age_ms", s, [](const BookView &b) { return b.pendingAgeMs; });
+    type(out, "forwarder_me_frames_total", "counter");
+    line(out, "forwarder_me_frames_total{template=\"23\"} %" PRIu64, s.counters.meKnownIgnored[0]);
+    line(out, "forwarder_me_frames_total{template=\"24\"} %" PRIu64, s.counters.meKnownIgnored[1]);
+    line(out, "forwarder_me_frames_total{template=\"27\"} %" PRIu64, s.counters.meKnownIgnored[2]);
+}
+
 }
 
 const char *modeName(std::uint8_t mode) noexcept
@@ -80,7 +198,7 @@ const char *modeName(std::uint8_t mode) noexcept
 std::string renderPrometheus(const ForwarderSnapshot &s)
 {
     std::string out;
-    out.reserve(16 * 1024);
+    out.reserve(32 * 1024);
     type(out, "forwarder_info", "gauge");
     line(out, "forwarder_info{identity=\"%" PRId64 "\",version=\"%s\",me_epoch=\"%" PRId64 "\"} 1", s.identity, s.version,
         s.meEpoch);
@@ -175,6 +293,7 @@ std::string renderPrometheus(const ForwarderSnapshot &s)
     counter(out, "forwarder_aeron_errors_total", s.aeronErrors);
     gauge(out, "forwarder_duty_max_cycle_us", static_cast<std::int64_t>(s.dutyMaxCycleUs));
     counter(out, "forwarder_log_dropped_total", s.logDropped);
+    renderBooks(out, s);
     return out;
 }
 
@@ -195,6 +314,26 @@ std::string renderHealthJson(const ForwarderSnapshot &s, bool stalled)
         s.meLink >= static_cast<std::uint8_t>(MeLink::UNVERIFIED) ? "true" : "false", s.registered ? "true" : "false",
         s.meEpoch, modeName(s.mode), s.cursor, s.lastSentSeq, s.coreHead, resyncs, s.lastResyncEndSeq, s.ringDepth,
         s.counters.invalid.total(), s.identity, driverModeLabel(s.driverMode), s.ready ? "true" : "false");
+    // RC2 S13 10.2: the five books and the tick readiness (BOOK_STALE is not a /ready conjunct, PO-1), appended inside
+    // the object so the S12 fields keep their order
+    out.pop_back(); // the newline line() added
+    out.pop_back(); // the closing brace
+    out += ",\"books\":[";
+    for (int m = 1; m <= fd::TICK_MARKETS; m++)
+    {
+        const BookView &b = s.books[m - 1];
+        char buf[320];
+        std::snprintf(buf, sizeof(buf),
+            "%s{\"market\":%d,\"state\":\"%s\",\"version\":%" PRId64 ",\"brokenAgeMs\":%" PRId64 ",\"snapshotAgeMs\":%" PRId64
+            ",\"lastOfferedVersion\":%" PRId64 ",\"pendingAgeMs\":%" PRId64 ",\"lastTradeId\":%" PRId64 "}",
+            1 == m ? "" : ",", m, bookStateLabel(b.state), b.version, b.brokenAgeMs, b.snapshotAgeMs, b.lastOfferedVersion,
+            b.pendingAgeMs, b.lastTradeId);
+        out += buf;
+    }
+    char ticks[160];
+    std::snprintf(ticks, sizeof(ticks), "],\"ticksReady\":{\"ready\":%s,\"market\":%d,\"condition\":\"%s\"}}\n",
+        s.ticksReady ? "true" : "false", s.ticksNotReadyMarket, ticksNotReadyName(s.ticksNotReadyCondition));
+    out += ticks;
     return out;
 }
 

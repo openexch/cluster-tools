@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "AgentRig.h"
+#include "MetricsRender.h"
 
 #include "cluster_tools/adapters/sbe/ForwarderCodec.h"
 #include "cluster_tools/domain/forwarder/DispatchRules.h"
@@ -729,4 +730,597 @@ TEST_CASE("ForwarderAgentTest.readyIsZeroWhileTheCoreClientHasNoLeader")
     CHECK(r.agent.coreLink() == CoreLink::REGISTERED);
     CHECK(0 != (r.agent.notReadyMask() & not_ready::CORE_NO_LEADER));
     CHECK_FALSE(r.agent.ready());
+}
+
+// ======================================================================================================================
+// RC2 S13 contract 11.4: the K4 MarketTick producer in the agent (duty steps 4 and 5a, the gate, the ladder resets, E7,
+// the 60 reject, known-ignored templates, tick readiness). Timing rule C1: every ME frame is polled at the earliest in
+// the iteration after it was produced; every core answer is pushed after the offer it answers was observed.
+
+namespace {
+
+struct Tick
+{
+    std::int32_t market = 0;
+    std::int64_t version = 0;
+    std::int64_t bid = 0;
+    std::int64_t ask = 0;
+    std::int64_t tradePrice = 0;
+    std::int64_t tradeId = 0;
+    std::int64_t epoch = 0;
+    std::int64_t term = 0;
+};
+
+Tick decode60(const Offered &o)
+{
+    Tick t;
+    const std::uint8_t *p = o.payload.data();
+    std::memcpy(&t.market, p + 8, 4);
+    std::memcpy(&t.version, p + 12, 8);
+    std::memcpy(&t.bid, p + 20, 8);
+    std::memcpy(&t.ask, p + 28, 8);
+    std::memcpy(&t.tradePrice, p + 36, 8);
+    std::memcpy(&t.tradeId, p + 44, 8);
+    std::memcpy(&t.epoch, p + 52, 8);
+    t.term = o.term;
+    return t;
+}
+
+std::vector<Tick> ticksOf(const Rig &r)
+{
+    std::vector<Tick> out;
+    for (const Offered &o : r.coreOffers(60))
+    {
+        out.push_back(decode60(o));
+    }
+    return out;
+}
+
+ForwarderSnapshot snapOf(const Rig &r)
+{
+    ForwarderSnapshot s;
+    r.agent.fillSnapshot(s);
+    return s;
+}
+
+std::uint64_t unknownOf(const Rig &r, unsigned cluster)
+{
+    std::uint64_t n = 0;
+    for (std::uint64_t v : r.agent.counters().unknownTemplate[cluster])
+    {
+        n += v;
+    }
+    return n;
+}
+
+// a one-level book: bid `bid`, ask 2000 (both qty 10)
+Bytes oneLevel(std::int32_t market, std::int64_t version, std::int64_t bid)
+{
+    return bookSnapshot(market, version, { Level{ bid, 10, 1 } }, { Level{ 2000, 10, 1 } });
+}
+
+const fd::TickSlotCounters &tickCounters(const Rig &r, int market)
+{
+    return r.agent.emitter().counters(market);
+}
+
+}
+
+TEST_CASE("ForwarderAgentTest.ticksAreOfferedOnTheCoreSessionWithTheBoundEpoch")
+{
+    // the GoldenMoney JAVA_MARKET_TICK_V7 fields: market 3, the bound epoch 0x2122..28, the book and the trade mark
+    const std::int64_t epoch = 0x2122232425262728LL;
+    Rig r;
+    r.connectBoth(epoch);
+    r.acceptRegistration();
+    r.goLive();
+    r.me_(tradeBatch(3, 0x1112131415161718LL, 1'499'500'003LL));
+    r.me_(bookSnapshot(3, 0x0102030405060708LL, { Level{ 1'499'000'001LL, 5, 1 } }, { Level{ 1'500'000'002LL, 5, 1 } }));
+    r.cycles(3);
+    const auto offers = r.coreOffers(60);
+    REQUIRE(offers.size() == 1);
+    CHECK(offers[0].payload == JAVA_MARKET_TICK_V7); // byte-equal to the core's own encoder
+    CHECK(offers[0].term == r.coreTerm);               // on the core FORWARDER session, this term
+    CHECK(decode60(offers[0]).epoch == r.agent.epochBinder().epoch());
+    CHECK(r.meOffers().empty());                       // ticks never touch the ME publication
+}
+
+TEST_CASE("ForwarderAgentTest.noTickBeforeTheMeEpochIsBound")
+{
+    Rig r;
+    r.cycles(50);
+    REQUIRE(r.core.isConnected());
+    REQUIRE(r.me.isConnected());
+    REQUIRE(r.agent.meLink() == MeLink::UNVERIFIED);
+    r.me_(oneLevel(1, 100, 1000)); // the ladder becomes OK, the epoch is not bound
+    r.runFor(2 * SECOND);
+    const std::size_t tickOffers = r.coreOffers(60).size();
+    CHECK( tickOffers == 0 );
+    CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK);
+    CHECK(tickCounters(r, 1).suppressedFor(fd::TickSuppressed::UNBOUND) == 1); // once per episode
+    // bound, registered: the held candidate goes when the gate opens, with the bound epoch
+    r.me_(heartbeat(EPOCH));
+    r.cycles(5);
+    r.acceptRegistration();
+    const auto ticks = ticksOf(r);
+    REQUIRE(ticks.size() == 1);
+    CHECK(ticks[0].epoch == EPOCH);
+    CHECK(ticks[0].version == 100);
+    CHECK(ticks[0].bid == 1000);
+}
+
+TEST_CASE("ForwarderAgentTest.noTickWhileUnregisteredOrWithoutCoreLeader")
+{
+    Rig r;
+    r.connectBoth();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(5);
+    CHECK(r.coreOffers(60).empty()); // bound but not registered
+    CHECK(tickCounters(r, 1).suppressedFor(fd::TickSuppressed::UNREGISTERED) == 1);
+    r.acceptRegistration();
+    REQUIRE(r.coreOffers(60).size() == 1);
+    r.goLive();
+    r.runFor(200 * MS);
+    r.coreT.closedImages[CORE_IMAGE] = true; // AWAIT_NEW_LEADER while REGISTERED
+    r.cycles(2);
+    REQUIRE(r.core.state() == client::ClientState::AWAIT_NEW_LEADER);
+    r.me_(moveBestBid(1, 100, 101, 1000, 1001));
+    r.runFor(500 * MS);
+    CHECK(r.coreOffers(60).size() == 1);
+    CHECK(tickCounters(r, 1).suppressedFor(fd::TickSuppressed::UNREGISTERED) == 2); // a second episode
+}
+
+TEST_CASE("ForwarderAgentTest.aBurstInOnePollIsDecidedAfterThePoll")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 1);
+    r.runFor(200 * MS); // the T_cap window is over: the next change is a leading edge
+    // one ME flush burst: 12 deltas, each moving the best bid, all in one poll (F-S13-4)
+    for (int i = 0; i < 12; i++)
+    {
+        r.me_(moveBestBid(1, 100 + i, 101 + i, 1000 + i, 1001 + i));
+    }
+    r.cycle();
+    const auto ticks = ticksOf(r);
+    REQUIRE(ticks.size() == 2);
+    const Tick firstTick = ticks[1];
+    const std::int64_t burstNewestBid = 1012;
+    CHECK( firstTick.bid == burstNewestBid );
+    CHECK(firstTick.version == 112);
+    CHECK(tickCounters(r, 1).offeredOn(fd::TickEdge::LEADING) == 2);
+    r.runFor(300 * MS);
+    CHECK(r.coreOffers(60).size() == 2); // the newest state already went: no trailing copy
+}
+
+TEST_CASE("ForwarderAgentTest.tickOfferBackPressureRetriesTheNewestState")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 1);
+    r.runFor(200 * MS);
+    r.me_(moveBestBid(1, 100, 101, 1000, 1001));
+    corePublication(r).p->scriptedResults = { -2 }; // the tick offer is back-pressured
+    r.cycle();
+    CHECK(r.coreOffers(60).size() == 1);
+    CHECK(tickCounters(r, 1).offerFailures == 1);
+    CHECK(r.agent.emitter().lastOffered(1).version == 100); // C3: nothing moved on a failed offer
+    r.me_(moveBestBid(1, 101, 102, 1001, 1002));
+    r.cycle(); // E6: retried at the next iteration (not after T_cap) with the newest state
+    const auto ticks = ticksOf(r);
+    REQUIRE(ticks.size() == 2);
+    CHECK(ticks[1].bid == 1002);
+    CHECK(ticks[1].version == 102);
+    CHECK(tickCounters(r, 1).offeredOn(fd::TickEdge::RETRY) == 1);
+}
+
+TEST_CASE("ForwarderAgentTest.coreReRegistrationReOffersEveryOkMarket")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.me_(oneLevel(2, 200, 1500));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 2);
+    for (std::int64_t term = 4; term <= 5; term++) // two core leader changes in one run (C4)
+    {
+        r.coreT.pushNewLeader(r.coreSession, term, 1, CORE_ENDPOINTS, 901);
+        r.coreTerm = term;
+        r.cycles(10);
+        CHECK(r.agent.coreLink() == CoreLink::UNREGISTERED);
+        const auto registers = r.coreOffers(80);
+        r.core_(adminAck(decode80(registers.back().payload).correlationId, money::AdminResult::DUPLICATE));
+        r.core_(admission(0, 0, 0));
+        r.cycles(5);
+        REQUIRE(r.agent.coreLink() == CoreLink::REGISTERED);
+        const auto ticks = ticksOf(r);
+        REQUIRE(ticks.size() == static_cast<std::size_t>(2 + 2 * (term - 3)));
+        // E7: the same state again, on the new term, equal and at the same version
+        CHECK(ticks[ticks.size() - 2].market == 1);
+        CHECK(ticks[ticks.size() - 2].version == 100);
+        CHECK(ticks[ticks.size() - 2].term == term);
+        CHECK(ticks[ticks.size() - 1].market == 2);
+        CHECK(ticks[ticks.size() - 1].version == 200);
+    }
+    CHECK(tickCounters(r, 1).offeredOn(fd::TickEdge::REOFFER) == 2);
+    CHECK(tickCounters(r, 2).offeredOn(fd::TickEdge::REOFFER) == 2);
+}
+
+TEST_CASE("ForwarderAgentTest.meSessionEndResetsLaddersAndTheOpenSnapshotRepairs")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(tradeBatch(1, 77, 1000));
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 1);
+    REQUIRE(r.agent.stitcher().mark(1).tradeId() == 77);
+    r.meT.pushSessionEvent(0, r.meSession, r.meTerm, 0, cc::EventCode::CLOSED, "closed", ME_IMAGE);
+    r.cycles(3);
+    CHECK(r.agent.meLink() == MeLink::DOWN);
+    CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::EMPTY); // 4.1 rule 6
+    CHECK(r.agent.stitcher().mark(1).tradeId() == 0);
+    CHECK(snapOf(r).books[0].version == 0);
+    // the reconnect (1 s backoff), the new session's epoch, the open snapshot
+    r.runFor(1500 * MS);
+    REQUIRE(r.me.isConnected());
+    r.me_(heartbeat(EPOCH));
+    r.cycles(5);
+    REQUIRE(r.agent.meLink() == MeLink::BOUND);
+    r.me_(oneLevel(1, 100, 1000)); // the same state again: not a change (the slot survives the session end, 6.0)
+    r.cycles(2);
+    CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK);
+    CHECK(r.coreOffers(60).size() == 1);
+    r.runFor(200 * MS);
+    r.me_(oneLevel(1, 130, 1003)); // above the offered version: offered
+    r.cycles(2);
+    const auto ticks = ticksOf(r);
+    REQUIRE(ticks.size() == 2);
+    CHECK(ticks[1].version == 130);
+    CHECK(ticks[1].tradeId == 0); // the mark was reset with the session
+}
+
+TEST_CASE("ForwarderAgentTest.meNewLeaderKeepsLaddersAndTheNextSnapshotRepairs")
+{
+    for (int lateBy = 1; lateBy <= 8; lateBy += 7)
+    {
+        CAPTURE(lateBy);
+        Rig r;
+        r.bringUp();
+        r.me_(oneLevel(1, 100, 1000));
+        r.cycles(2);
+        REQUIRE(r.coreOffers(60).size() == 1);
+        r.runFor(200 * MS);
+        r.meT.pushNewLeader(r.meSession, 8, 1, ME_ENDPOINTS, 951);
+        r.meTerm = 8;
+        r.cycle();
+        CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK); // D-S13-3: kept across a term change
+        CHECK(r.agent.stitcher().ladder(1).version() == 100);
+        // the promoted follower's own chain (F-S13-2), one iteration later
+        r.meT.pushAppMessage(r.meSession, moveBestBid(1, 90, 130, 1000, 1004), 951, 8);
+        r.cycle();
+        CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::BROKEN);
+        CHECK(r.agent.stitcher().ladder(1).breakCause() == fd::BreakCause::FROM_MISMATCH);
+        r.cycles(lateBy - 1);
+        const std::size_t before = r.coreOffers(60).size();
+        r.meT.pushAppMessage(r.meSession, oneLevel(1, 140, 1005), 951, 8); // W-ME1's snapshot
+        r.cycle();
+        CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK);
+        const auto ticks = ticksOf(r);
+        REQUIRE(ticks.size() == before + 1); // a tick in the same iteration as the snapshot
+        CHECK(ticks.back().version == 140);
+        CHECK(ticks.back().bid == 1005);
+        CHECK(ticks.back().term == r.coreTerm);
+    }
+}
+
+TEST_CASE("ForwarderAgentTest.snapshotNineSecondsLateRepairs")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 1);
+    r.me_(moveBestBid(1, 90, 120, 1000, 1001)); // a lossy drop at the ME: from_mismatch
+    r.cycles(2);
+    REQUIRE(r.agent.stitcher().ladder(1).state() == fd::LadderState::BROKEN);
+    int notReady = 0;
+    r.runLive(9 * SECOND, [&] { notReady += snapOf(r).ticksReady ? 0 : 1; });
+    CHECK(notReady == 0); // 9 s BROKEN is below the 30 s BOOK_STALE threshold
+    CHECK(r.agent.ready());
+    CHECK(snapOf(r).books[0].brokenAgeMs >= 9000);
+    const std::size_t before = r.coreOffers(60).size();
+    r.me_(oneLevel(1, 900, 1009)); // the periodic resnapshot (C2)
+    r.cycle();
+    CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK);
+    CHECK(r.agent.stitcher().ladder(1).counters().recoveries == 1);
+    REQUIRE(r.coreOffers(60).size() == before + 1);
+    CHECK(ticksOf(r).back().bid == 1009);
+}
+
+TEST_CASE("ForwarderAgentTest.knownMeTemplatesAreNotUnknown")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(meOther(23));
+    r.me_(meOther(24));
+    r.me_(meOther(27));
+    r.me_(meOther(99));
+    r.me_(oneLevel(1, 100, 1000));
+    r.me_(tradeBatch(1, 5, 1000));
+    r.cycles(3);
+    const std::uint64_t unknownMe = unknownOf(r, fd::CLUSTER_ME);
+    CHECK( unknownMe == 1 );
+    CHECK(r.agent.counters().unknownTemplate[fd::CLUSTER_ME][99] == 1);
+    CHECK(r.agent.counters().meKnownIgnored[0] == 1);
+    CHECK(r.agent.counters().meKnownIgnored[1] == 1);
+    CHECK(r.agent.counters().meKnownIgnored[2] == 1);
+    const std::string metrics = renderPrometheus(snapOf(r));
+    CHECK(metrics.find("forwarder_me_frames_total{template=\"24\"} 1\n") != std::string::npos);
+}
+
+TEST_CASE("ForwarderAgentTest.bookStaleClearsTicksReadyNotDispatchReady")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 1);
+    REQUIRE(r.agent.ready());
+    REQUIRE(snapOf(r).ticksReady);
+    r.runFor(200 * MS);
+
+    // condition 2: a change the emitter may send and cannot (the core publication refuses it) for >= 5 s
+    corePublication(r).p->scriptedResults.assign(1'000'000, -2);
+    r.me_(moveBestBid(1, 100, 101, 1000, 1001));
+    r.cycle();
+    REQUIRE(r.coreOffers(60).size() == 1);
+    r.runLive(4500 * MS);
+    CHECK(snapOf(r).ticksReady);
+    r.runLive(1000 * MS);
+    {
+        const ForwarderSnapshot snap = snapOf(r);
+        CHECK( snap.ticksReady == 0 );
+        CHECK(snap.ticksNotReadyMarket == 1);
+        CHECK(snap.ticksNotReadyCondition == ticks_not_ready::PENDING_5S);
+        CHECK(snap.notReady == 0); // the dispatch /ready mask is untouched (PO-1)
+        CHECK(snap.ready);
+    }
+    corePublication(r).p->scriptedResults.clear();
+    r.runLive(100 * MS);
+    CHECK(snapOf(r).ticksReady);
+
+    // condition 3: an OK ladder with no snapshot for >= 30 s while the ME is BOUND (the rhythm is dead)
+    r.me_(oneLevel(1, 300, 1003));
+    r.cycle();
+    r.runLive(29 * SECOND);
+    CHECK(snapOf(r).ticksReady);
+    r.runLive(1500 * MS);
+    {
+        const ForwarderSnapshot snap = snapOf(r);
+        CHECK( snap.ticksReady == 0 );
+        CHECK(snap.ticksNotReadyCondition == ticks_not_ready::SNAPSHOT_AGE_30S);
+        CHECK(snap.notReady == 0);
+        CHECK(r.agent.ready());
+    }
+    r.me_(oneLevel(1, 300, 1003));
+    r.cycle();
+    CHECK(snapOf(r).ticksReady);
+
+    // condition 1, twice: BROKEN for >= 30 s; the negative case (BROKEN 9 s) stays ticks-ready
+    for (int round = 0; round < 2; round++)
+    {
+        CAPTURE(round);
+        const std::int64_t v = 1000 + 1000 * round;
+        r.me_(moveBestBid(1, v - 50, v, 1003, 1004)); // foreign from: BROKEN
+        r.cycle();
+        REQUIRE(r.agent.stitcher().ladder(1).state() == fd::LadderState::BROKEN);
+        r.runLive(9 * SECOND);
+        CHECK(snapOf(r).ticksReady);
+        r.runLive(21500 * MS);
+        {
+            const ForwarderSnapshot snap = snapOf(r);
+            CHECK( snap.ticksReady == 0 );
+            CHECK(snap.ticksNotReadyCondition == ticks_not_ready::BROKEN_30S);
+            CHECK(snap.notReady == 0);
+            const std::string health = renderHealthJson(snap, false);
+            CHECK(health.find("\"ticksReady\":{\"ready\":false,\"market\":1,\"condition\":\"book_stale_broken_30s\"}") !=
+                std::string::npos);
+            CHECK(renderReady(snap) == "ready\n");
+        }
+        r.me_(oneLevel(1, v + 100, 1003));
+        r.cycle();
+        CHECK(snapOf(r).ticksReady);
+    }
+}
+
+TEST_CASE("ForwarderAgentTest.aQuietMarketStaysReady")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    int seconds = 0;
+    int notReady = 0;
+    r.runLive(60 * SECOND, [&] {
+        if (0 == (++seconds % 10))
+        {
+            r.me_(oneLevel(1, 100, 1000)); // the periodic resnapshot of a quiet book
+        }
+        notReady += snapOf(r).ticksReady ? 0 : 1;
+    });
+    CHECK(notReady == 0);
+    CHECK(r.coreOffers(60).size() == 1); // a quiet market offers nothing more
+    CHECK(snapOf(r).books[0].pendingAgeMs == 0);
+}
+
+TEST_CASE("ForwarderAgentTest.unversionedMarketsStayEmptyAndTicksReady")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    for (int m = 2; m <= 3; m++)
+    {
+        r.me_(bookSnapshot(m, 0, {}, {})); // rule U: no versioned state at the ME (markets 4, 5 get no frame at all)
+    }
+    r.cycles(2);
+    int seconds = 0;
+    r.runLive(60 * SECOND, [&] {
+        if (0 == (++seconds % 10))
+        {
+            r.me_(oneLevel(1, 100, 1000));
+            for (int m = 2; m <= 3; m++)
+            {
+                r.me_(bookSnapshot(m, 0, {}, {}));
+            }
+        }
+    });
+    r.cycles(2); // the second-60 frames
+    for (int m = 2; m <= 5; m++)
+    {
+        CAPTURE(m);
+        CHECK(r.agent.stitcher().ladder(m).state() == fd::LadderState::EMPTY);
+    }
+    CHECK(r.agent.stitcher().ladder(2).counters().unversioned == 7);
+    const ForwarderSnapshot snap = snapOf(r);
+    CHECK( snap.ticksReady == 1 );
+    CHECK(r.coreOffers(60).size() == 1); // only market 1 ever ticked
+}
+
+TEST_CASE("ForwarderAgentTest.oldTermBookFrameAfterMeNewLeaderIsDropped")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 1000, 1000));
+    r.cycles(2);
+    r.meT.pushNewLeader(r.meSession, 8, 1, ME_ENDPOINTS, 951);
+    r.meTerm = 8;
+    r.cycles(2);
+    const std::int64_t newTermVersion = 2000;
+    r.meT.pushAppMessage(r.meSession, oneLevel(1, newTermVersion, 1001), 951, 8);
+    r.cycle();
+    REQUIRE(r.agent.stitcher().ladder(1).version() == newTermVersion);
+    // the SIGSTOPped old leader's late egress: a term-7 snapshot at v - 10 in the next poll (RC-F1)
+    r.meT.pushAppMessage(r.meSession, oneLevel(1, newTermVersion - 10, 999), ME_IMAGE, 7);
+    r.cycle();
+    const auto ladderVersion = [&](int market) { return r.agent.stitcher().ladder(market).version(); };
+    CHECK( ladderVersion(1) == newTermVersion );
+    CHECK(r.agent.counters().meStaleTerm == 1);
+    CHECK(r.agent.stitcher().ladder(1).counters().versionRegressions == 0);
+}
+
+TEST_CASE("ForwarderAgentTest.coreRejectOfATickReRegisters")
+{
+    Rig r;
+    r.bringUp();
+    r.me_(oneLevel(1, 100, 1000));
+    r.cycles(2);
+    REQUIRE(r.coreOffers(60).size() == 1);
+    const std::uint64_t unknownCore = unknownOf(r, fd::CLUSTER_CORE);
+    r.core_(orderReject(0, 60, money::CoreRejectReason::UNREGISTERED_SESSION));
+    r.cycles(5);
+    const std::size_t registerOffers = r.coreOffers(80).size();
+    CHECK( registerOffers == 2 );
+    CHECK(r.agent.coreLink() == CoreLink::UNREGISTERED); // the gate is closed
+    CHECK(unknownOf(r, fd::CLUSTER_CORE) == unknownCore);
+    CHECK(r.agent.counters().tickRejected[0] == 1);
+    r.core_(adminAck(decode80(r.coreOffers(80).back().payload).correlationId, money::AdminResult::ACCEPTED));
+    r.core_(admission(0, 0, 0));
+    r.cycles(5);
+    REQUIRE(r.agent.coreLink() == CoreLink::REGISTERED);
+    CHECK(tickCounters(r, 1).offeredOn(fd::TickEdge::REOFFER) == 1); // E7 after the re-registration
+    // UNAUTHORIZED_CLASS re-registers too; any other reason is a counted defect, never an unknown template (C8)
+    r.core_(orderReject(0, 60, money::CoreRejectReason::INVALID));
+    r.cycles(3);
+    CHECK(r.agent.counters().tickRejected[2] == 1);
+    CHECK(r.agent.coreLink() == CoreLink::REGISTERED);
+    CHECK(unknownOf(r, fd::CLUSTER_CORE) == unknownCore);
+}
+
+TEST_CASE("ForwarderAgentTest.resyncRequestPrecedesTicksOnTheCorePublication")
+{
+    // CL-F-3: the core publication accepts exactly one offer per iteration; at the registration the T1 head probe (65)
+    // and five held ticks are due in the same iteration: the 65 goes first, the ticks one per iteration after it.
+    Rig r;
+    r.connectBoth();
+    for (int m = 1; m <= 5; m++)
+    {
+        r.me_(oneLevel(m, 100 * m, 1000 + m));
+    }
+    r.cycles(3);
+    REQUIRE(r.coreOffers(60).empty());
+    const std::int64_t corr = decode80(r.coreOffers(80).back().payload).correlationId;
+    r.core_(adminAck(corr, money::AdminResult::ACCEPTED));
+    r.core_(admission(0, 0, 0));
+    bool checked = false;
+    for (int i = 0; i < 20; i++)
+    {
+        corePublication(r).p->scriptedResults.assign(64, -2);
+        corePublication(r).p->scriptedResults.front() = 1; // one accepted offer per iteration
+        r.cycle();
+        if (!checked && r.agent.coreLink() == CoreLink::REGISTERED)
+        {
+            checked = true;
+            CHECK( r.coreOffers(65).size() == 1 );
+            CHECK(r.coreOffers(60).empty());
+        }
+    }
+    corePublication(r).p->scriptedResults.clear();
+    REQUIRE(checked);
+    const auto ticks = ticksOf(r);
+    REQUIRE(ticks.size() == 5);
+    for (int m = 1; m <= 5; m++)
+    {
+        CHECK(ticks[static_cast<std::size_t>(m - 1)].market == m); // market order, one per iteration (E6 retries)
+    }
+}
+
+TEST_CASE("ForwarderAgentTest.tickStepWorkIsBounded")
+{
+    Rig r;
+    r.bringUp();
+    std::int64_t version[6] = {};
+    std::int64_t bid[6] = {};
+    for (int m = 1; m <= 5; m++)
+    {
+        version[m] = 100;
+        bid[m] = 1000;
+        r.me_(oneLevel(m, version[m], bid[m]));
+    }
+    r.cycles(2);
+    auto applied = [&] {
+        std::uint64_t n = 0;
+        for (int m = 1; m <= 5; m++)
+        {
+            n += r.agent.stitcher().ladder(m).counters().snapshots + r.agent.stitcher().ladder(m).counters().deltas;
+        }
+        return n;
+    };
+    for (int iteration = 0; iteration < 50; iteration++)
+    {
+        const std::uint64_t appliedBefore = applied();
+        const std::size_t ticksBefore = r.coreOffers(60).size();
+        int frames = 0;
+        for (int k = 0; k < 4; k++)
+        {
+            for (int m = 1; m <= 5; m++)
+            {
+                r.me_(moveBestBid(m, version[m], version[m] + 1, bid[m], bid[m] + 1));
+                version[m]++;
+                bid[m]++;
+                frames++;
+            }
+        }
+        r.cycle(40 * MS); // each iteration starts a new T_cap window for some markets
+        CHECK(r.coreOffers(60).size() - ticksBefore <= 5);
+        CHECK(applied() - appliedBefore == static_cast<std::uint64_t>(frames));
+    }
+    for (int m = 1; m <= 5; m++)
+    {
+        CHECK(r.agent.stitcher().ladder(m).state() == fd::LadderState::OK);
+    }
 }

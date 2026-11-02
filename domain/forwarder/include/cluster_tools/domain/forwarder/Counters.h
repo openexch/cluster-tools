@@ -75,6 +75,11 @@ struct ForwarderCounters
     std::uint64_t admissionBroadcast = 0;
     std::uint64_t pendingEnds = 0;
 
+    // RC2 S13 (K4): the agent's own book / tick counters (the ladders and the emitter keep theirs)
+    std::uint64_t meStaleTerm = 0;          // forwarder_me_stale_term_total: 22 / 25 / 26 of an ended ME term (F-S13-8)
+    std::uint64_t meKnownIgnored[3] = {};   // forwarder_me_frames_total{template="23|24|27"} (F-S13-5)
+    std::uint64_t tickRejected[3] = {};     // forwarder_tick_rejected_total{reason="unregistered|unauthorized|other"} (7.3)
+
     void unknown(unsigned cluster, std::uint16_t templateId) noexcept
     {
         unknownTemplate[cluster][templateId < TEMPLATE_BUCKETS ? templateId : TEMPLATE_BUCKETS - 1]++;

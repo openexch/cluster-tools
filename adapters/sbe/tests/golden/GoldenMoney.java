@@ -299,10 +299,28 @@ public final class GoldenMoney {
         print("JAVA_SETTLEMENT_APPLIED", buf, header.encodedLength() + applied.encodedLength());
     }
 
+    // ---- RC2 S13 (contract 11.3): the K4 MarketTick the forwarder must put on the core wire ----
+    private static void marketTick() {
+        final UnsafeBuffer buf = new UnsafeBuffer(new byte[256]);
+        final com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder header =
+                new com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder();
+        final var tick = new com.openexchange.assets.infrastructure.generated.MarketTickEncoder()
+                .wrapAndApplyHeader(buf, 0, header)
+                .marketId(3)
+                .bookVersion(0x0102030405060708L)
+                .bestBid(1_499_000_001L)
+                .bestAsk(1_500_000_002L)
+                .lastTradePrice(1_499_500_003L)
+                .lastTradeId(0x1112131415161718L)
+                .meEpoch(0x2122232425262728L);
+        print("JAVA_MARKET_TICK_V7", buf, header.encodedLength() + tick.encodedLength());
+    }
+
     public static void main(final String[] args) {
         money();
         forwarder();
         bridge();
         bridgeApp();
+        marketTick();
     }
 }

@@ -72,6 +72,45 @@ ForwarderSnapshot fixed()
     s.aeronErrors = 0;
     s.dutyMaxCycleUs = 85;
     s.driverMode = 2; // RC2 S10' 8.2 rule 6: external
+    // RC2 S13: market 1 OK and ticking, 2 BROKEN, 3 EMPTY (rule U), 4 / 5 never seen
+    BookView &b1 = s.books[0];
+    b1.state = 1;
+    b1.version = 4242;
+    b1.snapshotAgeMs = 3100;
+    b1.lastOfferedVersion = 4240;
+    b1.pendingAgeMs = 40;
+    b1.lastTradeId = 812;
+    b1.ladder.snapshots = 7;
+    b1.ladder.deltas = 900;
+    b1.ladder.chainBreaks[static_cast<unsigned>(fd::BreakCause::FROM_MISMATCH)] = 2;
+    b1.ladder.recoveries = 2;
+    b1.ladder.versionRegressions = 1;
+    b1.brokenNsTotal = 1'250'000'000;
+    b1.tick.offered[static_cast<unsigned>(fd::TickEdge::LEADING)] = 30;
+    b1.tick.offered[static_cast<unsigned>(fd::TickEdge::TRAILING)] = 12;
+    b1.tick.offered[static_cast<unsigned>(fd::TickEdge::REOFFER)] = 1;
+    b1.tick.suppressed[static_cast<unsigned>(fd::TickSuppressed::VERSION_NOT_ABOVE)] = 3;
+    b1.tick.offerFailures = 1;
+    BookView &b2 = s.books[1];
+    b2.state = 2;
+    b2.version = 77;
+    b2.brokenAgeMs = 16000;
+    b2.snapshotAgeMs = 26000;
+    b2.brokenNsTotal = 16'000'000'000;
+    b2.ladder.chainBreaks[static_cast<unsigned>(fd::BreakCause::MALFORMED)] = 1;
+    b2.ladder.ignored = 5;
+    b2.tradeMalformed = 1;
+    b2.tick.suppressed[static_cast<unsigned>(fd::TickSuppressed::BROKEN)] = 4;
+    s.books[2].ladder.unversioned = 3;
+    s.bookForeignMarket = 1;
+    s.bookMalformedNoMarket = 2;
+    s.counters.meStaleTerm = 9;
+    s.counters.meKnownIgnored[0] = 11;
+    s.counters.meKnownIgnored[2] = 1;
+    s.counters.tickRejected[0] = 1;
+    s.ticksReady = false;
+    s.ticksNotReadyMarket = 2;
+    s.ticksNotReadyCondition = ticks_not_ready::BROKEN_30S;
     return s;
 }
 
@@ -142,4 +181,31 @@ TEST_CASE("MetricsRenderTest.everyMetricTheAlertsNameIsExported")
         CAPTURE(n);
         CHECK(metrics.find("# TYPE " + n + " ") != std::string::npos);
     }
+}
+
+TEST_CASE("MetricsRenderTest.bookAndTickSeries")
+{
+    // RC2 S13 10.1 / 10.2: the per-market families, BOOK_STALE in /health only (never a /ready conjunct, PO-1)
+    const ForwarderSnapshot s = fixed();
+    const std::string text = renderPrometheus(s);
+    CHECK(text.find("forwarder_book_state{market=\"2\"} 2\n") != std::string::npos);
+    CHECK(text.find("forwarder_book_frames_total{market=\"1\",template=\"25\"} 900\n") != std::string::npos);
+    CHECK(text.find("forwarder_book_chain_breaks_total{market=\"1\",cause=\"from_mismatch\"} 2\n") != std::string::npos);
+    CHECK(text.find("forwarder_book_chain_breaks_total{market=\"2\",cause=\"malformed\"} 1\n") != std::string::npos);
+    CHECK(text.find("forwarder_book_broken_seconds_total{market=\"1\"} 1.250\n") != std::string::npos);
+    CHECK(text.find("forwarder_book_snapshot_age_ms{market=\"4\"} -1\n") != std::string::npos); // never a snapshot
+    CHECK(text.find("forwarder_tick_offered_total{market=\"1\",edge=\"reoffer\"} 1\n") != std::string::npos);
+    CHECK(text.find("forwarder_tick_suppressed_total{market=\"1\",reason=\"version_not_above\"} 3\n") != std::string::npos);
+    CHECK(text.find("forwarder_tick_rejected_total{reason=\"unregistered\"} 1\n") != std::string::npos);
+    CHECK(text.find("forwarder_ticks_ready 0\n") != std::string::npos);
+    CHECK(text.find("forwarder_me_frames_total{template=\"23\"} 11\n") != std::string::npos);
+    CHECK(text.find("forwarder_me_stale_term_total 9\n") != std::string::npos);
+    const std::string health = renderHealthJson(s, false);
+    CHECK(health.find("{\"market\":2,\"state\":\"BROKEN\",\"version\":77,\"brokenAgeMs\":16000") != std::string::npos);
+    CHECK(health.find("\"ticksReady\":{\"ready\":false,\"market\":2,\"condition\":\"book_stale_broken_30s\"}}\n") !=
+        std::string::npos);
+    CHECK(health.back() == '\n');
+    CHECK(renderReady(s).find("book_stale") == std::string::npos);
+    // the dispatch /ready mask keeps its 10 conjuncts (S12 / S10'): BOOK_STALE is not one of them
+    CHECK(not_ready::COUNT == 10);
 }

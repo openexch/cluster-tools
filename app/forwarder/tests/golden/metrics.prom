@@ -118,3 +118,188 @@ forwarder_aeron_errors_total 0
 forwarder_duty_max_cycle_us 85
 # TYPE forwarder_log_dropped_total counter
 forwarder_log_dropped_total 0
+# TYPE forwarder_book_state gauge
+forwarder_book_state{market="1"} 1
+forwarder_book_state{market="2"} 2
+forwarder_book_state{market="3"} 0
+forwarder_book_state{market="4"} 0
+forwarder_book_state{market="5"} 0
+# TYPE forwarder_book_version gauge
+forwarder_book_version{market="1"} 4242
+forwarder_book_version{market="2"} 77
+forwarder_book_version{market="3"} 0
+forwarder_book_version{market="4"} 0
+forwarder_book_version{market="5"} 0
+# TYPE forwarder_book_frames_total counter
+forwarder_book_frames_total{market="1",template="22"} 7
+forwarder_book_frames_total{market="1",template="25"} 900
+forwarder_book_frames_total{market="2",template="22"} 0
+forwarder_book_frames_total{market="2",template="25"} 0
+forwarder_book_frames_total{market="3",template="22"} 0
+forwarder_book_frames_total{market="3",template="25"} 0
+forwarder_book_frames_total{market="4",template="22"} 0
+forwarder_book_frames_total{market="4",template="25"} 0
+forwarder_book_frames_total{market="5",template="22"} 0
+forwarder_book_frames_total{market="5",template="25"} 0
+# TYPE forwarder_book_frames_ignored_total counter
+forwarder_book_frames_ignored_total{market="1"} 0
+forwarder_book_frames_ignored_total{market="2"} 5
+forwarder_book_frames_ignored_total{market="3"} 0
+forwarder_book_frames_ignored_total{market="4"} 0
+forwarder_book_frames_ignored_total{market="5"} 0
+# TYPE forwarder_book_chain_breaks_total counter
+forwarder_book_chain_breaks_total{market="1",cause="from_mismatch"} 2
+forwarder_book_chain_breaks_total{market="1",cause="level_op"} 0
+forwarder_book_chain_breaks_total{market="1",cause="depth"} 0
+forwarder_book_chain_breaks_total{market="1",cause="crossed"} 0
+forwarder_book_chain_breaks_total{market="1",cause="malformed"} 0
+forwarder_book_chain_breaks_total{market="2",cause="from_mismatch"} 0
+forwarder_book_chain_breaks_total{market="2",cause="level_op"} 0
+forwarder_book_chain_breaks_total{market="2",cause="depth"} 0
+forwarder_book_chain_breaks_total{market="2",cause="crossed"} 0
+forwarder_book_chain_breaks_total{market="2",cause="malformed"} 1
+forwarder_book_chain_breaks_total{market="3",cause="from_mismatch"} 0
+forwarder_book_chain_breaks_total{market="3",cause="level_op"} 0
+forwarder_book_chain_breaks_total{market="3",cause="depth"} 0
+forwarder_book_chain_breaks_total{market="3",cause="crossed"} 0
+forwarder_book_chain_breaks_total{market="3",cause="malformed"} 0
+forwarder_book_chain_breaks_total{market="4",cause="from_mismatch"} 0
+forwarder_book_chain_breaks_total{market="4",cause="level_op"} 0
+forwarder_book_chain_breaks_total{market="4",cause="depth"} 0
+forwarder_book_chain_breaks_total{market="4",cause="crossed"} 0
+forwarder_book_chain_breaks_total{market="4",cause="malformed"} 0
+forwarder_book_chain_breaks_total{market="5",cause="from_mismatch"} 0
+forwarder_book_chain_breaks_total{market="5",cause="level_op"} 0
+forwarder_book_chain_breaks_total{market="5",cause="depth"} 0
+forwarder_book_chain_breaks_total{market="5",cause="crossed"} 0
+forwarder_book_chain_breaks_total{market="5",cause="malformed"} 0
+# TYPE forwarder_book_recoveries_total counter
+forwarder_book_recoveries_total{market="1"} 2
+forwarder_book_recoveries_total{market="2"} 0
+forwarder_book_recoveries_total{market="3"} 0
+forwarder_book_recoveries_total{market="4"} 0
+forwarder_book_recoveries_total{market="5"} 0
+# TYPE forwarder_book_broken_age_ms gauge
+forwarder_book_broken_age_ms{market="1"} 0
+forwarder_book_broken_age_ms{market="2"} 16000
+forwarder_book_broken_age_ms{market="3"} 0
+forwarder_book_broken_age_ms{market="4"} 0
+forwarder_book_broken_age_ms{market="5"} 0
+# TYPE forwarder_book_snapshot_age_ms gauge
+forwarder_book_snapshot_age_ms{market="1"} 3100
+forwarder_book_snapshot_age_ms{market="2"} 26000
+forwarder_book_snapshot_age_ms{market="3"} -1
+forwarder_book_snapshot_age_ms{market="4"} -1
+forwarder_book_snapshot_age_ms{market="5"} -1
+# TYPE forwarder_book_version_regressions_total counter
+forwarder_book_version_regressions_total{market="1"} 1
+forwarder_book_version_regressions_total{market="2"} 0
+forwarder_book_version_regressions_total{market="3"} 0
+forwarder_book_version_regressions_total{market="4"} 0
+forwarder_book_version_regressions_total{market="5"} 0
+# TYPE forwarder_book_malformed_total counter
+forwarder_book_malformed_total 2
+# TYPE forwarder_book_unversioned_total counter
+forwarder_book_unversioned_total{market="1"} 0
+forwarder_book_unversioned_total{market="2"} 0
+forwarder_book_unversioned_total{market="3"} 3
+forwarder_book_unversioned_total{market="4"} 0
+forwarder_book_unversioned_total{market="5"} 0
+# TYPE forwarder_book_foreign_market_total counter
+forwarder_book_foreign_market_total 1
+# TYPE forwarder_book_broken_seconds_total counter
+forwarder_book_broken_seconds_total{market="1"} 1.250
+forwarder_book_broken_seconds_total{market="2"} 16.000
+forwarder_book_broken_seconds_total{market="3"} 0.000
+forwarder_book_broken_seconds_total{market="4"} 0.000
+forwarder_book_broken_seconds_total{market="5"} 0.000
+# TYPE forwarder_trade_malformed_total counter
+forwarder_trade_malformed_total{market="1"} 0
+forwarder_trade_malformed_total{market="2"} 1
+forwarder_trade_malformed_total{market="3"} 0
+forwarder_trade_malformed_total{market="4"} 0
+forwarder_trade_malformed_total{market="5"} 0
+# TYPE forwarder_me_stale_term_total counter
+forwarder_me_stale_term_total 9
+# TYPE forwarder_trade_last_id gauge
+forwarder_trade_last_id{market="1"} 812
+forwarder_trade_last_id{market="2"} 0
+forwarder_trade_last_id{market="3"} 0
+forwarder_trade_last_id{market="4"} 0
+forwarder_trade_last_id{market="5"} 0
+# TYPE forwarder_tick_offered_total counter
+forwarder_tick_offered_total{market="1",edge="leading"} 30
+forwarder_tick_offered_total{market="1",edge="trailing"} 12
+forwarder_tick_offered_total{market="1",edge="reoffer"} 1
+forwarder_tick_offered_total{market="1",edge="retry"} 0
+forwarder_tick_offered_total{market="2",edge="leading"} 0
+forwarder_tick_offered_total{market="2",edge="trailing"} 0
+forwarder_tick_offered_total{market="2",edge="reoffer"} 0
+forwarder_tick_offered_total{market="2",edge="retry"} 0
+forwarder_tick_offered_total{market="3",edge="leading"} 0
+forwarder_tick_offered_total{market="3",edge="trailing"} 0
+forwarder_tick_offered_total{market="3",edge="reoffer"} 0
+forwarder_tick_offered_total{market="3",edge="retry"} 0
+forwarder_tick_offered_total{market="4",edge="leading"} 0
+forwarder_tick_offered_total{market="4",edge="trailing"} 0
+forwarder_tick_offered_total{market="4",edge="reoffer"} 0
+forwarder_tick_offered_total{market="4",edge="retry"} 0
+forwarder_tick_offered_total{market="5",edge="leading"} 0
+forwarder_tick_offered_total{market="5",edge="trailing"} 0
+forwarder_tick_offered_total{market="5",edge="reoffer"} 0
+forwarder_tick_offered_total{market="5",edge="retry"} 0
+# TYPE forwarder_tick_suppressed_total counter
+forwarder_tick_suppressed_total{market="1",reason="broken"} 0
+forwarder_tick_suppressed_total{market="1",reason="unbound"} 0
+forwarder_tick_suppressed_total{market="1",reason="unregistered"} 0
+forwarder_tick_suppressed_total{market="1",reason="version_not_above"} 3
+forwarder_tick_suppressed_total{market="2",reason="broken"} 4
+forwarder_tick_suppressed_total{market="2",reason="unbound"} 0
+forwarder_tick_suppressed_total{market="2",reason="unregistered"} 0
+forwarder_tick_suppressed_total{market="2",reason="version_not_above"} 0
+forwarder_tick_suppressed_total{market="3",reason="broken"} 0
+forwarder_tick_suppressed_total{market="3",reason="unbound"} 0
+forwarder_tick_suppressed_total{market="3",reason="unregistered"} 0
+forwarder_tick_suppressed_total{market="3",reason="version_not_above"} 0
+forwarder_tick_suppressed_total{market="4",reason="broken"} 0
+forwarder_tick_suppressed_total{market="4",reason="unbound"} 0
+forwarder_tick_suppressed_total{market="4",reason="unregistered"} 0
+forwarder_tick_suppressed_total{market="4",reason="version_not_above"} 0
+forwarder_tick_suppressed_total{market="5",reason="broken"} 0
+forwarder_tick_suppressed_total{market="5",reason="unbound"} 0
+forwarder_tick_suppressed_total{market="5",reason="unregistered"} 0
+forwarder_tick_suppressed_total{market="5",reason="version_not_above"} 0
+# TYPE forwarder_tick_offer_failures_total counter
+forwarder_tick_offer_failures_total{market="1"} 1
+forwarder_tick_offer_failures_total{market="2"} 0
+forwarder_tick_offer_failures_total{market="3"} 0
+forwarder_tick_offer_failures_total{market="4"} 0
+forwarder_tick_offer_failures_total{market="5"} 0
+# TYPE forwarder_tick_refused_total counter
+forwarder_tick_refused_total{market="1"} 0
+forwarder_tick_refused_total{market="2"} 0
+forwarder_tick_refused_total{market="3"} 0
+forwarder_tick_refused_total{market="4"} 0
+forwarder_tick_refused_total{market="5"} 0
+# TYPE forwarder_tick_rejected_total counter
+forwarder_tick_rejected_total{reason="unregistered"} 1
+forwarder_tick_rejected_total{reason="unauthorized"} 0
+forwarder_tick_rejected_total{reason="other"} 0
+# TYPE forwarder_ticks_ready gauge
+forwarder_ticks_ready 0
+# TYPE forwarder_tick_last_offered_version gauge
+forwarder_tick_last_offered_version{market="1"} 4240
+forwarder_tick_last_offered_version{market="2"} 0
+forwarder_tick_last_offered_version{market="3"} 0
+forwarder_tick_last_offered_version{market="4"} 0
+forwarder_tick_last_offered_version{market="5"} 0
+# TYPE forwarder_tick_pending_age_ms gauge
+forwarder_tick_pending_age_ms{market="1"} 40
+forwarder_tick_pending_age_ms{market="2"} 0
+forwarder_tick_pending_age_ms{market="3"} 0
+forwarder_tick_pending_age_ms{market="4"} 0
+forwarder_tick_pending_age_ms{market="5"} 0
+# TYPE forwarder_me_frames_total counter
+forwarder_me_frames_total{template="23"} 11
+forwarder_me_frames_total{template="24"} 0
+forwarder_me_frames_total{template="27"} 1

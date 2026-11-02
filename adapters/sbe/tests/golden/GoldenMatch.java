@@ -188,8 +188,105 @@ public final class GoldenMatch {
         print("JAVA_CLUSTER_HEARTBEAT_V12", buf, header.encodedLength() + heartbeat.encodedLength());
     }
 
+    // ---- RC2 S13 (contract 11.3): the book egress the K4 stitcher decodes ----
+    private static final com.match.infrastructure.generated.MessageHeaderEncoder BOOK_HEADER =
+            new com.match.infrastructure.generated.MessageHeaderEncoder();
+
+    private static com.match.infrastructure.generated.BookSnapshotEncoder snapshot(final UnsafeBuffer buf, final int market,
+                                                                                    final long version) {
+        return new com.match.infrastructure.generated.BookSnapshotEncoder().wrapAndApplyHeader(buf, 0, BOOK_HEADER)
+                .marketId(market).timestamp(1_700_000_000_000L + version).bidVersion(version - 2).askVersion(version - 1)
+                .bookVersion(version);
+    }
+
+    private static void book() {
+        final UnsafeBuffer buf = new UnsafeBuffer(new byte[4096]);
+
+        // 20 bids descending from 14.99 and 20 asks ascending from 15.00, distinct qty and count per level
+        final var full = snapshot(buf, 3, 0x0000_0102_0304_0506L);
+        final var bids = full.bidsCount(20);
+        for (int i = 0; i < 20; i++) {
+            bids.next().price(1_499_000_000L - i * 1_000_000L).quantity(100_000_000L + i).orderCount(1 + i);
+        }
+        final var asks = full.asksCount(20);
+        for (int i = 0; i < 20; i++) {
+            asks.next().price(1_500_000_000L + i * 1_000_000L).quantity(200_000_000L + i).orderCount(21 + i);
+        }
+        print("JAVA_BOOK_SNAPSHOT_20x20", buf, BOOK_HEADER.encodedLength() + full.encodedLength());
+
+        // W-ME2: a versioned book that emptied (both groups empty, bookVersion > 0)
+        final var empty = snapshot(buf, 3, 777L);
+        empty.bidsCount(0);
+        empty.asksCount(0);
+        print("JAVA_BOOK_SNAPSHOT_EMPTY", buf, BOOK_HEADER.encodedLength() + empty.encodedLength());
+
+        // rule U (4.2): bookVersion 0, both groups empty (a restored or never-touched market on an unfixed ME)
+        final var unversioned = snapshot(buf, 4, 0L);
+        unversioned.bidsCount(0);
+        unversioned.asksCount(0);
+        print("JAVA_BOOK_SNAPSHOT_UNVERSIONED", buf, BOOK_HEADER.encodedLength() + unversioned.encodedLength());
+
+        // 80 changes: per side 20 NEW (in front of the DELETEs, MP:911-948) then 20 DELETE
+        final var d80 = new com.match.infrastructure.generated.BookDeltaEncoder().wrapAndApplyHeader(buf, 0, BOOK_HEADER)
+                .marketId(3).timestamp(1_700_000_000_555L).bidVersion(40).askVersion(41)
+                .bookVersion(0x0000_0200_0000_0050L).fromVersion(0x0000_0200_0000_0001L);
+        final var ch = d80.changesCount(80);
+        for (final com.match.infrastructure.generated.OrderSide side : new com.match.infrastructure.generated.OrderSide[] {
+                com.match.infrastructure.generated.OrderSide.BID, com.match.infrastructure.generated.OrderSide.ASK }) {
+            final long base = side == com.match.infrastructure.generated.OrderSide.BID ? 1_400_000_000L : 1_600_000_000L;
+            for (int i = 0; i < 20; i++) {
+                ch.next().price(base + i * 1_000_000L).quantity(300_000_000L + i).orderCount(1 + i).side(side)
+                        .updateType(com.match.infrastructure.generated.BookUpdateType.NEW_LEVEL);
+            }
+            for (int i = 0; i < 20; i++) {
+                ch.next().price(base - (i + 1) * 1_000_000L).quantity(0L).orderCount(0).side(side)
+                        .updateType(com.match.infrastructure.generated.BookUpdateType.DELETE_LEVEL);
+            }
+        }
+        print("JAVA_BOOK_DELTA_80", buf, BOOK_HEADER.encodedLength() + d80.encodedLength());
+
+        // raw enums: side 2 and updateType 3 do not exist; written raw at the encoding offsets (entry 1 of 2)
+        final var raw = new com.match.infrastructure.generated.BookDeltaEncoder().wrapAndApplyHeader(buf, 0, BOOK_HEADER)
+                .marketId(3).timestamp(1_700_000_000_666L).bidVersion(1).askVersion(2)
+                .bookVersion(2_000L).fromVersion(1_000L);
+        final var rawCh = raw.changesCount(2);
+        rawCh.next().price(1_499_000_000L).quantity(1L).orderCount(1)
+                .side(com.match.infrastructure.generated.OrderSide.BID)
+                .updateType(com.match.infrastructure.generated.BookUpdateType.NEW_LEVEL);
+        rawCh.next().price(1_500_000_000L).quantity(2L).orderCount(2)
+                .side(com.match.infrastructure.generated.OrderSide.ASK)
+                .updateType(com.match.infrastructure.generated.BookUpdateType.UPDATE_LEVEL);
+        final int groupStart = BOOK_HEADER.encodedLength() + com.match.infrastructure.generated.BookDeltaEncoder.BLOCK_LENGTH + 4;
+        final int entryBlock = com.match.infrastructure.generated.BookDeltaEncoder.ChangesEncoder.sbeBlockLength();
+        buf.putByte(groupStart + entryBlock + com.match.infrastructure.generated.BookDeltaEncoder.ChangesEncoder.sideEncodingOffset(),
+                (byte) 2);
+        buf.putByte(groupStart + entryBlock + com.match.infrastructure.generated.BookDeltaEncoder.ChangesEncoder.updateTypeEncodingOffset(),
+                (byte) 3);
+        print("JAVA_BOOK_DELTA_RAW_ENUMS", buf, BOOK_HEADER.encodedLength() + raw.encodedLength());
+
+        // 26: three trades, ids 41, 43, 42 (the max is not last), distinct prices
+        final var tb = new com.match.infrastructure.generated.TradeExecutionBatchEncoder().wrapAndApplyHeader(buf, 0, BOOK_HEADER)
+                .marketId(3).timestamp(1_700_000_000_777L);
+        final var trades = tb.tradesCount(3);
+        final long[] ids = { 41L, 43L, 42L };
+        for (int i = 0; i < 3; i++) {
+            trades.next().tradeId(ids[i]).takerOrderId(9_000L + i).makerOrderId(9_100L + i).takerUserId(3_000L + i)
+                    .makerUserId(3_100L + i).price(1_499_000_000L + 10L * i).quantity(50_000_000L + i)
+                    .takerSide(com.match.infrastructure.generated.OrderSide.ASK).takerOmsOrderId(4_000L + i)
+                    .makerOmsOrderId(4_100L + i).egressSeq(600L + i).clusterTimestamp(1_700_000_000_000L + i);
+        }
+        print("JAVA_TRADE_EXECUTION_BATCH_3", buf, BOOK_HEADER.encodedLength() + tb.encodedLength());
+
+        // CL-F-9: the same batch whose group header states blockLength 88 (one byte below the 89 entry): the group
+        // header sits right after the root block, its blockLength is the first uint16
+        buf.putShort(BOOK_HEADER.encodedLength() + com.match.infrastructure.generated.TradeExecutionBatchEncoder.BLOCK_LENGTH,
+                (short) 88, java.nio.ByteOrder.LITTLE_ENDIAN);
+        print("JAVA_TRADE_EXECUTION_BATCH_BAD_GROUP_BL", buf, BOOK_HEADER.encodedLength() + tb.encodedLength());
+    }
+
     public static void main(final String[] args) {
         match();
         forwarder();
+        book();
     }
 }

@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "cluster_tools/domain/forwarder/Dispatch.h"
+#include "cluster_tools/domain/forwarder/MarketData.h"
 #include "cluster_tools/domain/forwarder/ResyncMachine.h"
 
 // ForwarderCodec - the forwarder's wire (RC2 S12 contract 5.1, W5). The only forwarder translation unit
@@ -14,6 +15,9 @@
 // 108 PendingDispatchEnd, 109 AdmissionState, 101 OrderReject; encode 65 RequestPendingDispatch.
 // ME side (order-schema id 1, header version exactly 12): encode 9 DurableOrderCommand and 10
 // ReleaseCommandIds; decode 21 ClusterHeartbeat (meEpoch).
+// RC2 S13 (K4): decode 22 BookSnapshot, 25 BookDelta and 26 TradeExecutionBatch (the book egress) by raw
+// little-endian reads at static_assert-ed offsets, with the malformed rules of contract 4.2 (the rule itself lives
+// in domain/forwarder MarketData.cpp); encode money 60 MarketTick.
 //
 // Every enum field is read RAW (no generated enum getter, which throws on an unknown value: a kind 4 or a
 // releaseScope 2 must reach the classifier, FIX-10). Frames are bounds-checked before any field is read:
@@ -22,8 +26,11 @@
 
 namespace cluster_tools { namespace sbe_adapter { namespace forwarder_codec {
 
+using domain::forwarder::BookFrame;
 using domain::forwarder::Dispatch;
 using domain::forwarder::DurableCommand;
+using domain::forwarder::MarketTick;
+using domain::forwarder::TradeFrame;
 using domain::forwarder::PendingRequest;
 using domain::forwarder::ReleaseEntry;
 
@@ -38,6 +45,7 @@ inline constexpr std::uint16_t T_ORDER_REJECT = 101;
 inline constexpr std::uint16_t T_ME_DISPATCH = 104;
 inline constexpr std::uint16_t T_ME_DISPATCH_BATCH = 105;
 inline constexpr std::uint16_t T_PENDING_DISPATCH_END = 108;
+inline constexpr std::uint16_t T_MARKET_TICK = 60;
 inline constexpr std::uint16_t T_ADMISSION_STATE = 109;
 inline constexpr std::uint16_t T_ADMIN_ACK = 110;
 inline constexpr std::uint16_t T_CONFIG_APPLIED = 112;
@@ -46,12 +54,19 @@ inline constexpr std::uint16_t T_ORDER_FAULT = 113;
 inline constexpr std::uint16_t T_DURABLE_ORDER_COMMAND = 9;
 inline constexpr std::uint16_t T_RELEASE_COMMAND_IDS = 10;
 inline constexpr std::uint16_t T_CLUSTER_HEARTBEAT = 21;
+inline constexpr std::uint16_t T_BOOK_SNAPSHOT = 22;
+inline constexpr std::uint16_t T_TRADES_BATCH = 23;          // known-ignored by the forwarder (S13 F-S13-5)
+inline constexpr std::uint16_t T_ORDER_STATUS_BATCH = 24;    // known-ignored
+inline constexpr std::uint16_t T_BOOK_DELTA = 25;
+inline constexpr std::uint16_t T_OPEN_ORDERS_SNAPSHOT = 27;  // known-ignored
+inline constexpr std::uint16_t T_TRADE_EXECUTION_BATCH = 26;
 
 inline constexpr std::size_t MESSAGE_HEADER_LENGTH = 8;
 inline constexpr std::size_t DISPATCH_BLOCK_V7 = 89;
 inline constexpr std::size_t DURABLE_COMMAND_FRAME_LENGTH = 88;      // 8 + block 80
 inline constexpr std::size_t REQUEST_PENDING_FRAME_LENGTH = 28;      // 8 + block 20
 inline constexpr std::size_t RELEASE_ENTRY_LENGTH = 17;
+inline constexpr std::size_t MARKET_TICK_FRAME_LENGTH = 60;          // 8 + block 52
 inline constexpr std::uint32_t RELEASE_FRAME_MAX_ENTRIES = 48;
 inline constexpr std::size_t releaseFrameLength(std::uint32_t entries) { return 20 + RELEASE_ENTRY_LENGTH * entries; }
 inline constexpr std::size_t RELEASE_FRAME_MAX_LENGTH = 20 + RELEASE_ENTRY_LENGTH * RELEASE_FRAME_MAX_ENTRIES; // 836
@@ -119,6 +134,20 @@ std::size_t encodeDurableCommand(std::uint8_t *out, std::size_t capacity, const 
 // 10 (v12): root releaseSeq, group of n entries; 0 if out is too small or n == 0.
 std::size_t encodeReleaseCommandIds(std::uint8_t *out, std::size_t capacity, std::int64_t releaseSeq,
     const ReleaseEntry *entries, std::uint32_t n) noexcept;
+
+// ---- RC2 S13: the ME book egress (order schema, header version exactly 12 already checked by the caller)
+// 22 / 25 / 26 by raw reads. Return true = well formed (out.malformed == NONE). False = malformed (out.malformed names
+// the first rule broken, contract 4.2) or the frame is not that template (Malformed::TEMPLATE); out.marketReadable /
+// out.marketId say whether the market could still be read (a malformed 22 / 25 of a market in 1..5 breaks that ladder).
+// A group blockLength above the entry size is skipped by its stated length (the SBE extension rule). Nothing throws,
+// allocates or keeps state; `out` is fully reset first.
+bool decodeBookSnapshot(const std::uint8_t *frame, std::size_t length, const Header &header, BookFrame &out) noexcept;
+bool decodeBookDelta(const std::uint8_t *frame, std::size_t length, const Header &header, BookFrame &out) noexcept;
+// 26: the highest tradeId with its price; a malformed batch is dropped whole (nothing of it is used).
+bool decodeTradeBatch(const std::uint8_t *frame, std::size_t length, const Header &header, TradeFrame &out) noexcept;
+
+// ---- RC2 S13: money 60 MarketTick (header version 7). Returns the frame length (60), 0 if out is too small.
+std::size_t encodeMarketTick(std::uint8_t *out, std::size_t capacity, const MarketTick &tick) noexcept;
 
 }}}
 

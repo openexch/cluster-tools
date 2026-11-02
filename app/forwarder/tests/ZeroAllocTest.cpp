@@ -123,3 +123,93 @@ TEST_CASE("ZeroAllocTest.resyncHeadProbeTimeoutAndSnapshotPathsAllocateNothing")
     MESSAGE("allocations in the resync / probe / timeout / snapshot windows: " << allocations);
     CHECK(allocations == 0);
 }
+
+TEST_CASE("ZeroAllocTest.stitchAndEmitAllocateNothing")
+{
+    // RC2 S13 contract 11.4: 10^5 ME book frames (deltas on five markets, a periodic snapshot, trade batches and a
+    // known-ignored 23) through decode, the stitcher, the emitter, the 60 encoder and the core offer, plus fillSnapshot,
+    // with the counter armed around every agent iteration: 0 allocations. Frames are built and pushed disarmed.
+    Rig r;
+    r.bringUp();
+    std::int64_t version[6] = {};
+    std::int64_t bid[6] = {};
+    for (int m = 1; m <= 5; m++)
+    {
+        version[m] = 100;
+        bid[m] = 1000;
+        r.me_(bookSnapshot(m, version[m], { Level{ bid[m], 10, 1 } }, { Level{ 1'000'000'000, 10, 1 } }));
+    }
+    r.cycles(3);
+    REQUIRE(r.coreOffers(60).size() == 5);
+    r.coreT.recordOffers = false;
+    r.meT.recordOffers = false;
+    const std::uint64_t coreOffersBefore = r.coreT.offersNotRecorded;
+
+    const int total = 100'000;
+    int frames = 0;
+    std::uint64_t allocations = 0;
+    std::int64_t tradeId = 0;
+    ForwarderSnapshot snapshot;
+    std::vector<Bytes> burst;
+    while (frames < total)
+    {
+        burst.clear();
+        for (int k = 0; k < 4 && frames < total; k++)
+        {
+            for (int m = 1; m <= 5 && frames < total; m++, frames++)
+            {
+                if (0 == frames % 997)
+                {
+                    burst.push_back(bookSnapshot(m, version[m], { Level{ bid[m], 10, 1 } }, { Level{ 1'000'000'000, 10, 1 } }));
+                }
+                else if (0 == frames % 101)
+                {
+                    burst.push_back(tradeBatch(m, ++tradeId, bid[m]));
+                }
+                else if (0 == frames % 89)
+                {
+                    burst.push_back(meOther(23));
+                }
+                else
+                {
+                    burst.push_back(moveBestBid(m, version[m], version[m] + 1, bid[m], bid[m] + 1));
+                    version[m]++;
+                    bid[m]++;
+                }
+            }
+        }
+        for (const Bytes &b : burst)
+        {
+            r.me_(b); // harness work, not counted
+        }
+        r.advance(30 * MS);
+        g_allocations.store(0);
+        g_countAllocations.store(true);
+        r.agent.doWork();
+        r.agent.fillSnapshot(snapshot);
+        g_countAllocations.store(false);
+        allocations += g_allocations.load();
+    }
+    for (int i = 0; i < 20; i++)
+    {
+        r.advance(30 * MS); // the trailing edges
+        g_allocations.store(0);
+        g_countAllocations.store(true);
+        r.agent.doWork();
+        g_countAllocations.store(false);
+        allocations += g_allocations.load();
+    }
+    std::uint64_t applied = 0;
+    for (int m = 1; m <= 5; m++)
+    {
+        applied += r.agent.stitcher().ladder(m).counters().deltas + r.agent.stitcher().ladder(m).counters().snapshots;
+        CHECK(r.agent.stitcher().ladder(m).state() == domain::forwarder::LadderState::OK);
+        CHECK(r.agent.emitter().lastOffered(m).version == version[m]); // the newest state reached the core
+    }
+    const std::uint64_t ticks = r.coreT.offersNotRecorded - coreOffersBefore;
+    MESSAGE("book frames " << frames << ", ladder applies " << applied << ", core offers (ticks + keepalives) " << ticks
+        << ", allocations " << allocations);
+    CHECK(applied > 90'000);
+    CHECK(ticks > 1'000);
+    CHECK(allocations == 0);
+}
