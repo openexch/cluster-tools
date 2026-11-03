@@ -12,7 +12,7 @@
 #   ct_bridge_main_aeron_tests startSequenceBothModes, conductorStallExits70 (a real driver)
 #   ct_bridge_e3_app_tests     12.6 E3 through the agent with serve as the core (needs the harness jar)
 # CT_BRIDGE_TEST_BUILDS (never published; publish.yml refuses them):
-#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl, ct_bridge_tc_driverstall / _tc_conductorstall;
+#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl / ct_bridge_nc_legacy, ct_bridge_tc_driverstall / _tc_conductorstall;
 #   RC2 S10': ct_bridge_nc_noconfirm / _nc_rotatepast / _nc_haltedparks / _nc_haltkeep / _nc_nosuccessor / _nc_noschemarescan,
 #   ct_bridge_tc_slowhalt
 #   (ct_bridge_nc_mtu1408, the R-K6 wire RED, is retired: review NOTE-2, contract 19.5)
@@ -103,6 +103,12 @@ if(WITH_AERON AND WITH_BRIDGE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls.txt")
         set_tests_properties(bridge.app_negative_controls PROPERTIES TIMEOUT 3600
             ENVIRONMENT "CT_BRIDGE_AGENT_PROPERTY_RUNS=200")
+        # RC2 S15 review F2: the nc_legacy control's own behaviour (seam forced on), pinned by ctest; the REQUIRE variable
+        # makes the case fail instead of returning early if the seam does not engage
+        add_test(NAME bridge.app_nc_legacy_control
+            COMMAND ct_bridge_app_tests --test-case=BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId --no-colors=true)
+        set_tests_properties(bridge.app_nc_legacy_control PROPERTIES TIMEOUT 600
+            ENVIRONMENT "CT_TEST_DISABLE_NEGCTL_DROP_RECORD_3=1;CT_TEST_REQUIRE_NEGCTL_DROP_RECORD_3=1")
 
         add_executable(ct_bridge_app_alloc_tests tests/ZeroAllocAppTest.cpp)
         target_link_libraries(ct_bridge_app_alloc_tests PRIVATE ct_bridge_pure_seamed ct_bridge_codec_seamed
@@ -183,6 +189,11 @@ if(WITH_AERON AND WITH_BRIDGE)
         ct_bridge_binary(ct_bridge_negctl ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_negctl PRIVATE CT_BRIDGE_NC_PRESET="NEGCTL_DROP_RECORDS_2_3")
+        # RC2 S15 W4 (PO-3, PO-3b): the legacy translator control. Trades and terminals translate; the outcome (record 3)
+        # reaches the core with a never-issued command id, same journal seq (a hole would latch the core FEED_GAP).
+        ct_bridge_binary(ct_bridge_nc_legacy ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
+            ct_archive_aeron_seamed)
+        target_compile_definitions(ct_bridge_nc_legacy PRIVATE CT_BRIDGE_NC_PRESET="NEGCTL_DROP_RECORD_3")
         # RC2 S10' Q1: the tmpfs-starved-nc RED (storage starvation never ends the process)
         ct_bridge_binary(ct_bridge_nc_storagekeep ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)

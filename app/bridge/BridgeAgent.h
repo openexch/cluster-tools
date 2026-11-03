@@ -8,6 +8,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -53,6 +54,49 @@ inline constexpr int EXIT_TEMPFAIL = 75;
 inline constexpr int EXIT_CONFIG = 78;
 // the core's AdminAck reason for a second live registered BRIDGE session holding an identity (RC2 S10' 4R.1 rule 2)
 inline constexpr std::uint8_t REJECT_DUPLICATE_IDENTITY = 44;
+
+// ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3, RC2 S15 PO-3b), test builds only. The outcome (template 3) is copied into
+// `out` with commandIdHigh replaced by a never-issued id and commandIdLow by the journal seq. Returns false when the
+// frame cannot be patched (shorter than the command id fields, or longer than `capacity`): the caller must then refuse
+// hard, never pass the frame through unpatched (S15 review F3: a fallback needs a precondition; a quiet pass-through
+// would turn the control into the production translator and RED-2 into a GREEN).
+namespace negctl {
+inline constexpr std::int64_t NEVER_ISSUED_HIGH = 0x4E43544C00000000LL; // "NCTL" << 32: above every order id
+inline constexpr std::size_t OUTCOME_OFFSET_COMMAND_ID_HIGH = 32;        // 8 header + block offset 24
+inline constexpr std::size_t OUTCOME_OFFSET_COMMAND_ID_LOW = 40;         // 8 header + block offset 32
+
+inline void putLe64(std::uint8_t *at, std::int64_t v) noexcept
+{
+    const auto u = static_cast<std::uint64_t>(v);
+    for (int i = 0; i < 8; ++i)
+    {
+        at[i] = static_cast<std::uint8_t>(u >> (8 * i));
+    }
+}
+
+inline bool patchOutcomeCommandId(const std::uint8_t *bytes, std::size_t length, std::int64_t journalSeq,
+    std::uint8_t *out, std::size_t capacity) noexcept
+{
+    if (nullptr == bytes || length < OUTCOME_OFFSET_COMMAND_ID_LOW + 8 || length > capacity)
+    {
+        return false;
+    }
+    std::memcpy(out, bytes, length);
+    putLe64(out + OUTCOME_OFFSET_COMMAND_ID_HIGH, NEVER_ISSUED_HIGH);
+    putLe64(out + OUTCOME_OFFSET_COMMAND_ID_LOW, journalSeq);
+    return true;
+}
+
+// The hard refusal: one stderr line, then SIGABRT. Never exit 70 or 78 (those are the product's driver-loss and
+// config exits); a crashed control is not a RED (S15 8.1/8.2), so RED-2 ends without its precondition, never GREEN.
+[[noreturn]] inline void refuseUnpatchable(std::size_t length, std::int64_t journalSeq) noexcept
+{
+    std::fprintf(stderr, "ct-bridge nc_legacy: outcome seq %lld length %zu cannot be patched; refusing (no pass-through)\n",
+        static_cast<long long>(journalSeq), length);
+    std::fflush(stderr);
+    std::abort();
+}
+} // namespace negctl
 
 
 struct StopReason
@@ -274,7 +318,8 @@ public:
         }
         // 3. at most one archive control call, at most fragmentLimit() fragments
         const int limit = m_domain.fragmentLimit();
-        const int n = app_seams::disabled(app_seams::Rule::NEGCTL_DROP_RECORDS_2_3) ?
+        const int n = (app_seams::disabled(app_seams::Rule::NEGCTL_DROP_RECORDS_2_3) ||
+                          app_seams::disabled(app_seams::Rule::NEGCTL_DROP_RECORD_3)) ?
             m_sources.doWork(m_negctlSink, limit, m_now) :
             m_sources.doWork(m_domain, limit, m_now);
         work += n;
@@ -565,16 +610,32 @@ private:
         std::int64_t term = -1;
     };
 
-    // A FrameSink that drops record templates 2 and 3 before the domain (ct_bridge_negctl only, the A02-T2 control).
+    // A FrameSink for the test builds only (never published). ct_bridge_negctl (NEGCTL_DROP_RECORDS_2_3, the A02-T2
+    // control) drops record templates 2 and 3 before the domain. ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3, RC2 S15
+    // PO-3b) is the legacy translator: trades (1) and terminals (2) translate, the outcome (3) is "lost". The record
+    // still goes through the domain, so the cursor, density and offer accounting see an intact feed (a hole would latch
+    // the core with FEED_GAP, S15 dry run answer 9); only its command id is replaced by one the core never issued, so
+    // the core counts a stale outcome (assets_order_stale_outcomes_total, Table D U7) and no order ever hears of it.
     class NegctlSink final : public archive::FrameSink
     {
     public:
         explicit NegctlSink(domain::bridge::BridgeDomain &domain) noexcept : m_domain(domain) {}
         archive::SinkAction onFrame(const archive::JournalFrame &frame) noexcept override
         {
-            if (2 == frame.peek.templateId || 3 == frame.peek.templateId)
+            const std::uint16_t t = frame.peek.templateId;
+            if (app_seams::disabled(app_seams::Rule::NEGCTL_DROP_RECORDS_2_3) && (2 == t || 3 == t))
             {
                 return archive::SinkAction::CONTINUE;
+            }
+            if (app_seams::disabled(app_seams::Rule::NEGCTL_DROP_RECORD_3) && archive::TEMPLATE_OUTCOME == t)
+            {
+                if (!negctl::patchOutcomeCommandId(frame.bytes, frame.length, frame.peek.journalSeq, m_copy, sizeof(m_copy)))
+                {
+                    negctl::refuseUnpatchable(frame.length, frame.peek.journalSeq);
+                }
+                archive::JournalFrame patched = frame;
+                patched.bytes = m_copy;
+                return m_domain.onFrame(patched);
             }
             return m_domain.onFrame(frame);
         }
@@ -585,6 +646,7 @@ private:
 
     private:
         domain::bridge::BridgeDomain &m_domain;
+        std::uint8_t m_copy[archive::MAX_FRAME_LENGTH]{};
     };
 
     static domain::bridge::BridgeSettings domainSettings(const AgentSettings &a)

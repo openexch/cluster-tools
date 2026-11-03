@@ -56,6 +56,7 @@ enum class Rule : unsigned
     STORAGE_STARVED_EXIT_OFF,   // S10' Q1: storage starvation never ends the process (alive and not ready forever)
     // test builds (never a test RED): ct_bridge_negctl
     NEGCTL_DROP_RECORDS_2_3,    // record templates 2 and 3 are dropped before the domain (the A02-T2 control)
+    NEGCTL_DROP_RECORD_3,       // RC2 S15 PO-3 (ct_bridge_nc_legacy): the outcome (template 3) loses its command id, seq kept
     COUNT
 };
 

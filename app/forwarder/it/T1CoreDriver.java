@@ -118,7 +118,7 @@ public final class T1CoreDriver {
                     c = AeronCluster.connect(new AeronCluster.Context()
                             .credentialsSupplier(credentials.supplier())
                             .egressListener(this)
-                            .egressChannel("aeron:udp?endpoint=localhost:0")
+                            .egressChannel("aeron:udp?endpoint=" + System.getenv().getOrDefault("T1_LOCAL_HOST", "localhost") + ":0")
                             .ingressChannel("aeron:udp?term-length=4m|mtu=8192")
                             .aeronDirectoryName(aeronDir)
                             .ingressEndpoints(ingress)

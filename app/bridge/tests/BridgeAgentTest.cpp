@@ -3,6 +3,8 @@
 #include "doctest/doctest.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <vector>
 
 #include "AppRig.h"
 
@@ -889,4 +891,117 @@ TEST_CASE("BridgeAgentTest.negctlDropsOutcomesAndTerminals")
     {
         CHECK(r.core.cursor == 9);
     }
+}
+
+namespace {
+
+// A journal outcome (template 3) with a recognizable command id, appended at `seq`.
+void appendOutcomeWithCommandId(ct_archive_test::SimArchive &a, ct_archive_test::SimRecording &rec, std::int64_t seq,
+    std::int64_t commandIdHigh, std::int64_t commandIdLow)
+{
+    ct_archive_test::Bytes b = ct_archive_test::makeFrame(TEMPLATE_OUTCOME, seq, EPOCH, 64 * seq);
+    ct_archive_test::putLe64(b, 32, commandIdHigh);
+    ct_archive_test::putLe64(b, 40, commandIdLow);
+    a.append(rec, b);
+}
+
+std::int64_t commandIdHighOf(const ct_archive_test::Bytes &record)
+{
+    std::uint64_t u = 0;
+    for (int i = 7; i >= 0; --i)
+    {
+        u = (u << 8) | record[32 + i];
+    }
+    return static_cast<std::int64_t>(u);
+}
+
+}
+
+TEST_CASE("BridgeAgentTest.outcomeKeepsItsCommandIdAndSeq")
+{
+    // RC2 S15 W4: the production reading, and the RED of ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3 on): the outcome
+    // (record 3) reaches the domain with the ME's command id, so the core can bind it to its pending command.
+    AppRig r(1);
+    SimRecording &rec = r.archive(0).record();
+    appendJournal(r.archive(0), rec, 1, 4);
+    appendOutcomeWithCommandId(r.archive(0), rec, 5, 777, 9);
+    appendJournal(r.archive(0), rec, 6, 8, EPOCH, TEMPLATE_TERMINAL);
+    r.bringUp();
+    r.runFor(3 * SECOND);
+    CHECK(r.core.cursor == 8);
+    bool seen = false;
+    for (const auto &bytes : r.encoder.recordsSeen)
+    {
+        if (TEMPLATE_OUTCOME == (bytes[2] | (bytes[3] << 8)))
+        {
+            seen = true;
+            const bool outcomeCommandIdIntact = 777 == commandIdHighOf(bytes);
+            CHECK(outcomeCommandIdIntact);
+        }
+    }
+    CHECK(seen);
+}
+
+TEST_CASE("BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId")
+{
+    // ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3, S15 PO-3 / PO-3b), meaningful with the seam forced on: the feed stays
+    // dense (a hole would latch the core FEED_GAP), trades and terminals translate unchanged, and only the outcome
+    // loses its command id (a never-issued one, the core counts a stale outcome).
+    AppRig r(1);
+    SimRecording &rec = r.archive(0).record();
+    appendJournal(r.archive(0), rec, 1, 4);
+    appendOutcomeWithCommandId(r.archive(0), rec, 5, 777, 9);
+    appendJournal(r.archive(0), rec, 6, 8, EPOCH, TEMPLATE_TERMINAL);
+    r.bringUp();
+    r.runFor(3 * SECOND);
+    // S15 review F2: ctest bridge.app_nc_legacy_control runs this case with the seam forced on AND this variable set,
+    // so a renamed rule or env cannot turn the case into a vacuous early return there
+    if (nullptr != std::getenv("CT_TEST_REQUIRE_NEGCTL_DROP_RECORD_3"))
+    {
+        REQUIRE(app::app_seams::disabled(app::app_seams::Rule::NEGCTL_DROP_RECORD_3));
+    }
+    if (!app::app_seams::disabled(app::app_seams::Rule::NEGCTL_DROP_RECORD_3))
+    {
+        return; // the production binary under bridge.app: covered by outcomeKeepsItsCommandIdAndSeq
+    }
+    CHECK(r.core.cursor == 8); // dense: not 4 and not halted
+    int outcomes = 0;
+    int terminals = 0;
+    int trades = 0;
+    for (const auto &bytes : r.encoder.recordsSeen)
+    {
+        const int t = bytes[2] | (bytes[3] << 8);
+        trades += TEMPLATE_TRADE == t ? 1 : 0;
+        terminals += TEMPLATE_TERMINAL == t ? 1 : 0;
+        if (TEMPLATE_OUTCOME == t)
+        {
+            ++outcomes;
+            CHECK(commandIdHighOf(bytes) != 777);
+            CHECK(commandIdHighOf(bytes) > 0);
+        }
+    }
+    CHECK(outcomes == 1);
+    CHECK(trades == 3); // seqs 2..4 (seq 1 is the 68)
+    CHECK(terminals == 3);
+}
+
+TEST_CASE("BridgeAgentTest.legacyControlPatchRefusesWhatItCannotPatch")
+{
+    // S15 review F3: the nc_legacy patch either rewrites the command id or reports false (the sink then aborts); a
+    // frame outside the length guard never comes back unpatched
+    std::uint8_t out[cluster_tools::archive::MAX_FRAME_LENGTH]{};
+    ct_archive_test::Bytes outcome = ct_archive_test::makeFrame(TEMPLATE_OUTCOME, 5, EPOCH, 320);
+    ct_archive_test::putLe64(outcome, 32, 777);
+    ct_archive_test::putLe64(outcome, 40, 9);
+    REQUIRE(app::negctl::patchOutcomeCommandId(outcome.data(), outcome.size(), 5, out, sizeof(out)));
+    ct_archive_test::Bytes patched(out, out + outcome.size());
+    CHECK(commandIdHighOf(patched) == app::negctl::NEVER_ISSUED_HIGH);
+    CHECK(std::equal(outcome.begin(), outcome.begin() + 32, patched.begin())); // header and the first fields kept
+    const bool tooShort = app::negctl::patchOutcomeCommandId(outcome.data(), 47, 5, out, sizeof(out));
+    CHECK_FALSE(tooShort);
+    std::vector<std::uint8_t> big(cluster_tools::archive::MAX_FRAME_LENGTH + 1, 0);
+    const bool tooLong = app::negctl::patchOutcomeCommandId(big.data(), big.size(), 5, out, sizeof(out));
+    CHECK_FALSE(tooLong);
+    CHECK_FALSE(app::negctl::patchOutcomeCommandId(nullptr, 64, 5, out, sizeof(out)));
+    CHECK(app::negctl::patchOutcomeCommandId(big.data(), cluster_tools::archive::MAX_FRAME_LENGTH, 5, out, sizeof(out)));
 }
