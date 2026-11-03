@@ -83,6 +83,7 @@ if(WITH_AERON)
         target_link_libraries(${name} PRIVATE aeron_driver_static ${pure} ct_app_common_aeron ct_forwarder_codec ${domain}
             ct_client_aeron ct_sbe_codecs)
         target_compile_options(${name} PRIVATE -Wall -Wextra)
+        target_compile_definitions(${name} PRIVATE CT_BUILD_SOURCE_SHA="${CT_SOURCE_SHA_EFFECTIVE}")
         if(DEFINED CT_FORWARDER_VERSION_STRING)
             target_compile_definitions(${name} PRIVATE CT_FORWARDER_VERSION="${CT_FORWARDER_VERSION_STRING}")
         endif()

@@ -62,6 +62,29 @@ ct_verify_e1_fixtures("${CMAKE_CURRENT_SOURCE_DIR}/domain/bridge/tests/fixtures/
 file(GLOB_RECURSE CT_E1_FIXTURE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/domain/bridge/tests/fixtures/e1/*")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CT_E1_FIXTURE_FILES})
 
+# RC2 S16 W4: the binaries' source_sha, rendered as /health.build by ct-forwarder and ct-bridge. Named by -DCT_BUILD_SOURCE_SHA,
+# else the git HEAD of this tree at configure time (re-configure after a commit), else "unknown". Never guessed: a malformed
+# explicit value is an error (strict mode).
+set(CT_BUILD_SOURCE_SHA "" CACHE STRING "40-hex commit of this tree compiled into ct-forwarder/ct-bridge (/health.build); empty = git HEAD at configure")
+if(CT_BUILD_SOURCE_SHA STREQUAL "")
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}" rev-parse HEAD
+            OUTPUT_VARIABLE CT_GIT_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE CT_GIT_RC)
+    endif()
+    if(DEFINED CT_GIT_RC AND CT_GIT_RC EQUAL 0)
+        set(CT_SOURCE_SHA_EFFECTIVE "${CT_GIT_HEAD}")
+    else()
+        set(CT_SOURCE_SHA_EFFECTIVE "unknown")
+    endif()
+else()
+    set(CT_SOURCE_SHA_EFFECTIVE "${CT_BUILD_SOURCE_SHA}")
+endif()
+if(NOT CT_SOURCE_SHA_EFFECTIVE MATCHES "^([0-9a-f]+|unknown)$")
+    message(FATAL_ERROR "CT_BUILD_SOURCE_SHA '${CT_SOURCE_SHA_EFFECTIVE}' is neither lowercase hex nor 'unknown'")
+endif()
+message(STATUS "source_sha (/health.build): ${CT_SOURCE_SHA_EFFECTIVE}")
+
 add_subdirectory(domain)
 add_subdirectory(domain/forwarder) # RC2 S12: the forwarder's pure core (every configuration)
 add_subdirectory(ports)

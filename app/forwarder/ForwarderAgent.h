@@ -84,6 +84,7 @@ struct AgentSettings
     std::uint64_t driverDirReclaimed = 0;  // 1 when the embedded per-instance dir was a stale one reused at start
     client::SessionClass coreCredentialClass = client::SessionClass::FORWARDER;
     const char *version = "dev";
+    const char *build = "unknown"; // RC2 S16 W4: source_sha, /health.build
     std::int64_t reconnectBackoffInitialNs = 1'000'000'000LL;
     std::int64_t reconnectBackoffMaxNs = 30'000'000'000LL;
 };
@@ -238,6 +239,7 @@ public:
         s.storageStarvedSeconds = m_storageAny.starvedSeconds(m_now); // wall seconds with either publication starved
         s.meEpoch = m_binder.epoch();
         std::snprintf(s.version, sizeof(s.version), "%s", m_settings.version);
+        std::snprintf(s.build, sizeof(s.build), "%s", m_settings.build);
         s.notReady = notReadyMask();
         s.ready = 0 == s.notReady;
         s.stopping = m_stopRequested || m_stopReason.set();

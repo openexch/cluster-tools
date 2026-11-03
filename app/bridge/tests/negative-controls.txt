@@ -33,3 +33,5 @@ BridgeAgentTest.inferredRefusalDuringDuplicateIdentityExits75|INFERRED_READS_LAS
 BridgeAgentTest.duplicateIdentityEpisodeResetsTwiceInOneRun|DUP_EPISODE_NEVER_RESET|S10' review F3: the episode is never reset: the second episode exits 78 at once|CHECK( secondEpisodeRegistered )
 # RC2 S15 W4 (PO-3, PO-3b): the legacy-translator control ct_bridge_nc_legacy is a seam in the app sink, not a bug in the product: switched off, the outcome loses its command id (same seq, so the feed stays dense)
 BridgeAgentTest.outcomeKeepsItsCommandIdAndSeq|NEGCTL_DROP_RECORD_3|the outcome (record 3) reaches the core with a never-issued command id: the core can never bind it (ct_bridge_nc_legacy)|CHECK( outcomeCommandIdIntact )
+# RC2 S16 W4 (F-S16-3, RED-A04): the epoch row of the domain (BDM row 1) is what halts a re-genesis; switched off, the fresh ME's seqs at or below the cursor are skipped and nothing halts (ct_bridge_nc_noepoch)
+BridgeAgentTest.regenesisHaltsOnAForeignEpochSeqBelowTheCursor|EPOCH_CHECK_OFF|row 1 off: the fresh ME's seqs are skipped by row 2, the bridge never halts (ct_bridge_nc_noepoch)|CHECK( BridgeHalt::NONE != halt )

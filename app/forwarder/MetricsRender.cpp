@@ -309,11 +309,12 @@ std::string renderHealthJson(const ForwarderSnapshot &s, bool stalled)
         "{\"status\":\"%s\",\"aeConnected\":%s,\"meConnected\":%s,\"registered\":%s,\"meEpoch\":%" PRId64
         ",\"mode\":\"%s\",\"lastDispatchSeq\":%" PRId64 ",\"lastSentSeq\":%" PRId64 ",\"coreHead\":%" PRId64
         ",\"resyncs\":%" PRIu64 ",\"lastResyncEndSeq\":%" PRId64 ",\"ringDepth\":%" PRIu64 ",\"invalidDispatches\":%" PRIu64
-        ",\"identity\":%" PRId64 ",\"driverMode\":\"%s\",\"ready\":%s}",
+        ",\"identity\":%" PRId64 ",\"driverMode\":\"%s\",\"ready\":%s,\"build\":\"%s\"}",
         stalled ? "STALLED" : "UP", s.coreLink >= static_cast<std::uint8_t>(CoreLink::UNREGISTERED) ? "true" : "false",
         s.meLink >= static_cast<std::uint8_t>(MeLink::UNVERIFIED) ? "true" : "false", s.registered ? "true" : "false",
         s.meEpoch, modeName(s.mode), s.cursor, s.lastSentSeq, s.coreHead, resyncs, s.lastResyncEndSeq, s.ringDepth,
-        s.counters.invalid.total(), s.identity, driverModeLabel(s.driverMode), s.ready ? "true" : "false");
+        s.counters.invalid.total(), s.identity, driverModeLabel(s.driverMode), s.ready ? "true" : "false",
+        s.build); // RC2 S16 W4: the binary's source_sha, additive
     // RC2 S13 10.2: the five books and the tick readiness (BOOK_STALE is not a /ready conjunct, PO-1), appended inside
     // the object so the S12 fields keep their order
     out.pop_back(); // the newline line() added

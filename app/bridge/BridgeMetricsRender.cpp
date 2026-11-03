@@ -172,18 +172,18 @@ std::string renderHealthJson(const BridgeSnapshot &s, const HttpExtras &x)
 {
     const bool halted = healthHalted(s);
     const char *status = x.stalled ? "STALLED" : (halted ? "HALTED" : "UP");
-    char body[896];
+    char body[1024];
     std::snprintf(body, sizeof(body),
         "{\"halted\":%s,\"aeConnected\":%s,\"haltReason\":\"%s\",\"meEpoch\":%" PRId64 ",\"cursor\":%" PRId64
         ",\"status\":\"%s\",\"state\":\"%s\",\"coreHaltReason\":\"%s\",\"expected\":%" PRId64 ",\"last\":%" PRId64
         ",\"attachedSource\":%zu,\"degraded\":%u,\"registered\":%s,\"reportThisTerm\":%s,\"identity\":%" PRId64
-        ",\"ready\":%s,\"relistsSinceHalt\":%llu,\"laneAheadFences\":%llu}",
+        ",\"ready\":%s,\"relistsSinceHalt\":%llu,\"laneAheadFences\":%llu,\"build\":\"%s\"}",
         halted ? "true" : "false", s.aeConnected ? "true" : "false", db::bridgeHaltName(s.view.halt), s.view.syncEpoch,
         s.view.cursor, status, db::stateName(s.view.state), db::haltReasonName(s.view.coreMirror), s.view.expected,
         s.view.last, s.view.attached, s.view.degraded, s.registered ? "true" : "false",
         s.view.reportThisTerm ? "true" : "false", s.identity, 0 == readyBits(s, x) ? "true" : "false",
         static_cast<unsigned long long>(s.view.relistsSinceHalt),
-        static_cast<unsigned long long>(s.laneAheadFences));
+        static_cast<unsigned long long>(s.laneAheadFences), s.build); // RC2 S16 W4: the binary's source_sha
     return body;
 }
 

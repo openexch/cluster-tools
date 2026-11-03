@@ -51,6 +51,10 @@
 #include "EmbeddedDriver.h"
 #include "ObserverTap.h"
 
+#ifndef CT_BUILD_SOURCE_SHA
+#define CT_BUILD_SOURCE_SHA "unknown" // RC2 S16 W4: -DCT_BUILD_SOURCE_SHA (CMake) names the commit
+#endif
+
 #ifndef CT_BRIDGE_VERSION
 #define CT_BRIDGE_VERSION "dev"
 #endif
@@ -236,6 +240,7 @@ int run()
     agentSettings.probeInterval = follow.probeInterval;
     agentSettings.credentialClass = c.credentials.sessionClass;
     agentSettings.version = CT_BRIDGE_VERSION;
+    agentSettings.build = CT_BUILD_SOURCE_SHA;
     agentSettings.driverMode = static_cast<std::uint8_t>(c.driverMode);
     agentSettings.park = [] { std::this_thread::sleep_for(std::chrono::milliseconds(1)); };
     br::BridgeAgent<Client, aa::SourceSet> agent(client, sources, tap, sources.memo(), archiveMetrics, codec, agentSettings,

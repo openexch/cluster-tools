@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "AppRig.h"
+#include "cluster_tools/domain/bridge/TestSeams.h"
 
 #include "golden/golden_frames.inc"
 
@@ -1004,4 +1005,68 @@ TEST_CASE("BridgeAgentTest.legacyControlPatchRefusesWhatItCannotPatch")
     CHECK_FALSE(tooLong);
     CHECK_FALSE(app::negctl::patchOutcomeCommandId(nullptr, 64, 5, out, sizeof(out)));
     CHECK(app::negctl::patchOutcomeCommandId(big.data(), cluster_tools::archive::MAX_FRAME_LENGTH, 5, out, sizeof(out)));
+}
+
+namespace {
+
+// RC2 S16 W4 (F-S16-3, RED-A04): the live ME re-genesis. The bridge's cursor is 10; the old ME's recording ends and the
+// fresh ME records seqs 1..5 under a NEW epoch in a second recording.
+struct RegenesisRun
+{
+    std::size_t offeredBefore = 0;
+    std::uint64_t skippedBefore = 0;
+};
+
+RegenesisRun runRegenesis(AppRig &r)
+{
+    SimRecording &life1 = r.journal(0, 1, 10);
+    r.bringUp();
+    REQUIRE(r.runUntil([&] { return r.core.cursor == 10; }));
+    RegenesisRun run;
+    run.offeredBefore = r.core.applied.size();
+    run.skippedBefore = BridgeMetrics::get(r.agent->metrics().skipped[TEMPLATE_TRADE - 1]);
+    r.archive(0).stop(life1); // the old ME's recording ends, the fresh ME records a new one
+    SimRecording &fresh = r.archive(0).record();
+    appendJournal(r.archive(0), fresh, 1, 5, EPOCH + 1);
+    r.runFor(5 * SECOND);
+    return run;
+}
+
+} // namespace
+
+TEST_CASE("BridgeAgentTest.regenesisHaltsOnAForeignEpochSeqBelowTheCursor")
+{
+    // The product refuses the foreign epoch before the skip rule (BDM row 1) and halts: SOURCE_SCHEMA by the stale-prefix
+    // rule or EPOCH_MISMATCH by the foreign-epoch rule. Nothing of the fresh epoch is offered. EPOCH_CHECK_OFF is its RED
+    // (negative-controls.txt), ct_bridge_nc_noepoch the same RED as a binary.
+    AppRig r(1);
+    const RegenesisRun run = runRegenesis(r);
+    const BridgeHalt halt = r.agent->domain().view().halt;
+    CHECK(BridgeHalt::NONE != halt);
+    const bool sourceSchemaOrEpoch = BridgeHalt::SOURCE_SCHEMA == halt || BridgeHalt::EPOCH_MISMATCH == halt;
+    CHECK(sourceSchemaOrEpoch);
+    CHECK(r.core.applied.size() == run.offeredBefore);
+}
+
+TEST_CASE("BridgeAgentTest.noEpochControlSkipsAForeignSeqAtOrBelowTheCursor")
+{
+    // ct_bridge_nc_noepoch (EPOCH_CHECK_OFF), meaningful with the seam forced on: row 2 skips every fresh seq (seq <=
+    // cursor): nothing offered, no halt, no latch, the gate stays open. ctest bridge.app_nc_noepoch_control runs this
+    // case with the seam forced on AND the REQUIRE variable set, so a renamed rule cannot make it vacuous there.
+    namespace ts = cluster_tools::domain::bridge::test_seams;
+    AppRig r(1);
+    const RegenesisRun run = runRegenesis(r);
+    if (nullptr != std::getenv("CT_TEST_REQUIRE_EPOCH_CHECK_OFF"))
+    {
+        REQUIRE(ts::disabled(ts::Rule::EPOCH_CHECK_OFF));
+    }
+    if (!ts::disabled(ts::Rule::EPOCH_CHECK_OFF))
+    {
+        return; // the production binary under bridge.app: covered by regenesisHaltsOnAForeignEpochSeqBelowTheCursor
+    }
+    CHECK(BridgeHalt::NONE == r.agent->domain().view().halt); // no halt, no latch
+    CHECK(0 == r.agent->metrics().halted.load());
+    CHECK(r.core.applied.size() == run.offeredBefore);         // nothing offered
+    CHECK(r.core.cursor == 10);
+    CHECK(BridgeMetrics::get(r.agent->metrics().skipped[TEMPLATE_TRADE - 1]) > run.skippedBefore); // the skip rule took them
 }

@@ -242,6 +242,7 @@ struct BridgeSnapshot
     std::int64_t nowNs = 0;
     std::int64_t identity = 0;
     char version[32] = {};
+    char build[48] = {}; // RC2 S16 W4: the binary's source_sha (compile-time), /health.build
     std::uint8_t driverMode = 0; // DriverMode
     std::uint8_t coreLink = 0;   // CoreLink
     std::uint8_t clientState = 0;

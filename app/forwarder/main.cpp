@@ -53,6 +53,10 @@
 #include "StatusBoard.h"
 #include "Supervisor.h"
 
+#ifndef CT_BUILD_SOURCE_SHA
+#define CT_BUILD_SOURCE_SHA "unknown" // RC2 S16 W4: -DCT_BUILD_SOURCE_SHA (CMake) names the commit
+#endif
+
 #ifndef CT_FORWARDER_VERSION
 #define CT_FORWARDER_VERSION "dev"
 #endif
@@ -236,6 +240,7 @@ int main()
     agentSettings.identity = identity;
     agentSettings.coreCredentialClass = c.coreCredentials.sessionClass;
     agentSettings.version = CT_FORWARDER_VERSION;
+    agentSettings.build = CT_BUILD_SOURCE_SHA;
     agentSettings.driverMode = static_cast<std::uint8_t>(c.driverMode);
     agentSettings.driverDirReclaimed = nullptr != driver && driver->reclaimed() ? 1 : 0;
     fwd::ForwarderAgent<cl::ClusterClient<at::AeronTransport>, cl::ClusterClient<at::AeronTransport>> agent(core, me,

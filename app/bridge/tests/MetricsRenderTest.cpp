@@ -25,6 +25,7 @@ BridgeSnapshot fixed()
     s.sequence = 42;
     s.identity = 7;
     std::snprintf(s.version, sizeof(s.version), "%s", "s9c-test");
+    std::snprintf(s.build, sizeof(s.build), "%s", "0123456789abcdef0123456789abcdef01234567");
     s.driverMode = static_cast<std::uint8_t>(DriverMode::EXTERNAL);
     s.coreLink = static_cast<std::uint8_t>(CoreLink::C3_REGISTERED);
     s.aeConnected = true;
@@ -100,6 +101,8 @@ TEST_CASE("MetricsRenderTest.healthGolden")
     CHECK(up == golden("health.json", up));
     CHECK(up.rfind("{\"halted\":false,\"aeConnected\":true,\"haltReason\":\"NONE\",\"meEpoch\":169552957,\"cursor\":900,", 0) == 0);
     CHECK(up.find("\"status\":\"UP\"") != std::string::npos);
+    // RC2 S16 W4: /health.build is the binary's source_sha, additive and last (the 9.1 key order above is a prefix)
+    CHECK(up.find(",\"build\":\"0123456789abcdef0123456789abcdef01234567\"}") != std::string::npos);
     CHECK(healthStatus(s, extras()) == 200);
     HttpExtras stalled = extras();
     stalled.stalled = true;

@@ -23,6 +23,7 @@ ForwarderSnapshot fixed()
     s.identity = 0x1234567890ABCDEFLL;
     s.meEpoch = 0x0A1B2C3D4E5F6071LL;
     std::snprintf(s.version, sizeof(s.version), "%s", "s12-test");
+    std::snprintf(s.build, sizeof(s.build), "%s", "0123456789abcdef0123456789abcdef01234567");
     s.ready = false;
     s.notReady = not_ready::NOT_LIVE | not_ready::NO_RECENT_ANSWER;
     s.coreLink = static_cast<std::uint8_t>(CoreLink::REGISTERED);
@@ -148,6 +149,8 @@ TEST_CASE("MetricsRenderTest.healthAndReadyGolden")
     const std::string up = renderHealthJson(s, false);
     CHECK(up == golden("health.json", up));
     CHECK(up.find("\"status\":\"UP\"") != std::string::npos);
+    // RC2 S16 W4: /health.build is the binary's source_sha, additive (after ready, before the books)
+    CHECK(up.find(",\"ready\":false,\"build\":\"0123456789abcdef0123456789abcdef01234567\",\"books\":[") != std::string::npos);
     CHECK(up.find("\"lastDispatchSeq\":9000") != std::string::npos);
     CHECK(up.find("\"resyncs\":7") != std::string::npos);
     CHECK(up.find("\"invalidDispatches\":5") != std::string::npos);

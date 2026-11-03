@@ -12,7 +12,7 @@
 #   ct_bridge_main_aeron_tests startSequenceBothModes, conductorStallExits70 (a real driver)
 #   ct_bridge_e3_app_tests     12.6 E3 through the agent with serve as the core (needs the harness jar)
 # CT_BRIDGE_TEST_BUILDS (never published; publish.yml refuses them):
-#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl / ct_bridge_nc_legacy, ct_bridge_tc_driverstall / _tc_conductorstall;
+#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl / ct_bridge_nc_legacy / ct_bridge_nc_noepoch (S16), ct_bridge_tc_driverstall / _tc_conductorstall;
 #   RC2 S10': ct_bridge_nc_noconfirm / _nc_rotatepast / _nc_haltedparks / _nc_haltkeep / _nc_nosuccessor / _nc_noschemarescan,
 #   ct_bridge_tc_slowhalt
 #   (ct_bridge_nc_mtu1408, the R-K6 wire RED, is retired: review NOTE-2, contract 19.5)
@@ -76,6 +76,7 @@ if(WITH_AERON AND WITH_BRIDGE)
             ct_client_aeron ct_sbe_codecs)
         target_compile_options(${name} PRIVATE -Wall -Wextra)
         add_dependencies(${name} ct_sbe_generate)
+        target_compile_definitions(${name} PRIVATE CT_BUILD_SOURCE_SHA="${CT_SOURCE_SHA_EFFECTIVE}")
         if(DEFINED CT_BRIDGE_VERSION_STRING)
             target_compile_definitions(${name} PRIVATE CT_BRIDGE_VERSION="${CT_BRIDGE_VERSION_STRING}")
         endif()
@@ -109,6 +110,12 @@ if(WITH_AERON AND WITH_BRIDGE)
             COMMAND ct_bridge_app_tests --test-case=BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId --no-colors=true)
         set_tests_properties(bridge.app_nc_legacy_control PROPERTIES TIMEOUT 600
             ENVIRONMENT "CT_TEST_DISABLE_NEGCTL_DROP_RECORD_3=1;CT_TEST_REQUIRE_NEGCTL_DROP_RECORD_3=1")
+
+        # RC2 S16 W4: the nc_noepoch control's own behaviour (seam forced on), pinned by ctest
+        add_test(NAME bridge.app_nc_noepoch_control
+            COMMAND ct_bridge_app_tests --test-case=BridgeAgentTest.noEpochControlSkipsAForeignSeqAtOrBelowTheCursor --no-colors=true)
+        set_tests_properties(bridge.app_nc_noepoch_control PROPERTIES TIMEOUT 600
+            ENVIRONMENT "CT_TEST_DISABLE_EPOCH_CHECK_OFF=1;CT_TEST_REQUIRE_EPOCH_CHECK_OFF=1")
 
         add_executable(ct_bridge_app_alloc_tests tests/ZeroAllocAppTest.cpp)
         target_link_libraries(ct_bridge_app_alloc_tests PRIVATE ct_bridge_pure_seamed ct_bridge_codec_seamed
@@ -194,6 +201,11 @@ if(WITH_AERON AND WITH_BRIDGE)
         ct_bridge_binary(ct_bridge_nc_legacy ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_nc_legacy PRIVATE CT_BRIDGE_NC_PRESET="NEGCTL_DROP_RECORD_3")
+        # RC2 S16 W4 (F-S16-3, RED-A04): the epoch check off (BDM row 1); the fresh ME's seqs at or below the cursor are
+        # skipped by row 2, nothing halts. Test build only: publish.yml refuses it like its siblings.
+        ct_bridge_binary(ct_bridge_nc_noepoch ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
+            ct_archive_aeron_seamed)
+        target_compile_definitions(ct_bridge_nc_noepoch PRIVATE CT_BRIDGE_NC_PRESET="EPOCH_CHECK_OFF")
         # RC2 S10' Q1: the tmpfs-starved-nc RED (storage starvation never ends the process)
         ct_bridge_binary(ct_bridge_nc_storagekeep ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)

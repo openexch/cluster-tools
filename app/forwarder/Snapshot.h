@@ -126,6 +126,7 @@ struct ForwarderSnapshot
     std::int64_t identity = 0;
     std::int64_t meEpoch = 0;         // bound E, 0 until bound
     char version[48] = {};
+    char build[48] = {};              // RC2 S16 W4: the binary's source_sha (compile-time), /health.build
 
     bool ready = false;
     std::uint32_t notReady = 0;       // not_ready bits

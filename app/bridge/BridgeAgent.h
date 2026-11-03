@@ -143,6 +143,7 @@ struct AgentSettings
     std::chrono::milliseconds probeInterval{ 10'000 }; // = the FollowSettings object the SourceSet was given
     client::SessionClass credentialClass = client::SessionClass::BRIDGE;
     const char *version = "dev";
+    const char *build = "unknown"; // RC2 S16 W4: source_sha, /health.build
     std::uint8_t driverMode = 0;
     std::int64_t reconnectBackoffInitialNs = 1'000'000'000LL;
     std::int64_t reconnectBackoffMaxNs = 30'000'000'000LL;
@@ -465,6 +466,7 @@ public:
         s.nowNs = m_nowNs;
         s.identity = m_settings.identity;
         std::snprintf(s.version, sizeof(s.version), "%s", m_settings.version);
+        std::snprintf(s.build, sizeof(s.build), "%s", m_settings.build);
         s.driverMode = m_settings.driverMode;
         s.coreLink = static_cast<std::uint8_t>(m_link);
         s.clientState = static_cast<std::uint8_t>(m_client.state());
