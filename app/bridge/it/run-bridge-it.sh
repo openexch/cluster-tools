@@ -812,10 +812,11 @@ drill_rk10() {
     t1core barrier "$(barrier_of 4)" 60000 > /dev/null 2>&1
     t1core report > "$D/ev/report-resumed.json" 2>&1; grep -q '"feedHalted":false' "$D/ev/report-resumed.json" || FAILS+=("core still halted")
     # S10' 11 (F-13 / RC-6): the S9c line inverts on the 4R core: the gate opens by itself at the GAP reach-clear, `open`
-    # answers DUPLICATE (IT_RK10_PRE4R=1 keeps the S9c expectation for a pre-4R core)
+    # answers DUPLICATE (IT_RK10_PRE4R=1 keeps the S9c expectation for a pre-4R core). RC2 S17 W12 G1: the operator's open
+    # after a halt names what it clears (`--ack-halt`: OPEN GLOBAL reason BRIDGE_HALT; the S17 feed harness)
     sleep 1
     t1core gate > "$D/ev/gate-resumed.json" 2>&1
-    t1core open > "$D/ev/open.txt" 2>&1
+    t1core open --ack-halt > "$D/ev/open.txt" 2>&1
     if [ "${IT_RK10_PRE4R:-0}" = 1 ]; then
         grep -q SUSPENDED "$D/ev/gate-resumed.json" || FAILS+=("gate opened by itself")
         grep -q 'result=ACCEPTED' "$D/ev/open.txt" || FAILS+=("open: $(cat "$D/ev/open.txt")")
@@ -904,9 +905,10 @@ drill_rk12() { # variant: all one poison poison-both
     if [ "$variant" = one ] || [ "$variant" = poison ]; then
         if [ "$variant" = poison ]; then
             # the core's SOURCE_SCHEMA latch suspends GLOBAL (BRIDGE_HALT) until ADMIN OPEN: round r runs to its barrier
-            # (the storm guard recovers inside it), the gate is opened, then the rest
+            # (the storm guard recovers inside it), the gate is opened, then the rest. RC2 S17 W12 G1: the reach-clear keeps
+            # the holder, so the open is the acknowledgement form (OPEN GLOBAL reason BRIDGE_HALT)
             run_story --to "$r" --timeout 180000 > "$D/ev/run.txt" 2>&1 || FAILS+=("rounds 0..$r")
-            t1core open > "$D/ev/open.txt" 2>&1
+            t1core open --ack-halt > "$D/ev/open.txt" 2>&1
             NOTES+=("open after the reach-clear: $(grep -o 'result=[A-Z]*' "$D/ev/open.txt")")
             run_story --from $((r + 1)) --timeout 180000 > "$D/ev/run2.txt" 2>&1 || FAILS+=("rounds $((r + 1))..")
         else
@@ -954,7 +956,8 @@ drill_rk12() { # variant: all one poison poison-both
     [ "$WAIT_RC" = "0" ] || FAILS+=("SIGTERM while halted: exit $WAIT_RC (expected 0)")
     start_bridge bridge2 external || FAILS+=("restart")
     t1core barrier "$(barrier_of "$r")" 60000 > "$D/ev/barrier-s.txt" 2>&1 || FAILS+=("round $r not forwarded after the restart")
-    t1core open > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || NOTES+=("open: $(tr '\n' ' ' < "$D/ev/open.txt")")
+    # RC2 S17 W12 G1: after the 76 {SOURCE_SCHEMA, 0} the holder waits for the acknowledgement form of open
+    t1core open --ack-halt > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || NOTES+=("open: $(tr '\n' ' ' < "$D/ev/open.txt")")
     run_story --from $((r + 1)) --timeout 120000 > "$D/ev/run-end.txt" 2>&1 || FAILS+=("rounds $((r + 1))..")
     quiescent "$N" 30000 || FAILS+=("quiescence")
     oracle_ok final || FAILS+=("final oracle")
@@ -2093,7 +2096,9 @@ drill_rk12_fill() { # binary
     [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
     [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("an automatic OPEN after SOURCE_SCHEMA")
     gate_after "$GMARK" | awk '$2=="OPEN"' | has_line && FAILS+=("gate --watch shows an OPEN before the operator's open")
-    t1core open > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || FAILS+=("open: $(cat "$D/ev/open.txt")")
+    # RC2 S17 W12 G1: the SOURCE_SCHEMA reach-clear keeps NONGAP_AWAITING_OPEN, so the operator's open is the
+    # acknowledgement form (OPEN GLOBAL reason BRIDGE_HALT; OPEN ADMIN is REJECTED 45 HALT_HOLDER_PENDING)
+    t1core open --ack-halt > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || FAILS+=("open: $(cat "$D/ev/open.txt")")
     run_story --from $((r + 1)) --timeout 120000 > "$D/ev/run-end.txt" 2>&1 || FAILS+=("rounds $((r + 1))..")
     quiescent "$N" 30000 || FAILS+=("quiescence")
     gate_watch_stop

@@ -44,6 +44,12 @@ TEST_CASE("MetricsTest.everySeriesHasItsFixedLabels")
     {
         CHECK(std::strcmp(badReasonLabel(static_cast<BadReason>(i)), "?") != 0);
     }
+    // RC2 S17 W12 B1 (review V8): the BadReason table grew by one (COUNT-indexed metric arrays and labels resize)
+    CHECK(static_cast<unsigned>(BadReason::COUNT) == 13);
+    CHECK(std::strcmp(badReasonLabel(BadReason::FOREIGN_JOURNAL_HEAD), "foreign_journal_head") == 0);
+    CHECK(std::strcmp(badReasonLabel(BadReason::STALE_EPOCH_PREFIX), "stale_epoch_prefix") == 0);
+    CHECK(std::strcmp(haltDetailName(HaltDetail::NONE), "NONE") == 0);
+    CHECK(std::strcmp(haltDetailName(HaltDetail::FOREIGN_JOURNAL_HEAD), "FOREIGN_JOURNAL_HEAD") == 0);
     for (unsigned i = 0; i < static_cast<unsigned>(DeferReason::COUNT); ++i)
     {
         CHECK(std::strcmp(deferReasonLabel(static_cast<DeferReason>(i)), "?") != 0);
@@ -59,6 +65,7 @@ TEST_CASE("MetricsTest.everySeriesHasItsFixedLabels")
     CHECK(m.fences.size() == 9);
     CHECK(m.settleRejected.size() == 10);
     CHECK(m.sourceVerdicts.size() == MAX_SOURCES);
+    CHECK(m.sourceBad.size() == 13); // RC2 S17 W12: + foreign_journal_head
     CHECK(frameKindOf(61) == FrameKind::K61);
     CHECK(frameKindOf(68) == FrameKind::K68);
     CHECK(frameKindOf(66) == FrameKind::COUNT);

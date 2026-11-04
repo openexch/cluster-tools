@@ -141,6 +141,22 @@ TEST_CASE("MetricsRenderTest.haltedFollowsTheHaltRecord")
     CHECK(healthStatus(s, extras()) == 200);
 }
 
+TEST_CASE("MetricsRenderTest.foreignHeadHaltDetail")
+{
+    // RC2 S17 W12 B1: /health names a foreign journal head next to the halt reason (additive key, before "build")
+    BridgeSnapshot s = fixed();
+    s.view.state = db::State::HALTED;
+    s.view.halt = db::BridgeHalt::SOURCE_SCHEMA;
+    s.view.haltDetail = db::HaltDetail::FOREIGN_JOURNAL_HEAD;
+    const std::string body = renderHealthJson(s, extras());
+    CHECK(healthStatus(s, extras()) == 503);
+    CHECK(body.find("\"haltReason\":\"SOURCE_SCHEMA\"") != std::string::npos);
+    CHECK(body.find(",\"relistsSinceHalt\":0,\"haltDetail\":\"FOREIGN_JOURNAL_HEAD\",") != std::string::npos);
+    CHECK(body.find(",\"build\":\"0123456789abcdef0123456789abcdef01234567\"}") != std::string::npos);
+    s.view.haltDetail = db::HaltDetail::NONE;
+    CHECK(renderHealthJson(s, extras()).find("\"haltDetail\":\"NONE\"") != std::string::npos);
+}
+
 TEST_CASE("MetricsRenderTest.readyTextPerBit")
 {
     BridgeSnapshot s = fixed();

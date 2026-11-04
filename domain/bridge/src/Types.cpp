@@ -104,7 +104,18 @@ const char *badReasonLabel(BadReason reason) noexcept
         case BadReason::FOREIGN_EPOCH: return "foreign_epoch";
         case BadReason::MALFORMED_EXTENT: return "malformed_extent";
         case BadReason::STALE_EPOCH_PREFIX: return "stale_epoch_prefix";
+        case BadReason::FOREIGN_JOURNAL_HEAD: return "foreign_journal_head";
         case BadReason::COUNT: break;
+    }
+    return "?";
+}
+
+const char *haltDetailName(HaltDetail detail) noexcept
+{
+    switch (detail)
+    {
+        case HaltDetail::NONE: return "NONE";
+        case HaltDetail::FOREIGN_JOURNAL_HEAD: return "FOREIGN_JOURNAL_HEAD";
     }
     return "?";
 }

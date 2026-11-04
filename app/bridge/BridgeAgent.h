@@ -1394,6 +1394,19 @@ private:
             m_loggedHaltCorrelation = h.correlationId;
             m_loggedHaltAcked = h.acked;
         }
+        // RC2 S17 W12 B1 (X-7): once per halt record, the operator's next step (the halt itself is logged above)
+        if (h.active && h.foreignHead && !(m_loggedForeignHead && h.correlationId == m_loggedForeignCorrelation))
+        {
+            // review V3: the same refusal is a journal left from another release OR a bridge of another build; never
+            // tell the operator to wipe a valid journal over a version skew
+            log(common::LogLevel::WARN,
+                "foreign journal at the chain head of every source (journal schema %d, this bridge reads schema %u): no "
+                "successor walk; check the bridge build against the ME journal schema first, wipe only a journal left "
+                "from another release",
+                h.foreignSchema, static_cast<unsigned>(archive::JOURNAL_SCHEMA_ID));
+            m_loggedForeignHead = true;
+            m_loggedForeignCorrelation = h.correlationId;
+        }
     }
 
     void trackProgress()
@@ -1452,6 +1465,8 @@ private:
     bool m_loggedHaltActive = false;      // S10': the halt lines of drainVerdicts
     std::int64_t m_loggedHaltCorrelation = 0;
     bool m_loggedHaltAcked = false;
+    bool m_loggedForeignHead = false;     // RC2 S17 W12 B1: the foreign-head WARN of drainVerdicts (once per halt record)
+    std::int64_t m_loggedForeignCorrelation = 0;
     bool m_dupActive = false;         // S10': a REJECTED DUPLICATE_IDENTITY episode is open (until enterC3)
     std::int64_t m_dupHeldNs = 0;     // its CONNECTED time so far (F1: the 60 s bound counts only this)
     std::int64_t m_dupLastNs = -1;    // the last CONNECTED link step dupClock saw, -1 while not connected

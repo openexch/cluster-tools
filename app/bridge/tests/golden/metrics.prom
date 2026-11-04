@@ -285,6 +285,7 @@ bridge_source_bad_total{reason="seq_regression"} 0
 bridge_source_bad_total{reason="foreign_epoch"} 0
 bridge_source_bad_total{reason="malformed_extent"} 0
 bridge_source_bad_total{reason="stale_epoch_prefix"} 0
+bridge_source_bad_total{reason="foreign_journal_head"} 0
 # HELP bridge_settle_rejected_total SettleRejected by reason code
 # TYPE bridge_settle_rejected_total counter
 bridge_settle_rejected_total{reason="0"} 0

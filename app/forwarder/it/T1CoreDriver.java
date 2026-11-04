@@ -162,8 +162,11 @@ public final class T1CoreDriver {
             throw new IllegalStateException("offer not accepted within " + TIMEOUT_MS + " ms");
         }
 
-        /** Waits for an AdminAck naming refTemplateId and correlationId; returns its result code. */
-        int awaitAck(final int refTemplateId, final long correlationId) {
+        /**
+         * Waits for an AdminAck naming refTemplateId and correlationId; returns its result code and its reason (RC2 S17 W12
+         * C6: a refused OPEN names why, e.g. 40 FEED_HALTED, 41 ME_LANE_INACTIVE, 45 HALT_HOLDER_PENDING).
+         */
+        Ack awaitAck(final int refTemplateId, final long correlationId) {
             final MessageHeaderDecoder h = new MessageHeaderDecoder();
             final AdminAckDecoder ack = new AdminAckDecoder();
             final long deadline = System.currentTimeMillis() + TIMEOUT_MS;
@@ -175,7 +178,7 @@ public final class T1CoreDriver {
                     if (h.templateId() == AdminAckDecoder.TEMPLATE_ID) {
                         ack.wrapAndApplyHeader(b, 0, h);
                         if (ack.refTemplateId() == refTemplateId && ack.correlationId() == correlationId) {
-                            return ack.resultRaw();
+                            return new Ack(ack.resultRaw(), ack.reason());
                         }
                     }
                 }
@@ -191,7 +194,7 @@ public final class T1CoreDriver {
                     .identity(0x71000 + correlationId).sourceEpoch(sourceEpoch);
             e.channels().clear().acks(true).orders(!dispatch).dispatch(dispatch).control(true);
             offer(MessageHeaderEncoder.ENCODED_LENGTH + e.encodedLength());
-            final int result = awaitAck(80, correlationId);
+            final int result = awaitAck(80, correlationId).result();
             if (result != 0 && result != 1) {
                 throw new IllegalStateException("RegisterSession " + cls + " refused (result " + result + ")");
             }
@@ -220,7 +223,7 @@ public final class T1CoreDriver {
                     a.next().assetId(d.id()).code(d.name()).scale((short) 8);
                 }
                 admin.offer(MessageHeaderEncoder.ENCODED_LENGTH + e.encodedLength());
-                final int result = admin.awaitAck(70, corr);
+                final int result = admin.awaitAck(70, corr).result();
                 System.out.println("CoreConfig " + v + " result " + result);
                 if (result != 0 && result != 1 && result != 3) { // ACCEPTED, DUPLICATE, ADOPTED
                     throw new IllegalStateException("CoreConfig " + v + " refused");
@@ -228,18 +231,22 @@ public final class T1CoreDriver {
             }
             if (viaBridge) {
                 boolean opened = false;
+                Ack last = null;
                 for (long corr = 0xAE00; !opened && corr < 0xAE00 + 600; corr++) {
                     final OrderEntryGateEncoder g = new OrderEntryGateEncoder().wrapAndApplyHeader(admin.out, 0, admin.header)
                             .correlationId(corr).marketId(0).state(GateState.OPEN).reason(GateReason.ADMIN);
                     admin.offer(MessageHeaderEncoder.ENCODED_LENGTH + g.encodedLength());
-                    final int result = admin.awaitAck(73, corr);
-                    opened = result == 0 || result == 1;
+                    last = admin.awaitAck(73, corr);
+                    opened = last.result() == 0 || last.result() == 1;
                     if (!opened) {
                         Thread.sleep(100);
                     }
                 }
                 if (!opened) {
-                    throw new IllegalStateException("ADMIN OPEN GLOBAL never accepted (the bridge did not bind the epoch in 60 s)");
+                    // RC2 S17 W12 C6 (review V6): the last refusal's reason by name; the early tries are 41 ME_LANE_INACTIVE
+                    // (unbound), a latched core answers 40 FEED_HALTED (the X-7 refusal)
+                    throw new IllegalStateException("ADMIN OPEN GLOBAL never accepted: last reason " + last.reason() + " "
+                            + adminReasonName(last.reason()));
                 }
                 System.out.println("GLOBAL OPEN (bound through the bridge)");
             } else try (Session bridge = new Session(aeronDir, ingress, "T1_BRIDGE_KEY")) {
@@ -249,19 +256,21 @@ public final class T1CoreDriver {
                         .ledgerCapacity(ledgerCapacity).maxWireVersion(12).decision(ConfigDecision.FRESH);
                 bridge.offer(MessageHeaderEncoder.ENCODED_LENGTH + e.encodedLength());
                 boolean opened = false;
+                Ack last = null;
                 for (long corr = 0xAD00; !opened && corr < 0xAD00 + 100; corr++) {
                     final OrderEntryGateEncoder g = new OrderEntryGateEncoder().wrapAndApplyHeader(admin.out, 0, admin.header)
                             .correlationId(corr).marketId(0).state(GateState.OPEN).reason(GateReason.ADMIN);
                     admin.offer(MessageHeaderEncoder.ENCODED_LENGTH + g.encodedLength());
-                    final int result = admin.awaitAck(73, corr);
-                    opened = result == 0 || result == 1;
+                    last = admin.awaitAck(73, corr);
+                    opened = last.result() == 0 || last.result() == 1;
                     if (!opened) {
                         Thread.sleep(100);
                         bridge.poll();
                     }
                 }
                 if (!opened) {
-                    throw new IllegalStateException("ADMIN OPEN GLOBAL never accepted (epoch not bound?)");
+                    throw new IllegalStateException("ADMIN OPEN GLOBAL never accepted: last reason " + last.reason() + " "
+                            + adminReasonName(last.reason()));
                 }
                 System.out.println("GLOBAL OPEN");
             }
@@ -467,6 +476,24 @@ public final class T1CoreDriver {
 
     // Review F9 (2026-11-01): the SBE-generated get() maps only the null value to NULL_VAL and THROWS
     // IllegalArgumentException for any other value the schema does not name; both print UNKNOWN_<raw>, the recorder lives.
+    /** An AdminAck's result and reason byte (RC2 S17 W12 C6). */
+    record Ack(int result, int reason) {
+    }
+
+    /**
+     * RC2 S17 W12 (review V7): an AdminAck reason by name. The domain vocabulary first (it carries the AdminAck-only codes,
+     * 44 DUPLICATE_IDENTITY and, from the S17 assets jar on, 45 HALT_HOLDER_PENDING), then the money-schema enum,
+     * else UNKNOWN_<raw>.
+     */
+    static String adminReasonName(final int raw) {
+        for (final com.openexchange.assets.domain.CoreRejectReason r : com.openexchange.assets.domain.CoreRejectReason.values()) {
+            if (r.code() == raw) {
+                return r.name();
+            }
+        }
+        return nameOf(() -> CoreRejectReason.get((short) raw), raw);
+    }
+
     private static String nameOf(final Supplier<Enum<?>> of, final int raw) {
         final Enum<?> e;
         try {

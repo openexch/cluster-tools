@@ -114,3 +114,5 @@ HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict|TAINT_VERIFY_O
 HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch|TAINT_HALTED_EXEMPT|the pre-review halt exemption: a GAP re-scan's memo resume of a tainted source is believed|a tainted source's memo resume latched genesis-only during a GAP re-scan
 HaltMachineTest.taintClearsAfterALinearVerification|TAINT_NEVER_CLEARS|no reset path: the taint survives a linear read past the bad recording|the taint survived a linear read past the bad recording
 HaltMachineTest.prematureGapClearReLatches|GAP_RELATCH_OFF|an acked GAP FeedHalt is never re-offered after a premature 76 {GAP, 0} and open|a premature 76 {GAP, 0} left the open hole unlatched
+# RC2 S17 W12 B1 (X-7): a SCHEMA refusal of the first frame of a read is a foreign journal head, never a bad copy to walk past
+HaltMachineTest.foreignHeadNeverWalksToASuccessor|FOREIGN_HEAD_WALKS|RED shape: the foreign head is walked like a bad copy (1..12 forwarded, then a re-halt at 13)|walked like a bad copy: cursor 12

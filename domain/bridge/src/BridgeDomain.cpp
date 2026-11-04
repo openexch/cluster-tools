@@ -45,6 +45,16 @@ BadReason badFor(archive::Refusal r) noexcept
     return BadReason::REFUSAL_SCHEMA;
 }
 
+// the schemaId of a refused frame's header (bytes 4..5 little endian; -1 when the frame is too short to carry one)
+int schemaIdOf(const archive::RefusedFrame &frame) noexcept
+{
+    if (nullptr == frame.bytes || frame.length < 6)
+    {
+        return -1;
+    }
+    return static_cast<int>(frame.bytes[4]) | (static_cast<int>(frame.bytes[5]) << 8);
+}
+
 constexpr std::uint32_t ROW_BITS = bit(Degraded::NO_REACHABLE_SOURCE) | bit(Degraded::HOLE_WITH_LAGGING_SOURCE);
 
 std::size_t settleLabel(std::uint8_t raw) noexcept
@@ -272,6 +282,7 @@ BridgeView BridgeDomain::view() const noexcept
     v.consumedPosition = m_consumedPosition;
     v.syncCursor = m_syncCursor;
     v.relistsSinceHalt = m_relistsSinceHalt;
+    v.haltDetail = m_halt.active && m_halt.foreignHead ? HaltDetail::FOREIGN_JOURNAL_HEAD : HaltDetail::NONE;
     return v;
 }
 
@@ -281,6 +292,7 @@ void BridgeDomain::noteAccepted(const archive::JournalFrame &frame) noexcept
 {
     m_consumedPosition = frame.endPosition; // W2a (S9c 4.3 bit 8: a skip walk is progress)
     m_acceptedSinceAttach = true;
+    m_admittedAny = true; // RC2 S17 W12 B1
     m_dwellRunning = false;
     m_strikes[frame.sourceIndex] = 0;
     if (0 != m_syncEpoch && frame.peek.meEpoch == m_syncEpoch)
@@ -390,6 +402,9 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
     }
     const archive::Peek &p = frame.peek;
     const std::int64_t seq = p.journalSeq;
+    // RC2 S17 W12 B1: the follower admitted a frame of this read (decodable, whatever the domain decides on it below: a
+    // skip, a hole, a foreign epoch, a walk); a later SCHEMA refusal on this read is a bad copy, never a foreign head
+    m_admittedAny = true;
 
     // S10' 5.1 R1: the walk skips the rest of a recording that lacks e or is bad before e: its frames are consumed, never
     // forwarded, never decided on (the next recording of the listing is read from its start)
@@ -430,7 +445,7 @@ SinkAction BridgeDomain::onFrame(const archive::JournalFrame &frame) noexcept
             rotate();
             return SinkAction::ABORT;
         }
-        if (!m_ownEpochSeen && !disabled(Rule::STALE_PREFIX_FOREIGN) &&
+        if (!m_ownEpochSeen && !disabled(Rule::STALE_PREFIX_FOREIGN) && !m_halt.foreignHead &&
             relistEligible(frame.readWasMemoFree, frame.laterRecordings) && frame.laterRecordings)
         {
             // S10' 5.1 R1: a stale older-epoch prefix is a recording bad before e: the re-scan walks past it into the later
@@ -647,6 +662,22 @@ RefusalAction BridgeDomain::onRefused(const archive::RefusedFrame &frame) noexce
             requestReattach();
             return RefusalAction::CLOSE_REPLAY;
         }
+        if (archive::Refusal::SCHEMA == frame.reason && !m_admittedAny && m_readMemoFree && frame.readWasMemoFree &&
+            !disabled(Rule::FOREIGN_HEAD_WALKS))
+        {
+            // RC2 S17 W12 B1 (X-7): the first frame of a memo-free read from the chain start is refused SCHEMA: a journal
+            // of another schema left in place (a v0.5.0-beta ME archive), never a bad copy to walk past. BAD at e, no
+            // successor walk (a later recording of this listing is not this journal's continuation); FRAGMENTED, LENGTH,
+            // HEAD, BLOCK and FRAME_LENGTH can be a torn frame on one source and keep the walk below (review V8)
+            m_foreignSchema = schemaIdOf(frame);
+            Verdict v;
+            v.kind = VerdictKind::BAD;
+            v.bad = BadReason::FOREIGN_JOURNAL_HEAD;
+            v.seq = 0;
+            setVerdict(m_current, v);
+            rotate();
+            return RefusalAction::CLOSE_REPLAY;
+        }
         if (relistEligible(m_readMemoFree, frame.laterRecordings))
         {
             // S10' 5.1 R0 / R1: a halted re-scan walks past the bad copy into the later recordings (valid copies of e
@@ -764,6 +795,7 @@ void BridgeDomain::onAttached(const archive::AttachInfo &info) noexcept
             m_relist[info.source].skipKey = {};
         }
         m_acceptedSinceAttach = false; // a read from a resume point; a successor attach keeps the flag
+        m_admittedAny = false;         // RC2 S17 W12 B1: per read, as m_acceptedSinceAttach
         m_resumePending = false;
         m_ownEpochSeen = info.fromProof || !info.memoFree; // a memo resume (proof meEpoch == E) implies own-epoch frames
         m_readMemoFree = info.memoFree;
@@ -1164,6 +1196,11 @@ void BridgeDomain::enterHalting(BridgeHalt halt, std::int64_t seen, std::int64_t
         {
             // 9.4 (b): the re-scan ended in the same verdict at the same e: back to HALTED, no new FeedHalt
             m_rescan = false;
+            m_halt.foreignHead = BridgeHalt::SOURCE_SCHEMA == halt && foreignHeadEverywhere(); // B1: this re-scan's verdicts
+            if (m_halt.foreignHead)
+            {
+                m_halt.foreignSchema = m_foreignSchema;
+            }
             m_state = State::HALTED;
             m_nextRescanAt = m_now + m_settings.haltRescan;
             m_nextPeriodicAt = m_now + m_settings.reportIntervalHalted;
@@ -1182,6 +1219,10 @@ void BridgeDomain::enterHalting(BridgeHalt halt, std::int64_t seen, std::int64_t
     h.wire = feedHaltFor(halt, h.e, seen, m_syncEpoch, foreignEpoch);
     h.correlationId = nextCorrelation();
     h.needOffer = true;
+    // RC2 S17 W12 B1: every source refused the first frame of its read (SCHEMA): the wire fields are unchanged (9.2),
+    // the halt is sticky (no successor walk, no report exit) and /health names it
+    h.foreignHead = BridgeHalt::SOURCE_SCHEMA == halt && foreignHeadEverywhere();
+    h.foreignSchema = h.foreignHead ? m_foreignSchema : -1;
     m_halt = h;
     m_relistsSinceHalt = 0;
     m_haltingSince = m_now;
@@ -1320,6 +1361,10 @@ bool BridgeDomain::relistEligible(bool memoFree, bool laterRecordings) const noe
     {
         return false; // only a re-scan (or the resumption sync it is) re-lists: bounded by haltRescan (N-5)
     }
+    if (m_halt.foreignHead)
+    {
+        return false; // RC2 S17 W12 B1: a foreign journal head is never walked past (no successor of that journal)
+    }
     return BridgeHalt::GAP == m_halt.halt || BridgeHalt::SOURCE_SCHEMA == m_halt.halt ||
         (BridgeHalt::EPOCH_MISMATCH == m_halt.halt && disabled(Rule::RELIST_ON_EPOCH_HALT));
 }
@@ -1436,8 +1481,27 @@ void BridgeDomain::resetRelist() noexcept
     }
 }
 
+bool BridgeDomain::foreignHeadEverywhere() const noexcept
+{
+    for (std::size_t i = 0; i < m_settings.sourceCount; ++i)
+    {
+        const Verdict &v = m_verdicts.at(i);
+        if (VerdictKind::BAD != v.kind || BadReason::FOREIGN_JOURNAL_HEAD != v.bad)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool BridgeDomain::haltExitReached(std::int64_t cursor) const noexcept
 {
+    if (m_halt.foreignHead)
+    {
+        // RC2 S17 W12 B1: a report never ends a foreign-head halt (the re-scan's exit (a) BDM:1641, the resumption rule's
+        // and the halted report's exit); only a re-scan that reads a source whose head is readable does (noteForward)
+        return false;
+    }
     switch (m_halt.halt)
     {
         case BridgeHalt::GAP:
@@ -1674,9 +1738,10 @@ void BridgeDomain::syncStart(std::int64_t cursor, std::int64_t epoch) noexcept
         // C' + 1, reading ONLY them (rotate() is restricted while m_stormProbe); nothing tried is re-offered
         m_stormRetryPending = false;
         m_refusalFenceSinceSync = false;
-        if (haltExitReached(cursor) || epoch != m_halt.syncEpoch || (m_haveReport && cursor < m_C))
+        if (haltExitReached(cursor) || epoch != m_halt.syncEpoch || (m_haveReport && cursor < m_C) || m_halt.foreignHead)
         {
-            // the core moved on (or was replaced) meanwhile: the ordinary resumption below decides
+            // the core moved on (or was replaced) meanwhile: the ordinary resumption below decides (a foreign-head halt is
+            // never a CORE_REFUSED one; the guard keeps the leaveHalt below unreachable for it, RC2 S17 W12 B1)
         }
         else
         {
@@ -1748,6 +1813,10 @@ void BridgeDomain::syncStart(std::int64_t cursor, std::int64_t epoch) noexcept
         else if (disabled(Rule::HALT_KEEP_ALWAYS))
         {
             leave = false;
+        }
+        else if (m_halt.foreignHead)
+        {
+            leave = false; // RC2 S17 W12 B1: a foreign-head halt is kept by a reconnect or a fence (x7-v3 "halt left")
         }
         else
         {

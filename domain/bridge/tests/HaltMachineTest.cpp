@@ -717,6 +717,17 @@ RefusalAction refuse(Direct &d, std::size_t source, std::int64_t recordingId, st
     return d.domain->onRefused(f);
 }
 
+// a memo-free read from the chain start passes the valid prefix 1..upTo (SKIPs at or below the cursor) before it meets a
+// refused copy: RC2 S17 W12 B1 tells that read (a bad copy, walk-eligible) from one whose FIRST frame is refused (a
+// foreign journal head), so a refusal on a memo-free read is driven after its prefix, as the follower delivers it
+void skipPrefix(Direct &d, std::size_t source, std::int64_t recordingId, std::int64_t upTo)
+{
+    for (std::int64_t s = 1; s <= upTo; ++s)
+    {
+        REQUIRE(d.rec(1 == s ? TEMPLATE_CONFIG : TEMPLATE_TRADE, s, EPOCH, source, recordingId) == SinkAction::CONTINUE);
+    }
+}
+
 // a SWITCH the follower answers with a memo resume (a proof in `recordingId`)
 void attachFromMemo(Direct &d, std::size_t source, std::int64_t recordingId)
 {
@@ -765,6 +776,7 @@ void taintSourceOneByAWalk(Direct &d)
     REQUIRE(cmd.kind == SourceCommandKind::SWITCH);
     REQUIRE(cmd.index == 1);
     d.attach(1, 10);
+    skipPrefix(d, 1, 10, 5);
     REQUIRE(refuse(d, 1, 10, 6, false) == RefusalAction::CLOSE_REPLAY); // BAD at 6
     d.pump();
     d.tick();
@@ -775,6 +787,7 @@ void taintSourceOneByAWalk(Direct &d)
     REQUIRE(cmd.kind == SourceCommandKind::REATTACH);
     REQUIRE(d.domain->current() == 1);
     d.attach(1, 10, true); // memo-free from the chain start
+    skipPrefix(d, 1, 10, 5);
     REQUIRE(refuse(d, 1, 10, 6, true) == RefusalAction::SKIP_AND_CONTINUE); // R0: the walk goes on into recording 11
     REQUIRE(d.domain->tainted(1));
     for (std::int64_t s = 6; s <= 12; ++s)
@@ -805,6 +818,7 @@ TEST_CASE("HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict")
     {
         // the taint rule: one linear memo-free read of source 1
         d.attach(1, 10, true);
+        skipPrefix(d, 1, 10, 5);
         CHECK(refuse(d, 1, 10, 6, true) == RefusalAction::CLOSE_REPLAY); // streaming: no walk, BAD
         cmd = d.domain->takeSourceCommand();
     }
@@ -860,6 +874,7 @@ TEST_CASE("HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch")
     {
         // the taint rule, also while halted: the linear read is the re-scan's walk
         d.attach(1, 10, true);
+        skipPrefix(d, 1, 10, 5);
         CHECK(refuse(d, 1, 10, 6, true) == RefusalAction::SKIP_AND_CONTINUE);
         CHECK(d.rec(TEMPLATE_TRADE, 12, EPOCH, 1, 11) == SinkAction::CONTINUE);
         CHECK(d.rec(TEMPLATE_TRADE, 13, 9, 1, 12) == SinkAction::ABORT); // the walk's verdict: BAD
@@ -910,4 +925,214 @@ TEST_CASE("HaltMachineTest.prematureGapClearReLatches")
     CHECK(d.domain->halt().acked);
     CHECK(d.domain->view().halt == BridgeHalt::GAP);
     CHECK(d.domain->view().state == State::HALTED);
+}
+
+// ------------------------------------------------------------------ RC2 S17 W12 B1 (X-7): a foreign journal head
+
+namespace {
+
+// X-7: the v0.5.0-beta ME journal archive left in place. Every source's chain starts with a recording of another journal
+// schema (schema 3 from its first byte); `to` > 0 adds a later recording with the RC2 ME's own valid 1..to of EPOCH.
+void foreignHeadOn(Rig &rig, std::size_t source, std::int64_t to)
+{
+    SimRecording &old = rig.archive(source).record();
+    for (std::int64_t s = 1; s <= 4; ++s)
+    {
+        Bytes f = makeFrame(1 == s ? TEMPLATE_CONFIG : TEMPLATE_TRADE, s, EPOCH, 64 * s);
+        putLe16(f, 4, 3); // schema 3: refused, from the first byte of the chain
+        rig.archive(source).append(old, f);
+    }
+    rig.archive(source).stop(old);
+    if (to > 0)
+    {
+        SimRecording &own = rig.archive(source).record();
+        appendJournal(rig.archive(source), own, 1, to);
+    }
+}
+
+// every source valid 1..5, schema 3 at 6, valid 7..12 in one recording (the bad copy at e of :502)
+std::vector<SimRecording *> badCopyAtSix(Rig &rig, std::size_t n)
+{
+    std::vector<SimRecording *> olds;
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        SimRecording &r = rig.archive(i).record();
+        appendJournal(rig.archive(i), r, 1, 5);
+        Bytes bad = makeFrame(TEMPLATE_TRADE, 6, EPOCH, 64 * 6);
+        putLe16(bad, 4, 3);
+        rig.archive(i).append(r, bad);
+        appendJournal(rig.archive(i), r, 7, 12);
+        olds.push_back(&r);
+    }
+    return olds;
+}
+
+}
+
+TEST_CASE("HaltMachineTest.foreignHeadNeverWalksToASuccessor")
+{
+    // B1 (X-7, x7-v3 bridge0.log): on every source the chain head is a recording of another journal schema and a later
+    // recording holds the RC2 ME's valid 1..12. The refused head is a foreign journal, never a bad copy to walk past: the
+    // halt is SOURCE_SCHEMA {1, 1}, sticky, nothing is forwarded, the re-scans never walk (the core never binds)
+    Rig rig(2);
+    foreignHeadOn(rig, 0, 12);
+    foreignHeadOn(rig, 1, 12);
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return halted(rig); }));
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA);
+    CHECK(rig.metrics.badCount(BadReason::FOREIGN_JOURNAL_HEAD) == 2); // one verdict per source at the halt
+    CHECK(rig.metrics.badCount(BadReason::REFUSAL_SCHEMA) == 0);
+    CHECK(rig.domain->halt().foreignHead);
+    CHECK(rig.domain->halt().foreignSchema == 3);
+    bool left = false;
+    rig.runUntil([&] {
+        left = left || BridgeHalt::NONE == rig.domain->view().halt;
+        return false;
+    }, 180'000ms, 50ms);
+    const std::int64_t cursor = rig.core.cursor;
+    const BridgeHalt halt = rig.domain->view().halt;
+    const bool stuck = 0 == cursor && !left && BridgeHalt::SOURCE_SCHEMA == halt;
+    CHECK_MESSAGE(stuck, "the foreign head was walked like a bad copy: cursor " << cursor << " / halt " << std::string(bridgeHaltName(halt)));
+    CHECK(rig.domain->halt().foreignHead);
+    CHECK(rig.domain->view().haltDetail == HaltDetail::FOREIGN_JOURNAL_HEAD);
+    CHECK(rig.core.feedOffers() == 0);      // nothing forwarded
+    CHECK(rig.core.bound == 0);             // the core never binds
+    CHECK(rig.domain->view().relistsSinceHalt == 0);
+    CHECK(rig.metrics.relists(0) == 0);
+    CHECK(rig.metrics.relists(1) == 0);
+    CHECK(rig.metrics.recovered(BridgeHalt::SOURCE_SCHEMA) == 0);
+    REQUIRE(rig.core.feedHalts.size() == 1); // one FeedHalt: the re-scans end in the same verdict at the same e
+    CHECK(rig.core.feedHalts.front().reason == HaltReason::SOURCE_SCHEMA);
+    CHECK(rig.core.feedHalts.front().expected == 1);
+    CHECK(rig.core.feedHalts.front().seen == 1);
+    CHECK(rig.core.feedHalts.front().meEpochSeen == 0); // the unbound sync epoch (wire fields unchanged by B1)
+}
+
+TEST_CASE("HaltMachineTest.foreignHeadHaltLeavesWhenASourceHeadBecomesReadable")
+{
+    // B1 is sticky, not permanent: the operator wipes source 0's foreign journal (a clean listing of the RC2 ME's own
+    // journal); the next re-scan reads a readable head, forwards 1..12 and leaves the halt (the designed recovery)
+    Rig rig(2);
+    foreignHeadOn(rig, 0, 0);
+    foreignHeadOn(rig, 1, 0);
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return halted(rig); }));
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA);
+    rig.runFor(61'000ms, 50ms);
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA);
+    rig.archive(0).recordings.clear(); // the wipe
+    run(rig.archive(0), 1, 12, false);
+    rig.runUntil([&] { return rig.core.cursor == 12; }, 180'000ms, 50ms);
+    const bool streams = rig.core.cursor == 12 && BridgeHalt::NONE == rig.domain->view().halt;
+    CHECK_MESSAGE(streams, "a foreign-head halt survived a wiped source with a readable head");
+    CHECK(rig.metrics.recovered(BridgeHalt::SOURCE_SCHEMA) == 1);
+    CHECK(rig.domain->view().haltDetail == HaltDetail::NONE);
+    CHECK(appliedOnceInOrder(rig.core, 12));
+}
+
+TEST_CASE("HaltMachineTest.unboundBadCopyAfterAdmittedFramesStillWalks")
+{
+    // C3b (review V8): a genesis bridge (core unbound at the start), valid 1..5 then schema 3 at 6 on every source: the
+    // refused frame is NOT the first frame of the read, so it is a bad copy at e and the re-scan walks into the valid
+    // successor recorded during the halt
+    Rig rig(2);
+    REQUIRE(rig.core.bound == 0);
+    std::vector<SimRecording *> olds = badCopyAtSix(rig, 2);
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return halted(rig); }));
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA);
+    CHECK_FALSE(rig.domain->halt().foreignHead);
+    CHECK(rig.metrics.badCount(BadReason::FOREIGN_JOURNAL_HEAD) == 0);
+    CHECK(rig.metrics.badCount(BadReason::REFUSAL_SCHEMA) == 2);
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+        rig.archive(i).stop(*olds[i]);
+        SimRecording &succ = rig.archive(i).record();
+        appendJournal(rig.archive(i), succ, 6, 12);
+    }
+    rig.runUntil([&] { return rig.core.cursor == 12; }, 180'000ms, 50ms);
+    const bool walked = rig.core.cursor == 12 && BridgeHalt::NONE == rig.domain->view().halt;
+    CHECK_MESSAGE(walked, "a bad copy after admitted frames was taken for a foreign head");
+    CHECK(rig.metrics.recovered(BridgeHalt::SOURCE_SCHEMA) == 1);
+    CHECK(BridgeMetrics::get(rig.metrics.haltSuccessorAttaches) == 1);
+    CHECK(rig.metrics.badCount(BadReason::FOREIGN_JOURNAL_HEAD) == 0);
+    CHECK(appliedOnceInOrder(rig.core, 12));
+}
+
+TEST_CASE("HaltMachineTest.badCopyAfterARestartWithTheMemoLostStillWalks")
+{
+    // C3c (review V8): the C3b halt, then the bridge restarts with its memo lost (a fresh process: memo-free reads from the
+    // chain start) while the core keeps C = 5 and its SOURCE_SCHEMA latch. The restarted read SKIPs 1..5 before the
+    // refused 6: a bad copy at e, never a foreign head; the re-scan walks into the successor
+    Rig life1(2);
+    badCopyAtSix(life1, 2);
+    life1.up();
+    REQUIRE(life1.runUntil([&] { return halted(life1); }));
+    REQUIRE(life1.core.cursor == 5);
+    REQUIRE(life1.core.latch == static_cast<std::uint8_t>(HaltReason::SOURCE_SCHEMA));
+
+    Rig rig(2);
+    rig.core = life1.core; // the core outlives the bridge
+    rig.core.egress.clear();
+    std::vector<SimRecording *> olds = badCopyAtSix(rig, 2);
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+        rig.archive(i).stop(*olds[i]);
+        SimRecording &succ = rig.archive(i).record();
+        appendJournal(rig.archive(i), succ, 6, 12);
+    }
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return halted(rig); }));
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA);
+    CHECK_FALSE(rig.domain->halt().foreignHead);
+    CHECK(rig.metrics.badCount(BadReason::FOREIGN_JOURNAL_HEAD) == 0);
+    rig.runUntil([&] { return rig.core.cursor == 12; }, 180'000ms, 50ms);
+    const bool walked = rig.core.cursor == 12 && BridgeHalt::NONE == rig.domain->view().halt;
+    CHECK_MESSAGE(walked, "a memo-free re-read past admitted frames was taken for a foreign head");
+    CHECK(rig.metrics.recovered(BridgeHalt::SOURCE_SCHEMA) == 1);
+    CHECK(rig.metrics.badCount(BadReason::FOREIGN_JOURNAL_HEAD) == 0);
+    CHECK(appliedOnceInOrder(rig.core, 12));
+}
+
+TEST_CASE("HaltMachineTest.foreignSchemaRecordAfterAStalePrefixIsNotAForeignHead")
+{
+    // RC2 S17 W12 B1, independent verifier (review V8 predicate): "no frame of this read admitted, WITH ANY EPOCH". On
+    // every source the chain is an unwiped older-epoch recording (decodable, the A04 stale prefix), then a recording of
+    // another journal schema, then the bound epoch's valid 1..12. The halted re-scan's memo-free read admits the stale
+    // prefix (walked, never own-epoch: m_ownEpochSeen stays false) before the SCHEMA refusal, so the refusal is NOT the
+    // first frame of the read: the walk goes on into the valid successor and the halt ends. A predicate on
+    // !m_ownEpochSeen would call it a foreign journal head and stick the bridge (this test fails with it substituted)
+    Rig rig(2);
+    rig.core.bound = EPOCH;
+    rig.core.cursor = 5;
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+        SimRecording &stale = rig.archive(i).record();
+        appendJournal(rig.archive(i), stale, 1, 8, 3); // epoch 3, an ME genesis ago
+        rig.archive(i).stop(stale);
+        SimRecording &foreign = rig.archive(i).record();
+        for (std::int64_t s = 1; s <= 4; ++s)
+        {
+            Bytes f = makeFrame(1 == s ? TEMPLATE_CONFIG : TEMPLATE_TRADE, s, EPOCH, 64 * s);
+            putLe16(f, 4, 3); // schema 3 from the first byte of the recording
+            rig.archive(i).append(foreign, f);
+        }
+        rig.archive(i).stop(foreign);
+        SimRecording &own = rig.archive(i).record();
+        appendJournal(rig.archive(i), own, 1, 12, EPOCH);
+    }
+    rig.up();
+    REQUIRE(rig.runUntil([&] { return halted(rig); }));
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA); // the stale prefix (NOTE-8)
+    CHECK_FALSE(rig.domain->halt().foreignHead);
+    rig.runUntil([&] { return rig.core.cursor == 12; }, 180'000ms, 50ms);
+    const bool walked = rig.core.cursor == 12 && BridgeHalt::NONE == rig.domain->view().halt;
+    CHECK_MESSAGE(walked, "a SCHEMA refusal after an admitted stale prefix was taken for a foreign head: cursor "
+                              << rig.core.cursor << " / halt " << std::string(bridgeHaltName(rig.domain->view().halt)));
+    CHECK(rig.metrics.badCount(BadReason::FOREIGN_JOURNAL_HEAD) == 0);
+    CHECK(rig.domain->view().haltDetail == HaltDetail::NONE);
+    for (std::int64_t seq : rig.core.offeredSeqs())
+    {
+        CHECK(seq > 5); // nothing at or below the core's cursor was re-offered
+    }
 }

@@ -101,6 +101,8 @@ enum class Rule : unsigned
     TAINT_HALTED_EXEMPT, // RED shape (review F1): the taint rule skips every read while a halt is active
     TAINT_NEVER_CLEARS, // RED shape (review F1, C4): the taint survives a linear read past the bad recording
     GAP_RELATCH_OFF, // RED shape (review N2-1): an acked GAP FeedHalt is never re-offered after a premature 76 {GAP, 0}
+    // RC2 S17 W12 (X-7)
+    FOREIGN_HEAD_WALKS, // RED shape (B1 off): a SCHEMA refusal of the first frame of a read is a bad copy the re-scan walks past
     // adapters/sbe BridgeCodec (13.11-13.16)
     CODEC_SWAP_TAKER_MAKER_ORDER, // RED shape: takerOrderId and makerOrderId swapped
     CODEC_ENUM_GET,         // RED shape: an E::get path (raw 2..255 throws or clamps)

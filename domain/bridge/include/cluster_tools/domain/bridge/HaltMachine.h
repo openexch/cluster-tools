@@ -35,6 +35,11 @@ struct HaltRecord
     bool fallback = false;       // the wire is the SOURCE_SCHEMA fallback after a REJECTED (9.3)
     bool needOffer = false;      // re-offer at the next opportunity (session up, fence, 5 s)
     TimePoint nextOfferAt{};
+    // RC2 S17 W12 B1: a SOURCE_SCHEMA halt on which every source refused (SCHEMA) the first frame of its read: a journal
+    // of another schema at the chain head, never a bad copy to walk past (no successor walk, no re-scan exit, sticky
+    // until a re-scan reads a source whose head is readable)
+    bool foreignHead = false;
+    int foreignSchema = -1; // the schemaId of the refused head frame (-1: not readable)
 
     bool sendsFeedHalt() const noexcept { return active && BridgeHalt::CORE_REFUSED != halt; }
 };

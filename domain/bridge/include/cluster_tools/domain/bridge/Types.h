@@ -180,6 +180,14 @@ constexpr std::uint32_t bit(Degraded d) noexcept
     return static_cast<std::uint32_t>(d);
 }
 
+// RC2 S17 W12 B1: what /health reports next to the halt reason (additive "haltDetail" key).
+enum class HaltDetail : std::uint8_t
+{
+    NONE,
+    FOREIGN_JOURNAL_HEAD // a SOURCE_SCHEMA halt whose every source refused the first frame of its read (wipe required)
+};
+const char *haltDetailName(HaltDetail detail) noexcept;
+
 // Read by S9c for /health, /ready, logs (copied; single writer, the duty thread B).
 struct BridgeView
 {
@@ -205,6 +213,8 @@ struct BridgeView
     // the re-scan walks past a holed / bad recording since the halt began (5.4, /health relistsSinceHalt)
     std::int64_t syncCursor = 0;
     std::uint64_t relistsSinceHalt = 0;
+    // RC2 S17 W12 B1 (additive): FOREIGN_JOURNAL_HEAD while the halt in force is a foreign journal head
+    HaltDetail haltDetail = HaltDetail::NONE;
 };
 
 // One source verdict (8.1), logged once per (source, e, kind); S9c drains them into the log.
@@ -235,6 +245,7 @@ enum class BadReason : std::uint8_t
     FOREIGN_EPOCH,
     MALFORMED_EXTENT,
     STALE_EPOCH_PREFIX, // review NOTE-8: a foreign-epoch frame before any own-epoch frame of the read
+    FOREIGN_JOURNAL_HEAD, // RC2 S17 W12 B1: the first frame of a read refused SCHEMA (a journal of another schema)
     COUNT
 };
 const char *badReasonLabel(BadReason reason) noexcept;

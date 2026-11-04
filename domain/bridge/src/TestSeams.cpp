@@ -91,6 +91,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::TAINT_HALTED_EXEMPT: return "TAINT_HALTED_EXEMPT";
         case Rule::TAINT_NEVER_CLEARS: return "TAINT_NEVER_CLEARS";
         case Rule::GAP_RELATCH_OFF: return "GAP_RELATCH_OFF";
+        case Rule::FOREIGN_HEAD_WALKS: return "FOREIGN_HEAD_WALKS";
         case Rule::CODEC_SWAP_TAKER_MAKER_ORDER: return "CODEC_SWAP_TAKER_MAKER_ORDER";
         case Rule::CODEC_ENUM_GET: return "CODEC_ENUM_GET";
         case Rule::CODEC_HEAD_NOT_PERMUTED: return "CODEC_HEAD_NOT_PERMUTED";

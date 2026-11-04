@@ -215,6 +215,8 @@ private:
     void stepBack(std::size_t source) noexcept;
     bool rescanReason() const noexcept;
     void resetRelist() noexcept;
+    // RC2 S17 W12 B1
+    bool foreignHeadEverywhere() const noexcept;
 
     void publish() noexcept;
     void logVerdict(std::size_t source, const Verdict &v) noexcept;
@@ -278,6 +280,11 @@ private:
     // resumed from a proof, which implies one); a foreign frame before it is a stale prefix, not a re-genesis
     bool m_ownEpochSeen = false;
     bool m_readMemoFree = true; // the read started at chain index 0 (the resume point's AttachInfo.memoFree)
+    // RC2 S17 W12 B1 (review V8): a frame of this read was admitted by the follower (decodable, any epoch, forwarded or
+    // not) since the read last started from a resume point; a successor attach keeps it. A SCHEMA refusal while it is
+    // false is the first frame of the read: a foreign journal head, never a bad copy
+    bool m_admittedAny = false;
+    int m_foreignSchema = -1; // the schemaId of the last foreign head refused (the WARN line)
     std::array<std::int64_t, archive::MAX_SOURCES> m_refusalVerifiedAt{}; // the e a memo-read refusal was verified at
     // S10' 5.1: a re-scan walk went past a bad / stale recording of the source (taintVerify); the e it was verified at;
     // the highest recording id the walk left as bad (cleared by a linear read that accepts a frame of a later recording)

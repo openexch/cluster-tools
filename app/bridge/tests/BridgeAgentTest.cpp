@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #include "AppRig.h"
@@ -1069,4 +1070,66 @@ TEST_CASE("BridgeAgentTest.noEpochControlSkipsAForeignSeqAtOrBelowTheCursor")
     CHECK(r.core.applied.size() == run.offeredBefore);         // nothing offered
     CHECK(r.core.cursor == 10);
     CHECK(BridgeMetrics::get(r.agent->metrics().skipped[TEMPLATE_TRADE - 1]) > run.skippedBefore); // the skip rule took them
+}
+
+TEST_CASE("BridgeAgentTest.foreignJournalHeadHealthDetail")
+{
+    // RC2 S17 W12 B1 (X-7, C5): the only source's chain starts with a journal of another schema (schema 3 from its first
+    // byte; the RC2 ME's own journal follows in a later recording). /health is 503 with "haltDetail":"FOREIGN_JOURNAL_HEAD"
+    // and relistsSinceHalt 0 across two re-scans; the WARN "foreign journal at the chain head" is logged once, naming both
+    // schema ids and the build check before any wipe (review V3)
+    AppRig r(1);
+    SimRecording &old = r.archive(0).record();
+    for (std::int64_t s = 1; s <= 4; ++s)
+    {
+        ct_archive_test::Bytes f = ct_archive_test::makeFrame(1 == s ? TEMPLATE_CONFIG : TEMPLATE_TRADE, s, EPOCH, 64 * s);
+        ct_archive_test::putLe16(f, 4, 3);
+        r.archive(0).append(old, f);
+    }
+    r.archive(0).stop(old);
+    r.journal(0, 1, 10);
+    r.bringUp();
+    int warns = 0;
+    bool warnNamesSchemas = false, warnBuildFirst = false, warnNoBareWipe = true;
+    auto drain = [&] {
+        common::LogRecord rec;
+        while (r.log.pop(rec))
+        {
+            if (common::LogLevel::WARN == rec.level && std::strstr(rec.text, "foreign journal at the chain head") != nullptr)
+            {
+                ++warns;
+                // review V3: both schema ids, the build check first, and the wipe only for a journal of another release
+                warnNamesSchemas = warnNamesSchemas || std::strstr(rec.text, "journal schema 3, this bridge reads schema 4") != nullptr;
+                warnBuildFirst = warnBuildFirst || (std::strstr(rec.text, "check the bridge build against the ME journal schema first") != nullptr &&
+                    std::strstr(rec.text, "wipe only a journal left from another release") != nullptr);
+                warnNoBareWipe = warnNoBareWipe && std::strstr(rec.text, "wipe required") == nullptr;
+            }
+        }
+    };
+    REQUIRE(r.runUntil([&] {
+        drain();
+        return BridgeHalt::SOURCE_SCHEMA == r.agent->domain().view().halt;
+    }, 120 * SECOND));
+    std::uint64_t relists = 0;
+    r.runUntil([&] {
+        drain();
+        relists = std::max<std::uint64_t>(relists, r.agent->domain().view().relistsSinceHalt);
+        return false;
+    }, 130 * SECOND);
+    drain();
+    app::BridgeSnapshot s;
+    r.agent->fillSnapshot(s);
+    const app::HttpExtras x;
+    const std::string body = app::renderHealthJson(s, x);
+    CAPTURE(body);
+    CHECK(app::healthStatus(s, x) == 503);
+    CHECK(body.find("\"haltReason\":\"SOURCE_SCHEMA\"") != std::string::npos);
+    CHECK(body.find("\"haltDetail\":\"FOREIGN_JOURNAL_HEAD\"") != std::string::npos);
+    CHECK(body.find("\"relistsSinceHalt\":0,") != std::string::npos);
+    CHECK(relists == 0);
+    CHECK(warns == 1);
+    CHECK(warnNamesSchemas);
+    CHECK(warnBuildFirst);
+    CHECK(warnNoBareWipe);
+    CHECK(r.core.cursor == 0); // nothing of the later recording reached the core
 }
