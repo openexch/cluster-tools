@@ -71,6 +71,10 @@ jobs:
 
       - name: Fetch and verify the pinned dependencies
         id: deps
+        env:
+          # The harness jar is published as a GitHub release asset of openexch/assets
+          # (releases/download/harness-<sha>/, the lock's feed_harness_url); its sha256 is pinned.
+          CT_ARTIFACT_BASE_URL: https://github.com/openexch/assets
         run: |
           set -euo pipefail
           # --harness: WITH_BRIDGE=ON requires the S9h feed harness jar (S9b W1)
