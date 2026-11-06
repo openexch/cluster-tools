@@ -2,8 +2,28 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdlib>
+#include <string>
 
 namespace cluster_tools { namespace domain {
+
+namespace
+{
+// Seamed test build only (ct_domain_seamed): CT_TEST_DISABLE_GENESIS_ID_POSITIVE=1 reverts the A7 rule to the old
+// "== 0 only" (the RED of domain.engine_config_negative_controls).
+#ifdef CT_TEST_SEAMS
+bool genesisIdRuleReverted() noexcept
+{
+    static const bool reverted = nullptr != std::getenv("CT_TEST_DISABLE_GENESIS_ID_POSITIVE");
+    return reverted;
+}
+#else
+constexpr bool genesisIdRuleReverted() noexcept
+{
+    return false;
+}
+#endif
+}
 
 namespace
 {
@@ -12,6 +32,10 @@ namespace
 // (EngineConfigState.invalidReason bounds them to Integer.MAX_VALUE).
 constexpr std::int64_t UINT32_MAX_VALUE = 4294967295LL;
 constexpr std::int64_t INT32_MAX_VALUE = INT32_MAX;
+// The ingress wire versions this tool can name as a ceiling: the v11 floor of template 9
+// through the v12 this build is generated from.
+constexpr std::int64_t MIN_WIRE_VERSION = 11;
+constexpr std::int64_t MAX_WIRE_VERSION = 12;
 
 std::string marketAt(std::size_t index, const MarketDef &market)
 {
@@ -42,6 +66,33 @@ std::string invalidReason(const EngineConfig &config)
         return "configVersion=" + std::to_string(config.configVersion) +
             " must be in [1, " + std::to_string(UINT32_MAX_VALUE) +
             "] (tool-side rule: 0 is indistinguishable from unset on the uint32 wire field)";
+    }
+
+    // The v12 root fields: tool-side, refused here exactly as the engine's structural rules
+    // (S2) will refuse them. No defaults anywhere: a zero here is a missing key upstream.
+    if (config.behaviorVersion < 1 || config.behaviorVersion > UINT32_MAX_VALUE)
+    {
+        return "behaviorVersion=" + std::to_string(config.behaviorVersion) +
+            " must be in [1, " + std::to_string(UINT32_MAX_VALUE) + "]";
+    }
+    if (config.commandLedgerCapacity < 1 || config.commandLedgerCapacity > UINT32_MAX_VALUE)
+    {
+        return "commandLedgerCapacity=" + std::to_string(config.commandLedgerCapacity) +
+            " must be in [1, " + std::to_string(UINT32_MAX_VALUE) + "]";
+    }
+    // A7 (2026-11-01): genesisId in [1, 2^63-1] everywhere (meEpoch := genesisId; the core and the bridge treat an
+    // epoch < 1 as unset or invalid). 0 is also indistinguishable from unset on the int64 wire field.
+    if (genesisIdRuleReverted() ? 0 == config.genesisId : config.genesisId < 1)
+    {
+        return "genesisId=" + std::to_string(config.genesisId) +
+            " must be in [1, 2^63-1] (an operator-generated random nonce; 0 is indistinguishable from unset on the "
+            "int64 wire field)";
+    }
+    if (config.maxWireVersion < MIN_WIRE_VERSION || config.maxWireVersion > MAX_WIRE_VERSION)
+    {
+        return "maxWireVersion=" + std::to_string(config.maxWireVersion) +
+            " must be in [" + std::to_string(MIN_WIRE_VERSION) + ", " +
+            std::to_string(MAX_WIRE_VERSION) + "]";
     }
 
     // From here on: the engine's own rules, in the engine's order.

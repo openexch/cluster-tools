@@ -1,0 +1,13 @@
+# The RED column of RC2 S13 W1 (contract 4.2, 11.3, light method): every (test, rule) pair must FAIL with the rule
+# switched off (CT_TEST_DISABLE_<rule>=1, a seam compiled into domain/forwarder MarketData.cpp in the seamed flavour)
+# for the stated reason, and PASS with it on (archive/tests/run-negative-controls.sh). Line: test | rule | why | text.
+ForwarderCodecTest.headerBlockLengthBelowTheTemplateIsMalformed|STITCH_HEADER_BLOCK|a header blockLength below 36 / 44 / 12 accepted|CHECK( snapshotOf(snap) == Malformed::HEADER_BLOCK )
+ForwarderCodecTest.groupBlockLengthBelowTheEntryIsMalformed|STITCH_GROUP_BLOCK_LENGTH|a group blockLength below 20 / 22 / 89 accepted (CL-F-9)|CHECK( snapshotOf(snap) == Malformed::GROUP_BLOCK )
+ForwarderCodecTest.groupCountAboveTheCapIsMalformed|STITCH_COUNT_CAP|a group count above 20 / 80 accepted|CHECK( snapshotOf(snap, &f) == Malformed::COUNT )
+ForwarderCodecTest.aFrameShorterThanItsGroupsIsMalformed|STITCH_FRAME_LENGTH|a frame shorter than header + block + groups accepted|CHECK( snapshotOf(snap) == Malformed::LENGTH )
+ForwarderCodecTest.snapshotVersionRulesIncludingRuleU|STITCH_UNVERSIONED_EMPTY|version 0 with two empty groups treated as malformed (rule U gone)|CHECK( unversionedEmptyIsWellFormed )
+ForwarderCodecTest.deltaVersionMustRiseAboveFrom|STITCH_DELTA_VERSION|bookVersion <= fromVersion accepted (RC-N3)|CHECK( deltaOf(equal) == Malformed::VERSION )
+ForwarderCodecTest.rawEnumsAboveTheirRangeAreMalformed|STITCH_RAW_ENUM_CHECK|a raw side 2 / updateType 3 accepted|CHECK( deltaOf(side) == Malformed::ENUM )
+ForwarderCodecTest.rawEnumGoldenIsRefusedWithoutAGeneratedGetter|STITCH_RAW_ENUM_CHECK|the raw-enum golden accepted|CHECK( m == Malformed::ENUM )
+ForwarderCodecTest.nonPositivePricesQuantitiesAndCountsAreMalformed|STITCH_VALUE_CHECK|price / qty / count <= 0 accepted|CHECK( snapshotOf(bidQty) == Malformed::VALUE )
+ForwarderCodecTest.aTradeEntryWithoutIdOrPriceDropsTheWholeBatch|STITCH_TRADE_VALIDATE|a 26 entry with tradeId 0 or price 0 accepted|CHECK( tradeOf(id0, &f) == Malformed::VALUE )

@@ -1,0 +1,454 @@
+# HELP bridge_info ct-bridge build and identity (version, BRIDGE_INSTANCE_ID, the sync's meEpoch)
+# TYPE bridge_info gauge
+bridge_info{identity="7",version="s9c-test",me_epoch="169552957"} 1
+# HELP bridge_driver_mode The media driver mode in force (external: the host aeronmd; embedded: dev/demo)
+# TYPE bridge_driver_mode gauge
+bridge_driver_mode{mode="external"} 1
+# HELP bridge_ae_connected 1 while the core session is CONNECTED (the Java meaning)
+# TYPE bridge_ae_connected gauge
+bridge_ae_connected 1
+# HELP bridge_registered 1 while registered in this session and term (C3)
+# TYPE bridge_registered gauge
+bridge_registered 1
+# HELP bridge_ready 1 when /ready answers 200
+# TYPE bridge_ready gauge
+bridge_ready 1
+# HELP bridge_not_ready_bits The /ready conjunction bitmask (contract 4.3)
+# TYPE bridge_not_ready_bits gauge
+bridge_not_ready_bits 0
+# HELP bridge_state Domain state (0 DOWN, 1 SYNCING, 2 STREAMING, 3 HALTING, 4 HALTED)
+# TYPE bridge_state gauge
+bridge_state 2
+# HELP bridge_core_link Core link (0 C0_DOWN .. 4 C4_AWAITING)
+# TYPE bridge_core_link gauge
+bridge_core_link 3
+# HELP bridge_client_sessions_opened_total Core sessions opened
+# TYPE bridge_client_sessions_opened_total counter
+bridge_client_sessions_opened_total 1
+# HELP bridge_client_new_leader_events_total NewLeaderEvents seen on the core session
+# TYPE bridge_client_new_leader_events_total counter
+bridge_client_new_leader_events_total 2
+# HELP bridge_client_keepalives_total Keepalives sent
+# TYPE bridge_client_keepalives_total counter
+bridge_client_keepalives_total 300
+# HELP bridge_client_keepalive_failures_total Keepalive offers that failed
+# TYPE bridge_client_keepalive_failures_total counter
+bridge_client_keepalive_failures_total 0
+# HELP bridge_client_offers_in_ended_terms_total Offers made in a term that ended (exported, never consulted)
+# TYPE bridge_client_offers_in_ended_terms_total counter
+bridge_client_offers_in_ended_terms_total 5
+# HELP bridge_client_egress_image_losses_total Egress image losses
+# TYPE bridge_client_egress_image_losses_total counter
+bridge_client_egress_image_losses_total 0
+# HELP bridge_session_losses_total Core session losses by close reason (F12)
+# TYPE bridge_session_losses_total counter
+bridge_session_losses_total{reason="client_close"} 0
+bridge_session_losses_total{reason="closed_by_cluster"} 1
+bridge_session_losses_total{reason="new_leader_timeout"} 0
+bridge_session_losses_total{reason="new_leader_connection_timeout"} 0
+bridge_session_losses_total{reason="max_position_exceeded"} 0
+bridge_session_losses_total{reason="transport_error"} 0
+# HELP bridge_connect_cluster_error_total Connect cycles refused with a transient CLUSTER_ERROR
+# TYPE bridge_connect_cluster_error_total counter
+bridge_connect_cluster_error_total 0
+# HELP bridge_connect_cycles_total Connect cycles started
+# TYPE bridge_connect_cycles_total counter
+bridge_connect_cycles_total 2
+# HELP bridge_registration_total RegisterSession results
+# TYPE bridge_registration_total counter
+bridge_registration_total{result="accepted"} 1
+bridge_registration_total{result="duplicate"} 2
+bridge_registration_total{result="rejected"} 0
+bridge_registration_total{result="inferred_rejected"} 0
+bridge_registration_total{result="resend"} 1
+# HELP bridge_core_stale_term_total Core frames of an ended term dropped (rule S)
+# TYPE bridge_core_stale_term_total counter
+bridge_core_stale_term_total 3
+# HELP bridge_core_future_term_total Core frames of a later term dropped before its NewLeaderEvent
+# TYPE bridge_core_future_term_total counter
+bridge_core_future_term_total 0
+# HELP bridge_egress_ignored_total Core egress frames the bridge does not consume, by template
+# TYPE bridge_egress_ignored_total counter
+bridge_egress_ignored_total{template="102"} 9
+bridge_egress_ignored_total{template="other"} 1
+# HELP bridge_order_reject_total OrderRejects naming a bridge template, counted (not acted on), by reason
+# TYPE bridge_order_reject_total counter
+bridge_order_reject_total{reason="18"} 4
+# HELP bridge_offer_retry_total Core offers mapped to RETRY, by client status
+# TYPE bridge_offer_retry_total counter
+bridge_offer_retry_total{status="back_pressured"} 6
+bridge_offer_retry_total{status="not_connected"} 0
+bridge_offer_retry_total{status="not_ready"} 0
+# HELP bridge_source_faults_total Archive source faults seen by the observer tap, by kind
+# TYPE bridge_source_faults_total counter
+bridge_source_faults_total{kind="FATAL"} 0
+bridge_source_faults_total{kind="CONNECT_FAILED"} 0
+bridge_source_faults_total{kind="LIST_FAILED"} 0
+bridge_source_faults_total{kind="MALFORMED_EXTENT"} 0
+bridge_source_faults_total{kind="REPLAY_STORAGE"} 0
+bridge_source_faults_total{kind="REPLAY_ENDPOINT_UNRESOLVED"} 0
+bridge_source_faults_total{kind="REPLAY_OPEN"} 0
+bridge_source_faults_total{kind="POSITION_REJECTED"} 0
+bridge_source_faults_total{kind="SCHEMA_REFUSED"} 0
+bridge_source_faults_total{kind="SEQ_REGRESSION_IN_RECORDING"} 0
+bridge_source_faults_total{kind="RESUME_BELT"} 0
+bridge_source_faults_total{kind="EARLY_EOF"} 0
+bridge_source_faults_total{kind="IMAGE_LOST"} 2
+bridge_source_faults_total{kind="NEVER_CONNECTED"} 0
+bridge_source_faults_total{kind="ARCHIVE_GONE"} 0
+bridge_source_faults_total{kind="STALL"} 0
+bridge_source_faults_total{kind="STALL_AFTER_STOP"} 0
+bridge_source_faults_total{kind="STALL_BOUNDED_STUCK"} 0
+bridge_source_faults_total{kind="ARCHIVE_ERROR"} 0
+# HELP bridge_conductor_heartbeat_age_ms Age of this client's heartbeat counter as main read it (-1: not found yet)
+# TYPE bridge_conductor_heartbeat_age_ms gauge
+bridge_conductor_heartbeat_age_ms 250
+# HELP bridge_report_age_ms Age of the last accepted FeedPositionReport (-1: none this session)
+# TYPE bridge_report_age_ms gauge
+bridge_report_age_ms 1200
+# HELP bridge_consumed_position_age_ms Time since the consumed replay position last moved (-1: never)
+# TYPE bridge_consumed_position_age_ms gauge
+bridge_consumed_position_age_ms 3
+# HELP bridge_last_forward_age_ms Time since the last forward (-1: none)
+# TYPE bridge_last_forward_age_ms gauge
+bridge_last_forward_age_ms 4
+# HELP bridge_forward_latency_ms Journal trade timestamp (ME leader clock) to the offer returning OK, ms (CROSS-HOST clocks: supporting evidence only)
+# TYPE bridge_forward_latency_ms histogram
+bridge_forward_latency_ms_bucket{le="1"} 0
+bridge_forward_latency_ms_bucket{le="2"} 0
+bridge_forward_latency_ms_bucket{le="5"} 1
+bridge_forward_latency_ms_bucket{le="10"} 1
+bridge_forward_latency_ms_bucket{le="25"} 1
+bridge_forward_latency_ms_bucket{le="50"} 1
+bridge_forward_latency_ms_bucket{le="100"} 2
+bridge_forward_latency_ms_bucket{le="250"} 2
+bridge_forward_latency_ms_bucket{le="500"} 2
+bridge_forward_latency_ms_bucket{le="1000"} 2
+bridge_forward_latency_ms_bucket{le="2500"} 2
+bridge_forward_latency_ms_bucket{le="5000"} 2
+bridge_forward_latency_ms_bucket{le="10000"} 2
+bridge_forward_latency_ms_bucket{le="30000"} 2
+bridge_forward_latency_ms_bucket{le="60000"} 2
+bridge_forward_latency_ms_bucket{le="+Inf"} 2
+bridge_forward_latency_ms_sum 73
+bridge_forward_latency_ms_count 2
+# HELP bridge_ack_latency_ms Offer returning OK to the SettlementApplied egress for that trade, ms
+# TYPE bridge_ack_latency_ms histogram
+bridge_ack_latency_ms_bucket{le="1"} 1
+bridge_ack_latency_ms_bucket{le="2"} 1
+bridge_ack_latency_ms_bucket{le="5"} 1
+bridge_ack_latency_ms_bucket{le="10"} 1
+bridge_ack_latency_ms_bucket{le="25"} 1
+bridge_ack_latency_ms_bucket{le="50"} 1
+bridge_ack_latency_ms_bucket{le="100"} 1
+bridge_ack_latency_ms_bucket{le="250"} 1
+bridge_ack_latency_ms_bucket{le="500"} 1
+bridge_ack_latency_ms_bucket{le="1000"} 1
+bridge_ack_latency_ms_bucket{le="2500"} 1
+bridge_ack_latency_ms_bucket{le="5000"} 1
+bridge_ack_latency_ms_bucket{le="10000"} 1
+bridge_ack_latency_ms_bucket{le="30000"} 1
+bridge_ack_latency_ms_bucket{le="60000"} 1
+bridge_ack_latency_ms_bucket{le="+Inf"} 1
+bridge_ack_latency_ms_sum 1
+bridge_ack_latency_ms_count 1
+# HELP bridge_clock_anomalies_total Forward-latency samples rejected as garbage (negative or > 1 h)
+# TYPE bridge_clock_anomalies_total counter
+bridge_clock_anomalies_total 1
+# HELP bridge_ack_map_skips_total Ack-map entries overwritten at the 2^20 bound
+# TYPE bridge_ack_map_skips_total counter
+bridge_ack_map_skips_total 0
+# HELP bridge_errors_total Session losses plus connect cycles that failed (Java name)
+# TYPE bridge_errors_total counter
+bridge_errors_total 1
+# HELP bridge_registration_lost_total OrderReject UNREGISTERED_SESSION naming a bridge template (6.2)
+# TYPE bridge_registration_lost_total counter
+bridge_registration_lost_total 0
+# HELP bridge_registration_duplicate_identity_retries_total RegisterSession re-sent after a REJECTED DUPLICATE_IDENTITY (the old session of this identity not yet timed out)
+# TYPE bridge_registration_duplicate_identity_retries_total counter
+bridge_registration_duplicate_identity_retries_total 0
+# HELP bridge_aeron_errors_total Errors the Aeron client reported (fatal ones end the process)
+# TYPE bridge_aeron_errors_total counter
+bridge_aeron_errors_total 0
+# HELP bridge_log_dropped_total Log records dropped at the full ring
+# TYPE bridge_log_dropped_total counter
+bridge_log_dropped_total 0
+# HELP bridge_verdict_log_dropped_total Verdict events not drained in time
+# TYPE bridge_verdict_log_dropped_total counter
+bridge_verdict_log_dropped_total 0
+# HELP bridge_http_timeouts_total HTTP requests abandoned at the 2 s whole-request deadline
+# TYPE bridge_http_timeouts_total counter
+bridge_http_timeouts_total 1
+# HELP bridge_status_publish_skipped_total Status publishes skipped (a reader held the board)
+# TYPE bridge_status_publish_skipped_total counter
+bridge_status_publish_skipped_total 0
+# HELP bridge_duty_max_cycle_us Longest duty iteration in the last 10 s window, us
+# TYPE bridge_duty_max_cycle_us gauge
+bridge_duty_max_cycle_us 0
+# HELP bridge_sighup_ignored_total SIGHUPs counted (no operator resync exists)
+# TYPE bridge_sighup_ignored_total counter
+bridge_sighup_ignored_total 2
+# HELP bridge_driver_dir_reclaimed_total Embedded mode: a stale per-instance driver dir reused and cleaned at start
+# TYPE bridge_driver_dir_reclaimed_total counter
+bridge_driver_dir_reclaimed_total 0
+# HELP bridge_storage_starved_seconds_total Seconds the core ingress publication or every replay image was refused for storage space (exit 70 after 30 s, S10' Q1)
+# TYPE bridge_storage_starved_seconds_total counter
+bridge_storage_starved_seconds_total 0
+# HELP bridge_halted 1 while a halt is recorded (also a kept halt while DOWN)
+# TYPE bridge_halted gauge
+bridge_halted 0
+# HELP bridge_halt_reason BridgeHalt code (0 NONE, 1 GAP, 2 EPOCH_MISMATCH, 3 SOURCE_SCHEMA, 4 CORE_REFUSED)
+# TYPE bridge_halt_reason gauge
+bridge_halt_reason 0
+# HELP bridge_core_halt_reason The core's haltReason in the last report
+# TYPE bridge_core_halt_reason gauge
+bridge_core_halt_reason 0
+# HELP bridge_core_cursor The core's lastAppliedJournalSeq in the last report
+# TYPE bridge_core_cursor gauge
+bridge_core_cursor 900
+# HELP bridge_last_offered_seq The last journal seq offered OK
+# TYPE bridge_last_offered_seq gauge
+bridge_last_offered_seq 0
+# HELP bridge_me_epoch The sync's meEpoch
+# TYPE bridge_me_epoch gauge
+bridge_me_epoch 0
+# HELP bridge_inflight_ring_depth Offered entries not yet proven by a report
+# TYPE bridge_inflight_ring_depth gauge
+bridge_inflight_ring_depth 0
+# HELP bridge_staged_trades Trades staged for a 62
+# TYPE bridge_staged_trades gauge
+bridge_staged_trades 0
+# HELP bridge_degraded Degraded bitmask
+# TYPE bridge_degraded gauge
+bridge_degraded 0
+# HELP bridge_source_verdicts Per-source verdict code
+# TYPE bridge_source_verdicts gauge
+bridge_source_verdicts{source="0"} 0
+bridge_source_verdicts{source="1"} 0
+# HELP bridge_halt_relists_total Re-scan walks past a holed or bad recording into later ones (5.1 R1)
+# TYPE bridge_halt_relists_total counter
+bridge_halt_relists_total{source="0"} 0
+bridge_halt_relists_total{source="1"} 0
+# HELP bridge_forwarded_total Frames forwarded by kind
+# TYPE bridge_forwarded_total counter
+bridge_forwarded_total{kind="61"} 0
+bridge_forwarded_total{kind="62"} 2
+bridge_forwarded_total{kind="63"} 0
+bridge_forwarded_total{kind="64"} 0
+bridge_forwarded_total{kind="67"} 0
+bridge_forwarded_total{kind="68"} 0
+# HELP bridge_forwarded_records_total Records forwarded by frame kind
+# TYPE bridge_forwarded_records_total counter
+bridge_forwarded_records_total{kind="61"} 0
+bridge_forwarded_records_total{kind="62"} 128
+bridge_forwarded_records_total{kind="63"} 0
+bridge_forwarded_records_total{kind="64"} 0
+bridge_forwarded_records_total{kind="67"} 0
+bridge_forwarded_records_total{kind="68"} 0
+# HELP bridge_skipped_total Records skipped (seq <= last) by record template
+# TYPE bridge_skipped_total counter
+bridge_skipped_total{kind="1"} 0
+bridge_skipped_total{kind="2"} 0
+bridge_skipped_total{kind="3"} 0
+bridge_skipped_total{kind="4"} 0
+bridge_skipped_total{kind="5"} 0
+# HELP bridge_feed_halts_sent_total FeedHalts offered by wire reason
+# TYPE bridge_feed_halts_sent_total counter
+bridge_feed_halts_sent_total{reason="0"} 0
+bridge_feed_halts_sent_total{reason="1"} 0
+bridge_feed_halts_sent_total{reason="2"} 0
+bridge_feed_halts_sent_total{reason="3"} 0
+bridge_feed_halts_sent_total{reason="4"} 0
+bridge_feed_halts_sent_total{reason="5"} 0
+# HELP bridge_fences_total Fences by trigger
+# TYPE bridge_fences_total counter
+bridge_fences_total{trigger="new_leader"} 1
+bridge_fences_total{trigger="session_reestablished"} 0
+bridge_fences_total{trigger="settle_rejected_gap"} 0
+bridge_fences_total{trigger="settle_rejected_unbound"} 0
+bridge_fences_total{trigger="settle_rejected_epoch"} 0
+bridge_fences_total{trigger="report_loss"} 0
+bridge_fences_total{trigger="report_epoch_changed"} 0
+bridge_fences_total{trigger="report_cursor_regressed"} 0
+bridge_fences_total{trigger="lane_ahead"} 0
+# HELP bridge_source_bad_total BAD verdicts by reason
+# TYPE bridge_source_bad_total counter
+bridge_source_bad_total{reason="fragmented"} 0
+bridge_source_bad_total{reason="length"} 0
+bridge_source_bad_total{reason="schema"} 0
+bridge_source_bad_total{reason="template"} 0
+bridge_source_bad_total{reason="block"} 0
+bridge_source_bad_total{reason="frame_length"} 0
+bridge_source_bad_total{reason="head"} 0
+bridge_source_bad_total{reason="head_not_config"} 0
+bridge_source_bad_total{reason="seq_regression"} 0
+bridge_source_bad_total{reason="foreign_epoch"} 0
+bridge_source_bad_total{reason="malformed_extent"} 0
+bridge_source_bad_total{reason="stale_epoch_prefix"} 0
+bridge_source_bad_total{reason="foreign_journal_head"} 0
+# HELP bridge_settle_rejected_total SettleRejected by reason code
+# TYPE bridge_settle_rejected_total counter
+bridge_settle_rejected_total{reason="0"} 0
+bridge_settle_rejected_total{reason="1"} 0
+bridge_settle_rejected_total{reason="2"} 0
+bridge_settle_rejected_total{reason="3"} 0
+bridge_settle_rejected_total{reason="4"} 0
+bridge_settle_rejected_total{reason="5"} 0
+bridge_settle_rejected_total{reason="6"} 0
+bridge_settle_rejected_total{reason="7"} 0
+bridge_settle_rejected_total{reason="8"} 0
+bridge_settle_rejected_total{reason="other"} 0
+# HELP bridge_frames_deferred_total Frames deferred (ABORT) by why
+# TYPE bridge_frames_deferred_total counter
+bridge_frames_deferred_total{why="state"} 0
+bridge_frames_deferred_total{why="command"} 0
+bridge_frames_deferred_total{why="source"} 0
+bridge_frames_deferred_total{why="ring_full"} 0
+bridge_frames_deferred_total{why="keytable_full"} 0
+bridge_frames_deferred_total{why="closed"} 0
+# HELP bridge_halt_recovered_total Halts left by recovery, by halt
+# TYPE bridge_halt_recovered_total counter
+bridge_halt_recovered_total{reason="GAP"} 1
+bridge_halt_recovered_total{reason="EPOCH_MISMATCH"} 0
+bridge_halt_recovered_total{reason="SOURCE_SCHEMA"} 0
+bridge_halt_recovered_total{reason="CORE_REFUSED"} 0
+# HELP bridge_source_failovers_total Failovers to another source
+# TYPE bridge_source_failovers_total counter
+bridge_source_failovers_total 0
+# HELP bridge_halt_successor_attaches_total A halted re-scan forwarded e from a later recording (5.1 R1)
+# TYPE bridge_halt_successor_attaches_total counter
+bridge_halt_successor_attaches_total 0
+# HELP bridge_halt_stepbacks_total Memo-free re-reads after a FILL successor (5.1 R2)
+# TYPE bridge_halt_stepbacks_total counter
+bridge_halt_stepbacks_total 0
+# HELP bridge_staged_dropped_total Staged trades dropped by a fence
+# TYPE bridge_staged_dropped_total counter
+bridge_staged_dropped_total 0
+# HELP bridge_hole_verifications_total Holes re-read memo-free
+# TYPE bridge_hole_verifications_total counter
+bridge_hole_verifications_total 0
+# HELP bridge_refusal_verifications_total Memo-read refusals re-read memo-free
+# TYPE bridge_refusal_verifications_total counter
+bridge_refusal_verifications_total 0
+# HELP bridge_storm_rotations_total Storm-guard rotations
+# TYPE bridge_storm_rotations_total counter
+bridge_storm_rotations_total 0
+# HELP bridge_core_refused_total CORE_REFUSED parks
+# TYPE bridge_core_refused_total counter
+bridge_core_refused_total 0
+# HELP bridge_report_queries_total QueryFeedPosition offered
+# TYPE bridge_report_queries_total counter
+bridge_report_queries_total 0
+# HELP bridge_report_invalid_total Invalid or malformed reports
+# TYPE bridge_report_invalid_total counter
+bridge_report_invalid_total 0
+# HELP bridge_report_timeouts_total Queries unanswered within the timeout
+# TYPE bridge_report_timeouts_total counter
+bridge_report_timeouts_total 0
+# HELP bridge_report_stale_total Reports answering another correlation id
+# TYPE bridge_report_stale_total counter
+bridge_report_stale_total 0
+# HELP bridge_backpressure_aborts_total Back-pressured offers aborted
+# TYPE bridge_backpressure_aborts_total counter
+bridge_backpressure_aborts_total 0
+# HELP bridge_ring_full_pauses_total Reads paused at the full ring
+# TYPE bridge_ring_full_pauses_total counter
+bridge_ring_full_pauses_total 0
+# HELP bridge_recording_start_stepback_total Recordings starting below an earlier recording's first seq
+# TYPE bridge_recording_start_stepback_total counter
+bridge_recording_start_stepback_total 0
+# HELP bridge_epochs_total Syncs started (Java name)
+# TYPE bridge_epochs_total counter
+bridge_epochs_total 0
+# HELP bridge_feed_halt_rejected_total FeedHalts the core REJECTED (a bridge bug)
+# TYPE bridge_feed_halt_rejected_total counter
+bridge_feed_halt_rejected_total 0
+# HELP bridge_recordings_ended_total Recordings that ended under the follower
+# TYPE bridge_recordings_ended_total counter
+bridge_recordings_ended_total 0
+# HELP bridge_source_parks_total Switches by the 8.3 park rows
+# TYPE bridge_source_parks_total counter
+bridge_source_parks_total 0
+# HELP bridge_source_attached 1 while the source is attached
+# TYPE bridge_source_attached gauge
+bridge_source_attached{source="0"} 0
+bridge_source_attached{source="1"} 1
+# HELP bridge_chain_recordings Recordings in the source's chain
+# TYPE bridge_chain_recordings gauge
+bridge_chain_recordings{source="0"} 0
+bridge_chain_recordings{source="1"} 0
+# HELP bridge_source_refused 1 while the source is refused (mtu)
+# TYPE bridge_source_refused gauge
+bridge_source_refused{source="0",reason="mtu"} 1
+bridge_source_refused{source="1",reason="mtu"} 0
+# HELP bridge_source_stalls_total Source stalls and losses by reason
+# TYPE bridge_source_stalls_total counter
+bridge_source_stalls_total{reason="never_connected"} 0
+bridge_source_stalls_total{reason="image_lost"} 1
+bridge_source_stalls_total{reason="archive_gone"} 0
+bridge_source_stalls_total{reason="stall"} 0
+bridge_source_stalls_total{reason="stall_after_stop"} 0
+bridge_source_stalls_total{reason="bounded_stuck"} 0
+bridge_source_stalls_total{reason="early_eof"} 0
+bridge_source_stalls_total{reason="archive_error"} 0
+# HELP bridge_replay_open_failures_total Replay open failures by reason
+# TYPE bridge_replay_open_failures_total counter
+bridge_replay_open_failures_total{reason="storage"} 1
+bridge_replay_open_failures_total{reason="endpoint"} 0
+bridge_replay_open_failures_total{reason="max_replays"} 0
+bridge_replay_open_failures_total{reason="storage_space"} 0
+bridge_replay_open_failures_total{reason="invalid_position"} 0
+bridge_replay_open_failures_total{reason="archive_error"} 0
+bridge_replay_open_failures_total{reason="timeout"} 0
+# HELP bridge_frames_refused_total Frames refused by the 4.4 gate
+# TYPE bridge_frames_refused_total counter
+bridge_frames_refused_total{reason="fragmented"} 0
+bridge_frames_refused_total{reason="length"} 0
+bridge_frames_refused_total{reason="schema"} 0
+bridge_frames_refused_total{reason="template"} 0
+bridge_frames_refused_total{reason="block"} 0
+bridge_frames_refused_total{reason="frame_length"} 0
+bridge_frames_refused_total{reason="head"} 0
+# HELP bridge_memo_invalidations_total Resume memo invalidations by reason
+# TYPE bridge_memo_invalidations_total counter
+bridge_memo_invalidations_total{reason="epoch_changed"} 0
+bridge_memo_invalidations_total{reason="cursor_regressed"} 0
+bridge_memo_invalidations_total{reason="history_changed"} 0
+bridge_memo_invalidations_total{reason="position_rejected"} 0
+bridge_memo_invalidations_total{reason="seq_regression"} 0
+bridge_memo_invalidations_total{reason="resume_belt"} 0
+bridge_memo_invalidations_total{reason="hole_verify"} 0
+# HELP bridge_memo_resumes_total Attaches by resume kind
+# TYPE bridge_memo_resumes_total counter
+bridge_memo_resumes_total{kind="cold"} 1
+bridge_memo_resumes_total{kind="proof"} 0
+# HELP bridge_memo_trims_total Memo proof trims
+# TYPE bridge_memo_trims_total counter
+bridge_memo_trims_total 0
+# HELP bridge_empty_recordings_skipped_total Stopped empty recordings skipped
+# TYPE bridge_empty_recordings_skipped_total counter
+bridge_empty_recordings_skipped_total 0
+# HELP bridge_recording_successions_total Successor recordings followed
+# TYPE bridge_recording_successions_total counter
+bridge_recording_successions_total 0
+# HELP bridge_foreign_stream_descriptors_dropped_total Recording descriptors of another stream dropped
+# TYPE bridge_foreign_stream_descriptors_dropped_total counter
+bridge_foreign_stream_descriptors_dropped_total 0
+# HELP bridge_source_backlog_bytes Recorded bytes not yet delivered
+# TYPE bridge_source_backlog_bytes gauge
+bridge_source_backlog_bytes 0
+# HELP bridge_replay_recording_position Recorded position of the followed recording
+# TYPE bridge_replay_recording_position gauge
+bridge_replay_recording_position 0
+# HELP bridge_replay_consumed_position Consumed replay position
+# TYPE bridge_replay_consumed_position gauge
+bridge_replay_consumed_position 0
+# HELP bridge_archive_call_max_ms Longest archive control call since the previous scrape
+# TYPE bridge_archive_call_max_ms gauge
+bridge_archive_call_max_ms 0
+# HELP bridge_invoker_max_gap_ms Longest gap between invoker calls since the previous scrape
+# TYPE bridge_invoker_max_gap_ms gauge
+bridge_invoker_max_gap_ms 12
+# HELP bridge_duty_iteration_max_us Longest duty iteration since the previous scrape
+# TYPE bridge_duty_iteration_max_us gauge
+bridge_duty_iteration_max_us 0

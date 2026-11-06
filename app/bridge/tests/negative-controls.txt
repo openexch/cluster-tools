@@ -1,0 +1,37 @@
+# The RED column of RC2 S9c contract 12.2 (light method: re-proved on every run). Each line: test case | rule | why |
+# expected text; run by archive/tests/run-negative-controls.sh against ct_bridge_app_tests (linked with the seamed
+# app, codec and domain): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass without it.
+BridgeAgentTest.registerThenQueryThenStream|REGISTRATION_GATE_OFF|onSessionUp at CONNECTED and the domain gate off: feed offer before the ack|CHECK( feedAfterAck )
+BridgeAgentTest.noFeedOfferBeforeNewTermReport|FENCE_WAITS_REPORT_OFF|a leader change re-ups the session instead of fencing: feed offers before the new term's report|CHECK( waitsForTheNewTermReport )
+BridgeAgentTest.noOfferBetweenPublicationSwapAndFence|FENCE_DEFERRED|the fence after poll returned: the same-poll report reaches the domain first (report before fence)|CHECK( fenceBeforeSamePollReport )
+BridgeAgentTest.twoLeaderChangesAndTwoSessionLossesInOneRun|C4_RESTORES_PREVIOUS|C4 -> CONNECTED restores C3: onSessionUp before the new term's ack|CHECK_FALSE( upBeforeAck )
+BridgeAgentTest.lostRegistrationReRegistersAndFences|UP_FLAG_NEVER_RESET|upReportedFor never reset: the re-registration in the same term is never re-upped|CHECK( streamsAgain )
+BridgeAgentTest.lostRegistrationReRegistersAndFences|UNREGISTERED_IGNORED|UNREGISTERED_SESSION only counted: the lost registration is never noticed, the core keeps refusing|CHECK( r.agent->counters().registrationLost >= 1 )
+BridgeAgentTest.stateChangeInsideTheInvokerOnlyRecords|LINK_MACHINE_IN_CALLBACK|the link machine runs in onStateChange: a domain call inside the invoker|CHECK( noDomainCallInInvoker )
+BridgeAgentTest.delayedAdminAckStillRegisters|RESEND_NEW_CORRELATION|a late ack's round abandoned for a new correlation id: never registered|CHECK( registeredOnce )
+BridgeAgentTest.staleTermReportIsDroppedAndCounted|TERM_FILTER_OFF|rule S off: the old-term report reaches the domain|CHECK( domainNeverSaw )
+BridgeAgentTest.registrarRejectedExits78|EXIT_CODES_ALL_70|an observed REJECTED yields 70 (the S9a F4 reading)|CHECK( observedRefusalIs78 )
+BridgeAgentTest.malformedEgressIsCountedNotRelabelled|MALFORMED_IS_CONFIG_ERROR|a malformed 17 stops the process 78 (an input problem relabelled)|CHECK( stillRunning )
+BridgeAgentTest.sessionLossReconnectsWithBackoff|RECONNECT_WITHOUT_SESSION_DOWN|a session loss reconnects without onSessionDown: the domain keeps its query|CHECK( sessionDownOnce )
+BridgeAgentTest.offerStatusMapping|MAX_POSITION_IS_RETRY|MAX_POSITION_EXCEEDED retried in place|CHECK( maxPositionCloses )
+BridgeAgentTest.readyBitsEachFail|READY_IGNORES_REPORT_AGE|no report-age bit: a 35 s old report reads ready|CHECK( reportAgeBit )
+BridgeAgentTest.readySkipWalkIsProgress|READY_COUNTS_FORWARDS_ONLY|backlog progress = forwards only: the skip walk reads not ready|CHECK( readyDuringWalk )
+BridgeAgentTest.everyFaultKindIsCounted|TAP_SWALLOWS|the tap counts a fault but does not forward it|CHECK( forwardedInOrder )
+CodecAppTest.forwardLatencyAndAckLatency|LATENCY_RECORDS_GARBAGE|a future trade timestamp is recorded|CHECK( futureNotRecorded )
+StopPathTest.invokerBeatsDuringABlockedArchiveCall|INVOKER_NO_BEAT|the invoker does not store the heartbeat: the watchdog fires during a 6 s archive call|CHECK( survivedTheBlockedCall )
+AgentPropertyTest.agentOverLaggedCoreRecoversHalts|FENCE_OFF|no fence at a lossy election: an entry above cursor + 1 reaches the core|CHECK( noViolation )
+# Not listed: AgentPropertyTest with REGISTRATION_GATE_OFF (the contract names it): the FIFO ingress puts the RegisterSession before the query, so the stub core registers first and the property cannot see the gate; the gate RED is registerThenQueryThenStream.
+StopPathTest.sigtermDuringABlockedCallOnASlowArchiveReturns0|STOP_DETACH_WHEN_LATE|a late stop still runs stopReplay: the blocked call plus stopReplay pass the 7 s join bound (70)|CHECK( returned0 )
+BridgeAgentTest.duplicateIdentityRetriesUntilTheOldSessionTimesOut|DUPLICATE_IDENTITY_EXITS|RC2 S10': REJECTED DUPLICATE_IDENTITY exits 78 at once: a restart after kill -9 dies|CHECK( registeredAfterDuplicate )
+# RC2 S10' Q1 (coordinator decision 2026-11-01): 30 s of storage starvation end ct-bridge 70
+BridgeAgentTest.coreIngressStarvedOfStorageExits70|STORAGE_STARVED_EXIT_OFF|the core ingress publication starved of storage space never ends the process (alive and not ready forever)|alive after 30 s of storage starvation
+BridgeAgentTest.replayStarvedOfStorageExits70|STORAGE_STARVED_EXIT_OFF|every replay image refused for storage never ends the process (the 240 MB T1 shape: alive, 61 REPLAY_STORAGE faults)|alive after 30 s of storage starvation
+BridgeAgentTest.readyConfirmFenceAdvancesTheSyncCursor|READY_IGNORES_SYNC_CURSOR|RC2 S10' 3.6: a confirm / lane_ahead fence's sync cursor move is not progress: a lane that confirmed past a hole reads 503 backlog_without_progress_30s|CHECK( readyAfterTheFence )
+BridgeAgentTest.duplicateIdentitySurvivesALongCoreOutage|DUPLICATE_BUDGET_WALL_CLOCK|S10' review F1: the 44 budget counts the outage: exit 78 at the first CONNECTED step after it, no RegisterSession sent|CHECK( registeredAfterOutage )
+BridgeAgentTest.duplicateIdentityAfterAnOutageStillExits78|DUPLICATE_BUDGET_WALL_CLOCK|S10' review F1: the outage counts against the bound: exit 78 at the reconnect, not inside the connected bound|CHECK( insideTheConnectedBound )
+BridgeAgentTest.inferredRefusalDuringDuplicateIdentityExits75|INFERRED_READS_LAST_ACK|S10' review F2: the cumulative acksRejected reads an inferred refusal as the earlier 44: retried (alive, later 78)|CHECK( inferredExits75 )
+BridgeAgentTest.duplicateIdentityEpisodeResetsTwiceInOneRun|DUP_EPISODE_NEVER_RESET|S10' review F3: the episode is never reset: the second episode exits 78 at once|CHECK( secondEpisodeRegistered )
+# RC2 S15 W4 (PO-3, PO-3b): the legacy-translator control ct_bridge_nc_legacy is a seam in the app sink, not a bug in the product: switched off, the outcome loses its command id (same seq, so the feed stays dense)
+BridgeAgentTest.outcomeKeepsItsCommandIdAndSeq|NEGCTL_DROP_RECORD_3|the outcome (record 3) reaches the core with a never-issued command id: the core can never bind it (ct_bridge_nc_legacy)|CHECK( outcomeCommandIdIntact )
+# RC2 S16 W4 (F-S16-3, RED-A04): the epoch row of the domain (BDM row 1) is what halts a re-genesis; switched off, the fresh ME's seqs at or below the cursor are skipped and nothing halts (ct_bridge_nc_noepoch)
+BridgeAgentTest.regenesisHaltsOnAForeignEpochSeqBelowTheCursor|EPOCH_CHECK_OFF|row 1 off: the fresh ME's seqs are skipped by row 2, the bridge never halts (ct_bridge_nc_noepoch)|CHECK( BridgeHalt::NONE != halt )

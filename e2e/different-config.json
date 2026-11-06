@@ -4,6 +4,10 @@
   "bookCapacity": 65536,
   "maxMatchesPerOrder": 10000,
   "maxOrdersPerLevel": 0,
+  "behaviorVersion": 1,
+  "commandLedgerCapacity": 100000,
+  "genesisId": 4242424242424242,
+  "maxWireVersion": 12,
   "markets": [
     { "marketId": 1, "symbol": "BTC-USD",
       "minPrice": 5000000000000, "maxPrice": 15000000000000, "tickSize": 100000000 },
