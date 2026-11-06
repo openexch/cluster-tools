@@ -5,16 +5,18 @@
 # status 1, never a crash) whose output carries the line's expected text (review N-10).
 #
 # Table line: test | rule | why | expected text in the failure output
-# Usage: run-negative-controls.sh <ct_archive_tests binary> <negative-controls.txt> [<filter regex>]
+# Usage: run-negative-controls.sh <ct_archive_tests binary> <negative-controls.txt> [<filter regex> [<exclude regex>]]
+# A row matching the exclude regex is not run and is named on a SKIP line (a build without the binary it needs).
 set -uo pipefail
 
 if [ $# -lt 2 ]; then
-    echo "usage: $0 <test-binary> <table> [filter]" >&2
+    echo "usage: $0 <test-binary> <table> [filter [exclude]]" >&2
     exit 64
 fi
 BIN=$1
 TABLE=$2
 FILTER=${3:-.}
+EXCLUDE=${4:-}
 PASSED=0
 FAILED=0
 OUT=$(mktemp)
@@ -22,6 +24,10 @@ trap 'rm -f "$OUT"' EXIT
 while IFS='|' read -r test rule why expected; do
     case "$test" in ''|'#'*) continue ;; esac
     if ! [[ "$test|$rule" =~ $FILTER ]]; then continue; fi
+    if [ -n "$EXCLUDE" ] && [[ "$test|$rule" =~ $EXCLUDE ]]; then
+        echo "SKIP $test with $rule off: excluded by this build ($EXCLUDE)"
+        continue
+    fi
     env "CT_TEST_DISABLE_${rule}=1" "$BIN" --test-case="$test" --no-colors=true > "$OUT" 2>&1
     status=$?
     if [ "$status" -eq 0 ]; then

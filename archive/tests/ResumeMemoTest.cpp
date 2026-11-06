@@ -81,6 +81,7 @@ TEST_CASE("ResumeMemoTest.proofOnlyFromSeqAtOrBelowCursor") // keepsThePrefixPro
     CHECK(memo.proveFromSkip(A, key(0), peek(5), 160));
     // seq 6 is above the core's cursor (a forward, perhaps unacknowledged): it never proves.
     CHECK_FALSE(memo.proveFromSkip(A, key(0), peek(6), 192));
+    REQUIRE(memo.proof(A, key(0))); // an empty optional is an assertion failure, never a dereference (a crash is no RED)
     CHECK(memo.proof(A, key(0))->endPosition == 160);
     // The core never applied 6: the next report keeps C = 5 and the resume is at the seq-5 proof.
     memo.onReport(E, 5);
@@ -234,6 +235,7 @@ TEST_CASE("ResumeMemoTest.highWaterOnlyAdvances") // theSkippedHeadHighWaterOnly
     memo.proveFromSkip(A, key(5), peek(8), 256);
     CHECK(memo.resume(A).position == 256);
     memo.proveFromSkip(A, key(5), peek(4), 160); // a later read that got less far never rewinds the mark
+    REQUIRE(memo.proof(A, key(5)));
     CHECK(memo.proof(A, key(5))->endPosition == 256);
     CHECK(memo.proof(A, key(5))->seq == 8);
 }

@@ -119,8 +119,10 @@ jobs:
       - name: Configure
         run: |
           # shellcheck disable=SC2086 # the args are -D flags, one per word
-          # RC2 S9c: the bridge's negative controls need the seamed test builds (never published)
+          # RC2 S9c / S12: the bridge's and the forwarder's negative controls and tc drills (MainAeronTest.conductorStallExits70)
+          # need the seamed test builds (never published; publish.yml builds without them)
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON -DWITH_BRIDGE=ON -DCT_BRIDGE_TEST_BUILDS=ON \
+            -DCT_FORWARDER_TEST_BUILDS=ON \
             ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
 
       - name: Build

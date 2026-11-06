@@ -142,11 +142,23 @@ if(WITH_AERON AND WITH_BRIDGE)
             add_dependencies(ct_bridge_main_aeron_tests ct_bridge_tc_conductorstall)
         endif()
         target_compile_options(ct_bridge_main_aeron_tests PRIVATE -Wall -Wextra)
-        add_test(NAME bridge.main_aeron COMMAND ct_bridge_main_aeron_tests)
+        # MainAeronTest.conductorStallExits70 spawns ct_bridge_tc_conductorstall, a CT_BRIDGE_TEST_BUILDS binary. A build
+        # without it (publish.yml: test builds never enter the publish tree) excludes that one case and its RED row, by
+        # name (a configure STATUS line, a SKIP line of the runner); invoked without the binary, the case still FAILs.
+        if(CT_BRIDGE_TEST_BUILDS)
+            set(CT_BRIDGE_MAIN_AERON_ARGS "")
+            set(CT_BRIDGE_MAIN_AERON_NC_EXCLUDE "")
+        else()
+            message(STATUS "bridge.main_aeron: MainAeronTest.conductorStallExits70 excluded (CT_BRIDGE_TEST_BUILDS=OFF)")
+            set(CT_BRIDGE_MAIN_AERON_ARGS "--test-case-exclude=MainAeronTest.conductorStallExits70")
+            set(CT_BRIDGE_MAIN_AERON_NC_EXCLUDE "^MainAeronTest[.]conductorStallExits70[|]")
+        endif()
+        add_test(NAME bridge.main_aeron COMMAND ct_bridge_main_aeron_tests ${CT_BRIDGE_MAIN_AERON_ARGS})
         set_tests_properties(bridge.main_aeron PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         add_test(NAME bridge.main_aeron_negative_controls
             COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh"
-                "$<TARGET_FILE:ct_bridge_main_aeron_tests>" "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls-main-aeron.txt")
+                "$<TARGET_FILE:ct_bridge_main_aeron_tests>" "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls-main-aeron.txt"
+                "." "${CT_BRIDGE_MAIN_AERON_NC_EXCLUDE}")
         set_tests_properties(bridge.main_aeron_negative_controls PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
 
         if(CT_HAVE_FEED_HARNESS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/it/BridgeE3AppTest.cpp")
