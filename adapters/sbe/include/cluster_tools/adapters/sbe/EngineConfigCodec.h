@@ -8,7 +8,7 @@
 #include "cluster_tools/ports/Result.h"
 
 // EngineConfigCodec — encodes the domain EngineConfig as match order-schema bytes
-// (MessageHeader + EngineConfig, template 8, schema 1, wire v10): exactly the
+// (MessageHeader + EngineConfig, template 8, schema 1, wire v12): exactly the
 // app-payload form ClusterSession::offer expects, which the aeron adapter then frames
 // with the cluster SessionMessageHeader — the same nesting the PoC proved for
 // CreateOrder.
