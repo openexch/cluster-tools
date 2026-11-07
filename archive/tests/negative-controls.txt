@@ -24,6 +24,7 @@ ChainModelTest.foreignStreamDescriptorDropped|CHAIN_STREAM_FILTER|stream filter 
 FollowPolicyTest.imageEndOnLiveFollowProbesAtOnce|FOLLOW_ROW7A_IMAGE_END_PROBE|row 7a off: IMAGE_LOST on a clean stop|REQUIRE( h.runUntil([&] { return h.observer.ended == 1; }, 100) )
 FollowPolicyTest.neverConnected15s|FOLLOW_ROW8_NEVER_CONNECTED|row 8 off: the follower waits silently|REQUIRE( h.observer.sawFault(FaultKind::NEVER_CONNECTED) )
 FollowPolicyTest.probeThrowsWhenArchiveGone|FOLLOW_ROW9_ARCHIVE_GONE|row 9 off: a dead archive is followed silently|REQUIRE( h.observer.sawFault(FaultKind::ARCHIVE_GONE) )
+FollowPolicyTest.probeUnknownRecordingRelists|FOLLOW_ROW9A_UNKNOWN_RELIST|row 9a off: a deleted recording reports the live archive gone (disconnect, UNREACHABLE)|CHECK_FALSE( h.observer.sawFault(FaultKind::ARCHIVE_GONE) )
 FollowPolicyTest.grewWhileStuck|FOLLOW_ROW12_STALL|row 12 off: the 07-10 dead live-follow idles|CHECK( h.observer.sawFault(FaultKind::STALL) )
 FollowPolicyTest.stoppedButStuckBeforeStop|FOLLOW_ROW11_STALL_AFTER_STOP|row 11 off: idles short of the stop|CHECK( h.observer.sawFault(FaultKind::STALL_AFTER_STOP) )
 FollowPolicyTest.recordingStopsThenSuccessor|FOLLOW_ROW10_RECORDING_ENDED|row 10 off: the successor is never followed (EARLY_EOF instead)|REQUIRE( h.runUntil([&] { return h.sink.seqs.size() == 6; }, 200) )

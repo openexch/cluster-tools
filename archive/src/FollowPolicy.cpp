@@ -976,6 +976,15 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
             onFatal();
             return;
         }
+        // Row 9a: the archive answered UNKNOWN_RECORDING: the followed recording was deleted (a purge or an
+        // operator re-journal replaced it) while the archive itself is up. The listing is stale, not the archive:
+        // re-list like 4.3 step 6, no fault. Row 9 would mark a reachable source UNREACHABLE, and the bridge
+        // leaves an unreachable source out of its GAP decision while that source still holds e.
+        if (ArchiveErrorKind::UNKNOWN_RECORDING == result.error.kind && !disabled(Rule::FOLLOW_ROW9A_UNKNOWN_RELIST))
+        {
+            beginDetach(AfterDetach::RELIST, true);
+            return;
+        }
         // Row 9 (and 7a): the probe throws or times out -> the archive is gone.
         if (imageEnd || !disabled(Rule::FOLLOW_ROW9_ARCHIVE_GONE))
         {
