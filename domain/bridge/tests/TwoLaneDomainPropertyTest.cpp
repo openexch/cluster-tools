@@ -264,7 +264,9 @@ Scenario generate(std::mt19937_64 &rng)
     {
         case Shape::RANDOM:
         {
-            setup(static_cast<int>(g.pick(2, 3)), g.coin(0.15) ? 3 : 2);
+            const int nodes = static_cast<int>(g.pick(2, 3));
+            const int lanes = g.coin(0.15) ? 3 : 2;
+            setup(nodes, lanes);
             for (int l = 0; l < sc.lanes; ++l)
             {
                 auto &ln = sc.laneNodes[static_cast<std::size_t>(l)];
@@ -315,7 +317,9 @@ Scenario generate(std::mt19937_64 &rng)
                     // the ME writer goes away and its successor is recorded later, overlapping the old tail
                     const int t = static_cast<int>(g.pick(30, 600));
                     addEvent(sc, at(t, Act::STOP, k));
-                    addEvent(sc, at(t + static_cast<int>(g.pick(0, 400)), Act::SUCCEED, k, g.pick(1, n)));
+                    const int succeedAt = t + static_cast<int>(g.pick(0, 400));
+                    const std::int64_t successorFrom = g.pick(1, n);
+                    addEvent(sc, at(succeedAt, Act::SUCCEED, k, successorFrom));
                 }
             }
             for (int l = 0; l < sc.lanes; ++l)
@@ -330,7 +334,9 @@ Scenario generate(std::mt19937_64 &rng)
                 {
                     if (g.coin(0.25))
                     {
-                        addEvent(sc, at(static_cast<int>(g.pick(0, 1500)), Act::PAUSE, l, g.pick(1, 200)));
+                        const int pauseAt = static_cast<int>(g.pick(0, 1500));
+                        const std::int64_t pauseFor = g.pick(1, 200);
+                        addEvent(sc, at(pauseAt, Act::PAUSE, l, pauseFor));
                     }
                 }
             }
@@ -342,8 +348,9 @@ Scenario generate(std::mt19937_64 &rng)
             if (sc.elections)
             {
                 // one election while a lane streams with records still to feed (the lost tail is then noticed)
-                Event mid = when(Trig::LAST_AT, static_cast<int>(g.pick(0, sc.lanes - 1)), static_cast<int>(g.pick(0, 3)),
-                    Act::ELECT, 0);
+                const int electLane = static_cast<int>(g.pick(0, sc.lanes - 1));
+                const int electDelay = static_cast<int>(g.pick(0, 3));
+                Event mid = when(Trig::LAST_AT, electLane, electDelay, Act::ELECT, 0);
                 mid.seq = g.pick(2, n - 2);
                 addEvent(sc, mid);
             }
@@ -367,7 +374,9 @@ Scenario generate(std::mt19937_64 &rng)
             addEvent(sc, at(0, Act::PAUSE, 0, g.pick(40, 200)));
             if (g.coin(0.4))
             {
-                addEvent(sc, at(static_cast<int>(g.pick(100, 600)), Act::PAUSE, 0, g.pick(1, 200)));
+                const int pauseAt = static_cast<int>(g.pick(100, 600));
+                const std::int64_t pauseFor = g.pick(1, 200);
+                addEvent(sc, at(pauseAt, Act::PAUSE, 0, pauseFor));
             }
             sc.elections = g.coin(0.15);
             break;
@@ -383,7 +392,9 @@ Scenario generate(std::mt19937_64 &rng)
             const std::int64_t k = g.pick(2, std::min<std::int64_t>(12, n - 1 - h));
             holeRange(sc, 0, h, h + k);
             sc.written[1] = h - 1;
-            Event reach = when(Trig::LAST_AT, 0, static_cast<int>(g.pick(0, 12)), Act::WRITE, 1, h + g.pick(0, k - 1));
+            const int reachDelay = static_cast<int>(g.pick(0, 12));
+            const std::int64_t reachTo = h + g.pick(0, k - 1);
+            Event reach = when(Trig::LAST_AT, 0, reachDelay, Act::WRITE, 1, reachTo);
             reach.seq = h - 1;
             const int e1 = addEvent(sc, reach);
             addEvent(sc, when(Trig::AT, 0, static_cast<int>(g.pick(20, 500)), Act::WRITE, 1, n, e1));
@@ -2031,5 +2042,20 @@ TEST_CASE("TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReo
         CHECK(g_stats.coreAndLaneRuns > 0);
         CHECK(g_stats.prematureClears > 0);
         CHECK(g_stats.relatchedAfterClear > 0);
+    }
+}
+
+// Seeds that once failed, run on every build whatever CT_BRIDGE_TWOLANE_RUNS is. 709779830 (base + 649): an operator
+// re-journal deletes the recording lane 0 follows on node 2; the probe answered UNKNOWN_RECORDING and the follower
+// reported ARCHIVE_GONE, so node 2 was UNREACHABLE, left out of the GAP decision, and lane 0 halted GAP at 60 while
+// node 2 held 60 (archive row 9a; RED FOLLOW_ROW9A_UNKNOWN_RELIST). Tied to this generator's draw order.
+TEST_CASE("TwoLaneDomainPropertyTest.pinnedSeeds")
+{
+    for (const std::uint64_t seed : { 709779830ULL })
+    {
+        g_stats = Stats{};
+        const std::string result = runScenario(seed);
+        CAPTURE(seed);
+        CHECK_MESSAGE(result.empty(), result);
     }
 }

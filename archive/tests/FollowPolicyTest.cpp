@@ -128,6 +128,28 @@ TEST_CASE("FollowPolicyTest.probeThrowsWhenArchiveGone")
     CHECK(h.metrics.stalls(StallReason::ARCHIVE_GONE) == 1);
 }
 
+TEST_CASE("FollowPolicyTest.probeUnknownRecordingRelists")
+{
+    // Row 9a: the followed recording is deleted while the archive stays up (an operator re-journal replaces it with one
+    // complete recording). The probe answers UNKNOWN_RECORDING: the follower re-lists and reads the new recording; the
+    // source is not reported gone (an UNREACHABLE source is left out of the bridge's GAP decision although it holds e).
+    Harness h;
+    auto &r = h.archive.record();
+    h.archive.appendTrades(r, 1, 3, EPOCH);
+    h.attach();
+    REQUIRE(h.runUntil([&] { return h.sink.seqs.size() == 3; }, 100));
+    const int listsBefore = h.archive.listCalls;
+    h.archive.recordings.clear();
+    auto &rejournal = h.archive.record();
+    h.archive.appendTrades(rejournal, 1, 5, EPOCH);
+    h.runUntil([&] { return h.sink.seqs.back() == 5; }, 400, 50ms);
+    CHECK_FALSE(h.observer.sawFault(FaultKind::ARCHIVE_GONE));
+    CHECK(h.observer.faults.empty());
+    CHECK(h.archive.disconnects == 0);
+    CHECK(h.archive.listCalls > listsBefore);
+    CHECK(h.sink.seqs.back() == 5);
+}
+
 TEST_CASE("FollowPolicyTest.grewWhileStuck")
 {
     Harness h;

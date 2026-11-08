@@ -92,10 +92,13 @@ TEST_CASE("StopPathTest.sigtermReturns0WhileTheArchiveIsDead")
         CAPTURE(dead);
         Supervised s;
         s.rig.sources.duringStop = [&] { blockFor(std::chrono::milliseconds(5000), s.rig); }; // stopReplay blocks 5 s
+        // the hook re-arms itself with a copy of `hook` on every duty iteration until the stop: it must live as long as
+        // the run, not only as long as the if block (a copy of a destroyed std::function is undefined behaviour; on
+        // aarch64 the re-armed copy came out empty, the fault was never injected and the stop ran stopReplay)
+        std::function<void()> hook;
         if (dead)
         {
             // the archive dies: its last fault is ARCHIVE_GONE when the stop arrives (on the duty thread)
-            std::function<void()> hook;
             hook = [&] {
                 if (s.supervisor->stopRequested.load())
                 {
