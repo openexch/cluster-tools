@@ -3,11 +3,11 @@
 
 #include <cstdint>
 
-// The forwarder's value types (RC2 S12 contract sections 2 and 5). Pure: no SBE, no Aeron.
+// The forwarder's value types. Pure: no SBE, no Aeron.
 //
 // Dispatch          the 16 fields of one core MeDispatch (money-schema v7 template 104, or one 105
 //                   entry), every enum as its RAW wire value: the forwarder must classify a value the
-//                   schema does not name (kind 4, releaseScope 2) instead of throwing (FIX-10).
+//                   schema does not name (kind 4, releaseScope 2) instead of throwing.
 // DurableCommand    the 14 fields of the ME's DurableOrderCommand (order-schema v12 template 9).
 // ReleaseEntry      one entry of the ME's ReleaseCommandIds (template 10).
 

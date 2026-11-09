@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_AERON_CHAIN_FOLLOWER_H
 #define CLUSTER_TOOLS_ARCHIVE_AERON_CHAIN_FOLLOWER_H
 
-// One source follower on Aeron (RC2 S9a contract 2.1): the pure FollowPolicy wired to one
+// One source follower on Aeron: the pure FollowPolicy wired to one
 // ArchiveSource by the same FollowerLoop the pure tests drive. doWork(sink, limit) is bounded: at
 // most `limit` fragments (0 = paused, none) and at most one archive control call, so a paused or
 // fenced follower still probes (3.2 step 3).

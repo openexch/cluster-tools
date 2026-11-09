@@ -13,13 +13,13 @@
 #include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
 
 // CoreSessionRegistrar - RegisterSession (money-schema template 80) for a core session, with
-// the AdminAck wait the RC2 specs require:
+// the AdminAck wait the specs require:
 //   - declared after every connect AND after every new leader: the egress mask and the
-//     resumable mark are leader-local (RC1 S3 README items 5 and 8), so a registration made
+//     resumable mark are leader-local (README items 5 and 8), so a registration made
 //     in an earlier term means nothing on the new leader;
 //   - AdminAck(refTemplateId 80) ACCEPTED or DUPLICATE = registered; REJECTED = terminal (a
 //     config error: the owner exits non-zero);
-//   - a lost AdminAck is re-sent after resendIntervalNs (critic W12 / refuter M9: ORIGIN egress
+//   - a lost AdminAck is re-sent after resendIntervalNs (ORIGIN egress
 //     is at-most-once, so without the re-send the owner would hang CONNECTED forever).
 // The same correlation id is kept across re-sends of one round, so a late ack of the first
 // send still resolves the round. A new round (new term or new session) takes a new id.
@@ -54,7 +54,7 @@ struct RegistrarSettings
     SessionClass credentialClass = SessionClass::UNSET; // required: CoreCredentials::sessionClass of the client's credential
     std::uint32_t channels = 0;                       // core_channel bits
     std::uint8_t readerKind = 0;
-    bool resumable = true; // the core refuses false (critic D16)
+    bool resumable = true; // the core refuses false
     std::int64_t identity = 0;
     std::int64_t sourceEpoch = 0;
     std::int64_t resendIntervalNs = 5'000'000'000LL;
@@ -127,7 +127,7 @@ public:
         }
         if (!m_settings.resumable)
         {
-            return "registrar: the core refuses resumable=false (critic D16)";
+            return "registrar: the core refuses resumable=false";
         }
         if (m_settings.channels >= (1u << 7))
         {
@@ -263,7 +263,7 @@ public:
         }
     }
 
-    // RC2 S12 (contract 4.1 C3 -> C2): the core says this session is not registered on this leader (an
+    // (C3 -> C2): the core says this session is not registered on this leader (an
     // OrderReject UNREGISTERED_SESSION or UNAUTHORIZED_CLASS naming one of the owner's commands, e.g. between a
     // D8b revoke and its close). Starts a new round (new correlation id) in the same session and term; the next
     // doWork() sends it. REJECTED stays terminal.
@@ -277,9 +277,9 @@ public:
         m_correlationId = m_settings.correlationIdBase + static_cast<std::int64_t>(++m_counters.rounds);
     }
 
-    // RC2 S10' (additive; the bridge's DUPLICATE_IDENTITY retry): an owner that judged a REJECTED ack transient starts a
+    // (additive; the bridge's DUPLICATE_IDENTITY retry): an owner that judged a REJECTED ack transient starts a
     // new round (new correlation id) in the same session; the next doWork() sends it. Only a REJECTED that came as an
-    // AdminAck is retried (an inferred refusal stays terminal, also after an earlier ack-REJECTED: S10' F2); the counters
+    // AdminAck is retried (an inferred refusal stays terminal, also after an earlier ack-REJECTED); the counters
     // keep counting.
     bool retryAfterRejection()
     {
@@ -294,7 +294,7 @@ public:
     }
     // the reason of the last AdminAck for this registrar's RegisterSession (the core's AdminAck reason byte)
     std::uint8_t lastReason() const { return m_lastReason; }
-    // S10' F2: the current REJECTED came as an AdminAck (lastReason() is its reason); false while not REJECTED and for a
+    // The current REJECTED came as an AdminAck (lastReason() is its reason); false while not REJECTED and for a
     // REJECTED inferred from maxUnansweredSessions closes
     bool rejectedByAck() const { return RegistrationState::REJECTED == m_state && m_rejectedByAck; }
 

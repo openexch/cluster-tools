@@ -1,4 +1,4 @@
-// TwoLaneDomainPropertyTest (RC2 S10' contract 3.4): N = 2 (and sometimes 3) REAL BridgeDomain lanes, each with its
+// TwoLaneDomainPropertyTest: N = 2 (and sometimes 3) REAL BridgeDomain lanes, each with its
 // own ResumeMemo, SimSources and archive views (a lane may list a subset of the K ME nodes; every view of a node is
 // built from the same node journal, so the lanes agree on content), feeding ONE stub core written against the 4R
 // rule (contract 4R.1 rules 2-4), not against today's single latch slot:
@@ -16,7 +16,7 @@
 //     PREMATURE 76 {GAP, 0} and open while a lane's hole is open (4R.1 rule 2: self-healing by the lane's re-offer);
 //   - in half the non-overflow runs (the same side generator) one extra election while a lane's hole is open and a
 //     data frame is pending, noticed by the lanes 1..10 iterations late: the frames sent meanwhile reach the core above
-//     cursor + 1 (FEED_GAP), so the identity-0 record opens beside a lane's record (review N2-2 non-vacuity);
+//     cursor + 1 (FEED_GAP), so the identity-0 record opens beside a lane's record (non-vacuity);
 //   - the BRIDGE_HALT gate bit held by the holder set {GAP, NONGAP_AWAITING_OPEN, OVERFLOW}, cleared only when the set
 //     empties; the report's feedHalted = table non-empty or slot set or overflow (rule 6).
 // The stub keeps a TRUTH table next to the implementation table: the truth is the 4R rule with no seam, the
@@ -47,7 +47,7 @@
 //   (f) the gate bit never clears while a truth record is open ("the bit cleared with a record open") or while the
 //       overflow record is set ("the bit cleared under overflow"); at the end the bit is set iff a truth record, the
 //       overflow or the slot is; a HALTED(GAP) lane whose hole is open (cursor < seen - 1) never runs 250 of its
-//       iterations (5 s) with the bit clear ("the gate open with a hole open for > 5 s", review N2-1);
+//       iterations (5 s) with the bit clear ("the gate open with a hole open for > 5 s");
 //   (b) liveness: when the union of the live lanes' nodes carries every seq the run completes with cursor == N (an
 //       overflow run after the operator's 76 {GAP, 0} and open);
 //   (g) non-vacuity over the seeds (C5).
@@ -545,8 +545,8 @@ struct Stats
     int gapRecords = 0, gapReachCleared = 0, twoRecordOneReopen = 0, overflowRuns = 0, overflowOperatorCleared = 0;
     int restarts = 0, recoveries = 0, reopens = 0, elections = 0, duplicates = 0, pauses = 0, episodes = 0;
     int lagEgress = 0, stuckHalts = 0;
-    int coreGapRecords = 0, coreAndLaneRuns = 0, prematureClears = 0, relatchedAfterClear = 0; // review N2-1 / N2-2
-    int lateNoticeElections = 0; // N2-2: elections the lanes noticed 1..10 iterations late
+    int coreGapRecords = 0, coreAndLaneRuns = 0, prematureClears = 0, relatchedAfterClear = 0;
+    int lateNoticeElections = 0; // Elections the lanes noticed 1..10 iterations late
     std::uint64_t stuckSeed = 0;
     std::vector<int> shapes = std::vector<int>(7, 0);
 };
@@ -665,18 +665,18 @@ struct Run
     std::int64_t overflowSeen = 0, truthOverflowSeen = 0;
     std::uint8_t holders = 0;
     bool bit = false;
-    std::uint8_t slotReason = 0; // the non-GAP slot (never generated: the 4R rule keeps its bit; RC-5 tests it)
+    std::uint8_t slotReason = 0; // the non-GAP slot (never generated: the 4R rule keeps its bit; tests it)
     // (g)
     bool multi = false, oneClearedOneOpen = false;
     int reopens = 0, distinctHalted = 0;
     std::set<std::int64_t> haltedIdentities;
     bool overflowSeenInRun = false;
-    bool coreAndLaneOpen = false; // N2-2: the identity-0 record and a lane record open together
-    // N2-1: the premature operator clear (its own generator, so the scenario and the run's draws are unchanged)
+    bool coreAndLaneOpen = false; // The identity-0 record and a lane record open together
+    // The premature operator clear (its own generator, so the scenario and the run's draws are unchanged)
     std::mt19937_64 opRng;
     bool prematureArmed = false, prematureDone = false, relatchCounted = false;
     int prematureAt = -1;
-    // N2-2: one extra LATE-NOTICE election per armed run (half the non-overflow runs, all draws from the side
+    // One extra LATE-NOTICE election per armed run (half the non-overflow runs, all draws from the side
     // generator): the lanes learn of the new leader 1..10 iterations after the uncommitted tail was lost, so a lane's
     // next frames reach the new leader above cursor + 1 (the real FEED_GAP path: frames sent before the bridge noticed
     // the loss) and the core's identity-0 record opens; the scenario's draws are unchanged
@@ -1035,7 +1035,7 @@ struct Run
             reject(p.incarnation, s, 8, 1);
             if (s > 1)
             {
-                recordCoreGap(1, s); // D2 row 3: a hole at 1 (AssetsEngine 1467)
+                recordCoreGap(1, s); // Row 3: a hole at 1 (AssetsEngine 1467)
             }
             return false;
         }
@@ -1053,7 +1053,7 @@ struct Run
         {
             gapCheck(p, s);
             reject(p.incarnation, s, 6, cursor + 1);
-            recordCoreGap(cursor + 1, s); // D1 row 5: FEED_GAP, then latch(GAP, c + 1, s) (AssetsEngine 1506-1507)
+            recordCoreGap(cursor + 1, s); // Row 5: FEED_GAP, then latch(GAP, c + 1, s) (AssetsEngine 1506-1507)
             return false;
         }
         cursor = s;
@@ -1114,7 +1114,7 @@ struct Run
             {
                 if (t->second.session != p.incarnation)
                 {
-                    // another session (or a record already shared): never weakened (S2-3, FeedState.recordGapHalt)
+                    // another session (or a record already shared): never weakened (FeedState.recordGapHalt)
                     t->second.seen = std::max(t->second.seen, f.seen);
                     t->second.expected = std::min(t->second.expected, f.expected);
                     t->second.session = SESSION_SHARED;
@@ -1211,7 +1211,7 @@ struct Run
         }
     }
 
-    // FeedState.recordCoreGap (assets RC-core d3f9880 FIX-1): the identity-0 record of a GAP the core detected itself; an open
+    // FeedState.recordCoreGap (assets RC-core d3f9880): the identity-0 record of a GAP the core detected itself; an open
     // one merges (seen = max, expected = min), so its reach never opens the gate below a hole the core refused a frame at
     void recordCoreGap(std::int64_t expected, std::int64_t seen)
     {
@@ -1385,7 +1385,7 @@ struct Run
         bit = false;
     }
 
-    // N2-1, the operator in any run: a PREMATURE 76 {GAP, 0} (the table, the identity-0 record and the overflow are
+    // The operator in any run: a PREMATURE 76 {GAP, 0} (the table, the identity-0 record and the overflow are
     // cleared) and open while a lane's hole is still open; the truth forgets the records too (the operator's clear is
     // not a reach-clear): the halted lanes must re-latch by themselves, (f') checks they do
     void operatorPrematureClear()
@@ -1610,7 +1610,7 @@ struct Run
         {
             l.exitSince = -1;
         }
-        // (f') 4R.1 rule 2 (review N2-1): a premature 76 {GAP, 0} is self-healing: a HALTED(GAP) lane whose hole is open
+        // (f') 4R.1 rule 2: a premature 76 {GAP, 0} is self-healing: a HALTED(GAP) lane whose hole is open
         // never runs OPEN_HOLE_ITERATIONS of its iterations with the gate bit clear
         if (State::HALTED == v.state && BridgeHalt::GAP == v.halt && !bit && cursor < l.domain->halt().seen - 1)
         {
@@ -1841,7 +1841,7 @@ std::string runScenario(std::uint64_t seed)
         {
             return failText(run.failure);
         }
-        // N2-1: the premature operator clear, 0..100 iterations after a lane's hole is first seen open
+        // The premature operator clear, 0..100 iterations after a lane's hole is first seen open
         if (run.prematureArmed && !run.prematureDone)
         {
             if (run.prematureAt < 0 && run.laneHoleOpen())
@@ -1854,7 +1854,7 @@ std::string runScenario(std::uint64_t seed)
                 run.operatorPrematureClear();
             }
         }
-        // N2-2: in a late-notice run, one extra late-notice election 0..50 iterations after a lane's hole is first seen
+        // In a late-notice run, one extra late-notice election 0..50 iterations after a lane's hole is first seen
         // open while another lane streams (the side generator draws it), so the core's own record can open beside a lane's record
         if (run.lateNoticeArmed && !run.extraElectDone)
         {
@@ -1913,7 +1913,7 @@ std::string runScenario(std::uint64_t seed)
         return failText(run.failure);
     }
     // 9.4 exit (a): a halted lane that keeps its GAP halt after the cursor passed seen - 1 fails the run (strict by default
-    // since lane A's re-scan exit-(a) fix, S10' W4; RED RESCAN_EXIT_A_OFF). The counter stays for the summary line.
+    // since the re-scan exit-(a) fix; RED RESCAN_EXIT_A_OFF). The counter stays for the summary line.
     for (auto &lp : run.lanes)
     {
         if (lp && lp->exitSince >= 0 && run.it - lp->exitSince >= STUCK_ITERATIONS)
@@ -2037,7 +2037,7 @@ TEST_CASE("TwoLaneDomainPropertyTest.twoLanesFeedTheCoreExactlyOnceAndTheGateReo
         CHECK(g_stats.restarts > 0);
         CHECK(g_stats.recoveries > 0);
         CHECK(g_stats.completed > runs / 2);
-        // review N2-2: the identity-0 record ran, also together with a lane record; N2-1: premature clears re-latched
+        // The identity-0 record ran, also together with a lane record;: premature clears re-latched
         CHECK(g_stats.coreGapRecords > 0);
         CHECK(g_stats.coreAndLaneRuns > 0);
         CHECK(g_stats.prematureClears > 0);

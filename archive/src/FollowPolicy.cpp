@@ -139,7 +139,7 @@ void FollowPolicy::detach(TimePoint now)
         case Phase::FATAL:
             break;
         default:
-            // A pending async connect (CONNECTING) is cancelled too (review N-8).
+            // A pending async connect (CONNECTING) is cancelled too.
             m_disconnectRequested = m_connected || Phase::CONNECTING == m_phase;
             m_phase = Phase::IDLE;
             setAttachedGauge(false);
@@ -348,7 +348,7 @@ void FollowPolicy::onListed(const ListResult &result, TimePoint now)
     {
         if (m_chain == m_refusedChain)
         {
-            m_phase = Phase::REFUSED; // refused until the chain changes (section 7 row S7)
+            m_phase = Phase::REFUSED; // refused until the chain changes
             m_afterBackoff = Phase::LIST_DUE;
             m_dueAt = now + m_settings.backoff;
             return;
@@ -390,7 +390,7 @@ void FollowPolicy::onListed(const ListResult &result, TimePoint now)
     {
         // The read continues after the recording it consumed last (RECORDING_ENDED, or the chain end
         // reached before a back-off): a successor listed late picks up the same read, memo-free flag
-        // included (review F-1). A history change, or the recording gone, starts a fresh resume.
+        // included. A history change, or the recording gone, starts a fresh resume.
         const RecordingKey last = m_continueAfter->key;
         m_continueAfter.reset();
         if (!outcome.historyChanged)
@@ -434,7 +434,7 @@ void FollowPolicy::walk(std::size_t index, std::int64_t from, bool fromProof, st
         if (index >= m_chain.size())
         {
             // Row 15: the chain is exhausted with no active recording: back off, re-list. The read is at
-            // the end of the last listed recording: keep that as the continuation point (review F-1).
+            // the end of the last listed recording: keep that as the continuation point.
             if (!disabled(Rule::FOLLOW_CONTINUATION))
             {
                 m_continueAfter = m_chain.back();
@@ -535,7 +535,7 @@ void FollowPolicy::onSubscription(const SubscriptionResult &result, TimePoint no
                 "driver directory has " + std::to_string(result.freeBytes) + " B free, the replay image needs " +
                     std::to_string(result.requiredBytes) + " B; no request sent",
                 Refusal::NONE, of(OpenFailure::STORAGE));
-            backoff(now, Phase::LIST_DUE); // memo kept: the retry resumes at the proof (R-K4)
+            backoff(now, Phase::LIST_DUE); // memo kept: the retry resumes at the proof
             return;
         case SubscriptionResult::State::FAILED:
             if (ArchiveErrorKind::FATAL == result.error.kind)
@@ -592,7 +592,7 @@ void FollowPolicy::onReplayStarted(const StartResult &result, TimePoint now)
         m_replayStarted = true;
         if (!disabled(Rule::FOLLOW_RELIST_RESET))
         {
-            m_relistedOnce = false; // the 4.3 step 6 re-list is once per open attempt, not per connection (review F-2)
+            m_relistedOnce = false; // the 4.3 step 6 re-list is once per open attempt, not per connection
         }
         m_imagePosition = m_from;
         m_replaySessionId = result.replaySessionId;
@@ -835,7 +835,7 @@ void FollowPolicy::afterPoll(const ImageObservation &image, const AsyncErrorPoll
         }
     }
     // What the read has reached: consumed, or further when the stretch up to the image position is
-    // padding only (an ABORTed frame never advances the image). Proofs stay on frame ends (review N-1).
+    // padding only (an ABORTed frame never advances the image). Proofs stay on frame ends.
     const std::int64_t reached = std::max(m_consumed, m_imagePosition);
     const bool gone = m_imageSeen && image.imageCount == 0;
     const bool ended = m_imageSeen && (image.endOfStream || image.imageClosed || gone);
@@ -849,7 +849,7 @@ void FollowPolicy::afterPoll(const ImageObservation &image, const AsyncErrorPoll
         beginDetach(AfterDetach::NEXT_RECORDING, false);
         return;
     }
-    // Row 6: a bounded replay that ended before catalog EOF is a failure, never "drained" (cpp: S10).
+    // Row 6: a bounded replay that ended before catalog EOF is a failure, never "drained".
     if (bounded && ended && reached < r->stopPosition && !disabled(Rule::FOLLOW_ROW6_EARLY_EOF))
     {
         fault(FaultKind::EARLY_EOF, now,
@@ -857,7 +857,7 @@ void FollowPolicy::afterPoll(const ImageObservation &image, const AsyncErrorPoll
         beginDetach(AfterDetach::BACKOFF, true);
         return;
     }
-    // Row 7a (review B1): the archive ends a live replay when its recording stops and the image goes
+    // Row 7a: the archive ends a live replay when its recording stops and the image goes
     // about 1 s later. An image end on a live follow triggers an immediate recording-state probe.
     if (!bounded && (ended || image.subscriptionClosed) && !disabled(Rule::FOLLOW_ROW7A_IGNORE))
     {

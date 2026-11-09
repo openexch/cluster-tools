@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.3 ct_forwarder_main_tests (FIX-8): main's responsibilities against duty stubs.
+// ct_forwarder_main_tests: main's responsibilities against duty stubs.
 //   watchdogExitsWhenDutyStalls  a duty stub that stops bumping its heartbeat -> exit seam 70 within 6 s, while an
 //                                HTTP client holds a connection open without sending
 //   stopJoinBoundExits70         a duty stub that never returns -> 70 after 2 s
@@ -236,7 +236,7 @@ TEST_CASE("MainTest.stopShutsDownAccept")
 
 TEST_CASE("MainTest.tricklingClientCannotHoldTheHttpThread")
 {
-    // Review FIX-2: one byte every 1.5 s from one client; a second client's GET /health is answered within 2.5 s.
+    // One byte every 1.5 s from one client; a second client's GET /health is answered within 2.5 s.
     std::function<HttpResponse(const HttpRequest &)> handler = [](const HttpRequest &) {
         HttpResponse resp;
         resp.status = 200;
@@ -274,7 +274,7 @@ TEST_CASE("MainTest.tricklingClientCannotHoldTheHttpThread")
 
 TEST_CASE("MainTest.anExceptionOnTheHttpThreadExits70")
 {
-    // Review NOTE-5: a handler that throws must end the process with 70 (not std::terminate, 134).
+    // A handler that throws must end the process with 70 (not std::terminate, 134).
     StatusBoard board;
     LogRing log;
     std::atomic<int> exitCode{ -1 };
@@ -304,7 +304,7 @@ TEST_CASE("MainTest.anExceptionOnTheHttpThreadExits70")
 
 TEST_CASE("MainTest.aFullStderrPipeDropsLogRecordsInsteadOfBlocking")
 {
-    // Review NOTE-5: main's log writer never blocks (a stuck stderr must not stall the watchdog).
+    // Main's log writer never blocks (a stuck stderr must not stall the watchdog).
     int fds[2];
     REQUIRE(0 == ::pipe(fds));
     ::fcntl(fds[1], F_SETFL, ::fcntl(fds[1], F_GETFL) | O_NONBLOCK);

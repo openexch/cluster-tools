@@ -1,8 +1,8 @@
 # Domain-side CI only: configure with WITH_AERON=OFF, build, run the tests (domain,
 # ports, json adapter, the pure cluster-client parts, the pure archive core of the C++ bridge with
-# its negative controls and the ME journal fixture guard, RC2 S9a; the forwarder's pure core with its property
-# test and negative controls, its strict config, metrics rendering and supervisor tests, RC2 S12). The Aeron-linked build and its
-# tests run in aeron.yml, path-filtered, so this job stays fast (critic D10).
+# its negative controls and the ME journal fixture guard; the forwarder's pure core with its property
+# test and negative controls, its strict config, metrics rendering and supervisor tests). The Aeron-linked build and its
+# tests run in aeron.yml, path-filtered, so this job stays fast.
 name: ci
 
 on:
@@ -22,7 +22,7 @@ jobs:
       - name: test
         run: ctest --test-dir build --output-on-failure
 
-  # Codegen without Aeron (RC2 S1 contract 8.5, W8): the three wire schemas at the lock's
+  # Codegen without Aeron: the three wire schemas at the lock's
   # pins, SBE codegen, the EngineConfig codec and the Java-encoder goldens. Needs Java only;
   # the Aeron-linked build stays in aeron.yml.
   codecs:

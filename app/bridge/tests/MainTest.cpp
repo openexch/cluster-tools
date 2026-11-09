@@ -1,4 +1,4 @@
-// RC2 S9c 12.2 ct_bridge_main_tests (pure: the shared app/common Supervisor with the bridge's settings, the bridge-http
+// ct_bridge_main_tests (pure: the shared app/common Supervisor with the bridge's settings, the bridge-http
 // routes, duty stubs):
 //   healthStalledAndWatchdog   a duty stub that stops beating: /health 503 STALLED within 6 s and the exit seam 70 at
 //                              5 s while an HTTP client trickles 1 byte per 200 ms (RED WATCHDOG_OFF)
@@ -218,7 +218,7 @@ TEST_CASE("MainTest.stalledHealthIs503BeforeTheExit")
 
 TEST_CASE("MainTest.blockedCallThatKeepsBeating")
 {
-    // the archive invoker beats about every 1 ms during a blocked call: a 6 s call is not a wedged thread (FIX-6)
+    // the archive invoker beats about every 1 ms during a blocked call: a 6 s call is not a wedged thread
     Fixture f;
     std::thread killer([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(6500));
@@ -328,7 +328,7 @@ TEST_CASE("MainTest.sighupIsCountedOnly")
     }
     CHECK(logged);
 
-    // the forwarder's policy (the same Supervisor): SIGHUP sets the resync flag (NOTE-8)
+    // the forwarder's policy (the same Supervisor): SIGHUP sets the resync flag
     BridgeBoard board;
     common::LogRing log;
     common::Supervisor forwarder(board, log, common::SupervisorSettings{}, [](int, const std::string &) {}, nullptr);

@@ -11,7 +11,7 @@
 
 namespace aeron { class Aeron; }
 
-// Fatal Aeron errors end the process, loudly and at once (rc2-bridge-cpp.md P5): the
+// Fatal Aeron errors end the process, loudly and at once (P5): the
 // 2026-08-12 bridge zombie was a Java client whose DriverTimeoutException left a live pid
 // with no work for 27 h. Here the error handler of the aeron::Context classifies every error
 // the client conductor reports; a fatal one (driver timeout, client timeout, conductor

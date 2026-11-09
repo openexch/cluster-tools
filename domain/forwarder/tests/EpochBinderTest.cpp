@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 EpochBinderTest (4.2, F8, NOTE-6, D-S12-8).
+// EpochBinderTest.
 #include "doctest/doctest.h"
 
 #include "cluster_tools/domain/forwarder/EpochBinder.h"

@@ -1,5 +1,5 @@
-// RC2 S12 contract 11.2 ForwarderCodecTest: the forwarder codec against the engines' own Java encoders
-// (golden/golden_frames.inc, regen.sh at the W8 pins: assets b05b8e8, match 68a9375). Decode every money
+// ForwarderCodecTest: the forwarder codec against the engines' own Java encoders
+// (golden/golden_frames.inc, regen.sh at the pins: assets b05b8e8, match 68a9375). Decode every money
 // golden into Dispatch values field by field; the raw-enum golden decodes without throwing and classifies
 // V12 / X2; 65 and 9/10 encode byte-equal to Java; and the one-to-one proof: Java 105 bytes -> C++ decode ->
 // classification -> send ring -> drain plan -> encode -> byte-equal to the frames match's encoder produced.
@@ -130,7 +130,7 @@ TEST_CASE("ForwarderCodecTest.batchV7DecodesEveryEntryFieldByField")
         CAPTURE(i);
         CHECK(got[static_cast<std::size_t>(i)] == e2e(i));
     }
-    // the S11 golden too (two CANCELs with releaseScope ORDER, ignored on kind 1)
+    // the golden too (two CANCELs with releaseScope ORDER, ignored on kind 1)
     const std::vector<Dispatch> old = decodeBatch(JAVA_ME_DISPATCH_BATCH);
     REQUIRE(old.size() == 2);
     CHECK(old[1].dispatchSeq == 1001);
@@ -151,8 +151,8 @@ TEST_CASE("ForwarderCodecTest.rawEnumsDecodeWithoutThrowingAndClassifyV12AndX2")
 
 TEST_CASE("ForwarderCodecTest.theGeneratedEnumGettersWouldThrowOnTheRawEnumGolden")
 {
-    // The hazard the raw reads avoid (FIX-10): the generated getter throws on a kind or scope the schema does not
-    // name; an exception escaping the duty loop would be F2 (exit 70) for a core defect the contract relays.
+    // The hazard the raw reads avoid: the generated getter throws on a kind or scope the schema does not
+    // name; an exception escaping the duty loop would be (exit 70) for a core defect the contract relays.
     namespace money = com::openexchange::assets::infrastructure::generated;
     Bytes golden = JAVA_ME_DISPATCH_RAW_ENUMS;
     money::MeDispatchBatch batch(reinterpret_cast<char *>(golden.data()), 8, golden.size(), 0, 7);
@@ -330,7 +330,7 @@ TEST_CASE("ForwarderCodecTest.malformedFramesAreRefusedNotRead")
 
 TEST_CASE("ForwarderCodecTest.dispatchSeqBelowOneMakesTheFrameMalformed")
 {
-    // Review NOTE-2: the whole 105 is refused (nothing delivered) when any entry has dispatchSeq < 1; so is a 104.
+    // The whole 105 is refused (nothing delivered) when any entry has dispatchSeq < 1; so is a 104.
     Bytes batch = JAVA_ME_DISPATCH_BATCH_V7;
     const std::int64_t zero = 0;
     std::memcpy(batch.data() + 12 + 2 * 89, &zero, 8); // entry 2's dispatchSeq
@@ -352,7 +352,7 @@ TEST_CASE("ForwarderCodecTest.dispatchSeqBelowOneMakesTheFrameMalformed")
 }
 
 // ============================================================================================================
-// RC2 S13 W1 (contract 4.2, 11.3): the book egress decoders (22 / 25 / 26, raw reads) and the MarketTick 60 encoder
+// The book egress decoders (22 / 25 / 26, raw reads) and the MarketTick 60 encoder
 // against the match / core engines' own Java encoders. Every malformed rule has its own test case with its own CHECK
 // text: adapters/sbe/tests/forwarder-codec-negative-controls.txt switches each rule off (CT_TEST_DISABLE_<rule>) and
 // requires exactly that CHECK to fail.
@@ -448,7 +448,7 @@ TEST_CASE("ForwarderCodecTest.bookSnapshot20x20DecodesFieldByField")
 TEST_CASE("ForwarderCodecTest.emptyAndUnversionedSnapshotsDecode")
 {
     BookFrame f;
-    const Bytes empty = JAVA_BOOK_SNAPSHOT_EMPTY; // W-ME2: a versioned book that emptied
+    const Bytes empty = JAVA_BOOK_SNAPSHOT_EMPTY; // A versioned book that emptied
     REQUIRE(codec::decodeBookSnapshot(empty.data(), empty.size(), headerOf(empty), f));
     CHECK(f.marketId == 3);
     CHECK(f.bookVersion == 777);
@@ -585,7 +585,7 @@ TEST_CASE("ForwarderCodecTest.headerBlockLengthBelowTheTemplateIsMalformed")
 
 TEST_CASE("ForwarderCodecTest.groupBlockLengthBelowTheEntryIsMalformed")
 {
-    // CL-F-9: a group header blockLength below the entry size (20 / 22 / 89); a larger one is skipped by its stated length
+    // A group header blockLength below the entry size (20 / 22 / 89); a larger one is skipped by its stated length
     Bytes snap = JAVA_BOOK_SNAPSHOT_20x20;
     put16(snap, SNAP_BIDS_HDR, 19);
     Bytes delta = JAVA_BOOK_DELTA_80;

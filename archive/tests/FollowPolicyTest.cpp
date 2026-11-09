@@ -1,4 +1,4 @@
-// The 4.5 follow decision table, the pause rule and the frame path (RC2 S9a contract 9.1), driven
+// The 4.5 follow decision table, the pause rule and the frame path, driven
 // through FollowerLoop over the simulated archive on a manual clock.
 #include "doctest/doctest.h"
 
@@ -209,7 +209,7 @@ TEST_CASE("FollowPolicyTest.stoppedReplayBeforeEofIsFailure")
     REQUIRE(h.sink.seqs.size() == 2);
     h.archive.dropImageNow = true;
     h.run(20, 1ms, 0);
-    CHECK(h.observer.sawFault(FaultKind::EARLY_EOF)); // never "drained" (cpp: S10, BridgeEndToEndTest.java:696)
+    CHECK(h.observer.sawFault(FaultKind::EARLY_EOF)); // never "drained" (cpp:, BridgeEndToEndTest.java:696)
     CHECK(h.policy->chainIndex() == 0);
 }
 
@@ -433,7 +433,7 @@ TEST_CASE("FollowPolicyTest.storageRefusalSendsNoRequestAndKeepsProofs")
     h.runUntil([&] { return h.observer.sawFault(FaultKind::REPLAY_STORAGE); }, 100);
     CHECK(h.observer.sawFault(FaultKind::REPLAY_STORAGE));
     CHECK(h.archive.startCalls == starts); // no request sent
-    CHECK(h.memo->proofCount(0) == 1);     // proofs kept (R-K4: no rescan on retry)
+    CHECK(h.memo->proofCount(0) == 1);     // proofs kept (no rescan on retry)
     CHECK(h.metrics.openFailures(OpenFailure::STORAGE) >= 1);
     h.archive.storageRefused = false;
     const std::size_t attaches = h.observer.attaches.size();
@@ -529,9 +529,9 @@ TEST_CASE("FollowPolicyTest.refusedFrameClosesTheReplayOrContinuesForTheTail")
     }
 }
 
-// ---- review fixes (S9a review.md, 2026-10-27)
+// ---- review fixes
 
-TEST_CASE("FollowPolicyTest.successorListedLateContinuesTheRead") // F-1, probe P1
+TEST_CASE("FollowPolicyTest.successorListedLateContinuesTheRead") // Probe P1
 {
     SUBCASE("unbound: no proof exists, the read continues after the ended recording")
     {
@@ -599,7 +599,7 @@ TEST_CASE("FollowPolicyTest.successorListedLateContinuesTheRead") // F-1, probe 
     }
 }
 
-TEST_CASE("FollowPolicyTest.sinkAbortBackPressureIsNotAStall") // F-4, probe P4
+TEST_CASE("FollowPolicyTest.sinkAbortBackPressureIsNotAStall") // Probe P4
 {
     SUBCASE("live follow")
     {
@@ -645,7 +645,7 @@ TEST_CASE("FollowPolicyTest.sinkAbortBackPressureIsNotAStall") // F-4, probe P4
     }
 }
 
-TEST_CASE("FollowPolicyTest.stopAfterPaddingIsDrainedNotEarlyEof") // N-1, probe P5
+TEST_CASE("FollowPolicyTest.stopAfterPaddingIsDrainedNotEarlyEof") // Probe P5
 {
     SUBCASE("bounded replay")
     {
@@ -676,7 +676,7 @@ TEST_CASE("FollowPolicyTest.stopAfterPaddingIsDrainedNotEarlyEof") // N-1, probe
     }
 }
 
-TEST_CASE("FollowPolicyTest.asyncErrorPollRunsEveryIteration") // N-4
+TEST_CASE("FollowPolicyTest.asyncErrorPollRunsEveryIteration")
 {
     SUBCASE("an error that arrives before the replay is not charged to it")
     {
@@ -706,7 +706,7 @@ TEST_CASE("FollowPolicyTest.asyncErrorPollRunsEveryIteration") // N-4
     }
 }
 
-TEST_CASE("FollowPolicyTest.detachWhileConnectingCancelsTheAsyncConnect") // N-8
+TEST_CASE("FollowPolicyTest.detachWhileConnectingCancelsTheAsyncConnect")
 {
     Harness h;
     h.archive.connectPendingSteps = 1'000'000;
@@ -720,7 +720,7 @@ TEST_CASE("FollowPolicyTest.detachWhileConnectingCancelsTheAsyncConnect") // N-8
 }
 
 namespace {
-// RC2 S10' 5.1 R1: a sink that consumes (SinkAction::CONSUME) every frame above `holeAt` on the first recording, the way a
+// R1: a sink that consumes (SinkAction::CONSUME) every frame above `holeAt` on the first recording, the way a
 // halted bridge's re-scan walks past a holed recording, and records what it saw
 struct WalkSink : FrameSink
 {

@@ -9,10 +9,10 @@
 
 #include "AppSeams.h"
 
-// ct-bridge's embedded driver: the shared app/common EmbeddedDriver (moved there by RC2 S10' section 8 rule 4, one copy
+// ct-bridge's embedded driver: the shared app/common EmbeddedDriver (moved there, one copy
 // for ct-bridge and ct-forwarder) bound to the bridge's names (<BRIDGE_DRIVER_DIR>/ct-bridge-<BRIDGE_INSTANCE_ID>, lock
 // ct-bridge-<id>.lock) and to the bridge's app seams. Header-only: the seam flavour is the including target's
-// (constexpr false in the production ct-bridge), so the S9c MainAeronTest cases and the EMBEDDED_* REDs run unchanged.
+// (constexpr false in the production ct-bridge), so the MainAeronTest cases and the EMBEDDED_* REDs run unchanged.
 
 namespace cluster_tools { namespace app { namespace bridge {
 

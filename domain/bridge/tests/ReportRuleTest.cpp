@@ -1,4 +1,4 @@
-// ReportRuleTest (RC2 S9b 13.4): the periodic report rules of 7.2 and the query cadence.
+// ReportRuleTest: the periodic report rules of 7.2 and the query cadence.
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -73,7 +73,7 @@ TEST_CASE("ReportRuleTest.cursorRegressionFences")
 
 TEST_CASE("ReportRuleTest.cursorAboveLastDoesNotMoveLast")
 {
-    // N = 2: another lane is ahead; this lane's forwards up to C' become core duplicates (cpp Q6, D22)
+    // N = 2: another lane is ahead; this lane's forwards up to C' become core duplicates
     Direct d;
     bindAt(d, 10);
     d.core.cursor = 20;

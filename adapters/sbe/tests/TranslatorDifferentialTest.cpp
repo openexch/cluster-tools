@@ -1,4 +1,4 @@
-// TranslatorDifferentialTest (RC2 S9b 13.12, E2 of cpp 3.2, S9a 9.4): the S9h harness writes `random <seed> <count>`
+// TranslatorDifferentialTest: the harness writes `random <seed> <count>`
 // (in.fjr, and out.ffr from the Java reference translator), and the C++ translate of in.fjr must equal out.ffr byte
 // for byte. The seed is CT_DIFF_SEED, or the CI run id, else a fresh one; it is always printed. 10^6 records per CI
 // run, 10^5 on the dev box (CT_DIFF_COUNT).

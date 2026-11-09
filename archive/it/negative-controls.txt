@@ -1,5 +1,5 @@
-# The RED column of RC2 S9a contract 9.3: scenario | rules switched off (comma separated) | the
-# failure expected | the text the SCENARIO FAIL line must carry (review N-10). run-it.sh requires each
+# The RED column: scenario | rules switched off (comma separated) | the
+# failure expected | the text the SCENARIO FAIL line must carry. run-it.sh requires each
 # scenario to FAIL, for that reason, with these CT_TEST_DISABLE_* seams set (a crash is no RED).
 emptyGenesisRecordingThenData|CHAIN_EMPTY_ROW,CHAIN_DRAINED_ROW|the archive refuses [0, 0) and the follower loops|the data of recording 1 never arrived
 chainFollowAcrossRecordingsAndSuccessor|FOLLOW_ROW7A_IMAGE_END_PROBE|IMAGE_LOST about 1 s after STOP|a source fault was counted
@@ -18,4 +18,4 @@ zeroSeqRecordIsRefusedLoudly|PEEK_HEAD|row 7 off: frames pass the gate (and an o
 appliedHeadKeepsDutyBounded|MEMO_PROVE_FROM_SKIP|memo off: the second resume rescans|no proof at the head's end
 journalTailExitsSeventyOnUncaughtException|TAIL_TERMINATE_HANDLER|terminate handler not installed: 134|exit status 134
 imageLostMidFollowEndsSync|FOLLOW_ROW7A_IGNORE,FOLLOW_ROW9_ARCHIVE_GONE,FOLLOW_ASYNC_DISCONNECT|rows 7a, 9 and the async disconnect path off: the dead source is followed silently|the dead source was followed silently
-chainFollowWithLateSuccessor|FOLLOW_CONTINUATION|F-1 off: the chain is re-replayed while the successor is missing|the chain was re-replayed
+chainFollowWithLateSuccessor|FOLLOW_CONTINUATION|Seam off: the chain is re-replayed while the successor is missing|the chain was re-replayed

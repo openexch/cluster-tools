@@ -1,4 +1,4 @@
-// RingTest (RC2 S9b 13.3, R-B4-4): the in-flight ring, its proofs (S9a 5.2 rule 2) and the key table.
+// RingTest: the in-flight ring, its proofs and the key table.
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -53,7 +53,7 @@ TEST_CASE("RingTest.memoProvesAllKinds")
     REQUIRE(d.frame(makeFrame(TEMPLATE_TERMINAL, 14, EPOCH, 64 * 14), 0, 2) == SinkAction::CONTINUE);
     REQUIRE(d.frame(makeFrame(TEMPLATE_OUTCOME, 15, EPOCH, 64 * 15), 0, 3) == SinkAction::CONTINUE);
     Bytes release = makeRelease(16, EPOCH, 3);
-    putLe64(release, FRAME_OFFSET_EGRESS_SEQ, 64 * 16); // egressSeq ascends with the journal (D1 row 6)
+    putLe64(release, FRAME_OFFSET_EGRESS_SEQ, 64 * 16); // egressSeq ascends with the journal (row 6)
     REQUIRE(d.frame(release, 0, 4) == SinkAction::CONTINUE);
     REQUIRE(d.frame(makeFrame(TEMPLATE_CONFIG, 17, EPOCH, 64 * 17), 0, 5) == SinkAction::CONTINUE);
     REQUIRE(d.domain->ring().size() == 7);
@@ -163,7 +163,7 @@ TEST_CASE("RingTest.keyTableSurvivesStagingAcrossAPop")
         REQUIRE(d.frame(makeFrame(TEMPLATE_TRADE, s, EPOCH, 64 * s), 0, 0) == SinkAction::CONTINUE);
     }
     d.poll(40);
-    periodicReport(d); // pops 11: the ring is empty, 40 trades of K1 are still staged
+    periodicReport(d); // pops 11: the ring is empty, 40 trades of are still staged
     REQUIRE(d.domain->ring().size() == 0);
     REQUIRE(d.domain->view().staged == 40);
     REQUIRE(d.frame(makeFrame(TEMPLATE_TERMINAL, 52, EPOCH, 64 * 52), 0, 1) == SinkAction::CONTINUE);

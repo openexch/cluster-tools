@@ -1,4 +1,4 @@
-// RC2 S9c 12.1 BridgeConfigTest: the strict environment of section 8 (every key required, every problem named in
+// BridgeConfigTest: the strict environment (every key required, every problem named in
 // table order, the driver mode strict in both directions, the port formula and the channels the Java bridge used).
 #include "doctest/doctest.h"
 
@@ -278,8 +278,8 @@ TEST_CASE("BridgeConfigTest.driverModeIsStrict")
 
 TEST_CASE("BridgeConfigTest.driverTimeoutIsStrict")
 {
-    // coordinator decision 2026-10-31: an env key per process, missing = refuse (78), not a constant
-    // review FIX-2 (2026-11-01): the floor is 3000 ms (two driver heartbeats and a margin); below it is refused, named
+    // An env key per process, missing = refuse (78), not a constant
+    // The floor is 3000 ms (two driver heartbeats and a margin); below it is refused, named
     for (const char *bad : { "999", "1000", "2999", "60001", "5s", "-5000", "+5000", "" })
     {
         CAPTURE(bad);

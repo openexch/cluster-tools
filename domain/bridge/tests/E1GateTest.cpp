@@ -1,7 +1,7 @@
-// E1GateTest (RC2 S9b 13.14, gate half; the translation half is adapters/sbe TranslatorE1Test): on every member
-// stream of the E1 corpus captured from J-ME3 (S9h section 8), the C++ gate (S9a FramePeek::admitFrame) admits
+// E1GateTest (gate half; the translation half is adapters/sbe TranslatorE1Test): on every member
+// stream of the E1 corpus captured from J-ME3, the C++ gate (FramePeek::admitFrame) admits
 // exactly the records the Java ReferenceFrameGate admitted (the member's FJR) and refuses exactly the frames of its
-// refused.txt with the same reason. The files are S9h's; the C++ side never writes them.
+// refused.txt with the same reason. The files are the harness's; the C++ side never writes them.
 #include "doctest/doctest.h"
 
 #include "TestSupport.h"
@@ -113,7 +113,7 @@ TEST_CASE("E1GateTest.theCppGateAgreesWithTheJavaReferenceGateOnEveryCapturedFra
             ++members;
             CAPTURE(base);
             const Fjr fjr = readFjr(base + ".fjr");
-            CHECK(fjr.flushes >= 1); // a FLUSH at each recording STOP and at the end (S9h e1)
+            CHECK(fjr.flushes >= 1); // a FLUSH at each recording STOP and at the end (e1)
             for (const Bytes &r : fjr.records)
             {
                 const Admission a = admitFrame(FRAME_FLAGS_UNFRAGMENTED, r.data(), r.size());

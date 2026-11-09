@@ -1,6 +1,6 @@
-// ArchiveSource without an archive (RC2 S9a contract 3.3, W3): the re-entrancy guard is checked
-// before any C call and ends the process with exit 70 (section 7 row F5); an exception escaping the
-// owner's invoker ends it with exit 70 too (F6, never 134); archive error codes map to the classes
+// ArchiveSource without an archive: the re-entrancy guard is checked
+// before any C call and ends the process with exit 70; an exception escaping the
+// owner's invoker ends it with exit 70 too (never 134); archive error codes map to the classes
 // the follow policy acts on (4.3 step 6).
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"

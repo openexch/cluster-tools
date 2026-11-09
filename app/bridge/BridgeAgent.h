@@ -34,14 +34,14 @@
 #include "CorePortAdapter.h"
 #include "ObserverTap.h"
 
-// BridgeAgent - the bridge-duty thread's agent (RC2 S9c sections 3-7): one duty iteration drives the S11 core client,
-// the CoreSessionRegistrar, the archive SourceSet and the S9b BridgeDomain in the frozen order of 3.2. Header-only and
+// BridgeAgent - the bridge-duty thread's agent (sections 3-7): one duty iteration drives the core client,
+// the CoreSessionRegistrar, the archive SourceSet and the BridgeDomain in the frozen order of 3.2. Header-only and
 // templated on the core client and the sources, so the app tests run it over FakeTransport + SimSources and
 // production over AeronTransport + SourceSet. Single threaded: only thread B touches it.
 //
-// G1: the domain decides, the app wires. The agent never offers a feed frame, never reads a record byte, never moves
+// The domain decides, the app wires. The agent never offers a feed frame, never reads a record byte, never moves
 // `last` or the cursor; the egress it dispatches goes to the registrar or the domain, the frames it sees after an OK
-// offer feed two observability histograms only. G5: onSessionUp only at a C3 entry (registrar.isRegistered() for the
+// offer feed two observability histograms only. onSessionUp only at a C3 entry (registrar.isRegistered() for the
 // client's current session and term); the NewLeader fence inside the client's callback, before any later step of the
 // same iteration can offer. onStateChange only RECORDS (it can fire from doWork() inside the archive invoker, where no
 // domain call is allowed); the link machine runs in step 2 only.
@@ -52,13 +52,13 @@ inline constexpr int EXIT_OK = 0;
 inline constexpr int EXIT_SOFTWARE = 70;
 inline constexpr int EXIT_TEMPFAIL = 75;
 inline constexpr int EXIT_CONFIG = 78;
-// the core's AdminAck reason for a second live registered BRIDGE session holding an identity (RC2 S10' 4R.1 rule 2)
+// the core's AdminAck reason for a second live registered BRIDGE session holding an identity
 inline constexpr std::uint8_t REJECT_DUPLICATE_IDENTITY = 44;
 
-// ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3, RC2 S15 PO-3b), test builds only. The outcome (template 3) is copied into
+// ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3), test builds only. The outcome (template 3) is copied into
 // `out` with commandIdHigh replaced by a never-issued id and commandIdLow by the journal seq. Returns false when the
 // frame cannot be patched (shorter than the command id fields, or longer than `capacity`): the caller must then refuse
-// hard, never pass the frame through unpatched (S15 review F3: a fallback needs a precondition; a quiet pass-through
+// hard, never pass the frame through unpatched (a fallback needs a precondition; a quiet pass-through
 // would turn the control into the production translator and RED-2 into a GREEN).
 namespace negctl {
 inline constexpr std::int64_t NEVER_ISSUED_HIGH = 0x4E43544C00000000LL; // "NCTL" << 32: above every order id
@@ -88,7 +88,7 @@ inline bool patchOutcomeCommandId(const std::uint8_t *bytes, std::size_t length,
 }
 
 // The hard refusal: one stderr line, then SIGABRT. Never exit 70 or 78 (those are the product's driver-loss and
-// config exits); a crashed control is not a RED (S15 8.1/8.2), so RED-2 ends without its precondition, never GREEN.
+// config exits); a crashed control is not a RED, so RED-2 ends without its precondition, never GREEN.
 [[noreturn]] inline void refuseUnpatchable(std::size_t length, std::int64_t journalSeq) noexcept
 {
     std::fprintf(stderr, "ct-bridge nc_legacy: outcome seq %lld length %zu cannot be patched; refusing (no pass-through)\n",
@@ -143,19 +143,19 @@ struct AgentSettings
     std::chrono::milliseconds probeInterval{ 10'000 }; // = the FollowSettings object the SourceSet was given
     client::SessionClass credentialClass = client::SessionClass::BRIDGE;
     const char *version = "dev";
-    const char *build = "unknown"; // RC2 S16 W4: source_sha, /health.build
+    const char *build = "unknown"; // source_sha, /health.build
     std::uint8_t driverMode = 0;
     std::int64_t reconnectBackoffInitialNs = 1'000'000'000LL;
     std::int64_t reconnectBackoffMaxNs = 30'000'000'000LL;
     std::int64_t registrarResendNs = 5'000'000'000LL;
-    // RC2 S10' (coordinator decisions 2026-11-01): a REJECTED DUPLICATE_IDENTITY (the old session of this identity is still
+    // Duplicate identity: a REJECTED DUPLICATE_IDENTITY (the old session of this identity is still
     // registered at the core until its session timeout, e.g. after a kill -9; the core's 10 s clock restarts after an
     // election) is retried with a bounded backoff for 60 s (2 x the 10 s timeout plus a slow election), then exits 78 as
     // a genuine duplicate BRIDGE_INSTANCE_ID
     std::int64_t duplicateIdentityBudgetNs = 60'000'000'000LL;
     std::int64_t duplicateIdentityRetryInitialNs = 500'000'000LL;
     std::int64_t duplicateIdentityRetryMaxNs = 4'000'000'000LL;
-    // Tests only: the domain's timers (S9b 4: not operator knobs) and its correlation base.
+    // Tests only: the domain's timers (not operator knobs) and its correlation base.
     std::function<void(domain::bridge::BridgeSettings &)> tweakDomain;
     // The epoch-ms clock of O3 (default: the system clock) and the 1 ms park of the invoker (default: sleep 1 ms).
     std::function<std::int64_t()> epochMs;
@@ -366,8 +366,8 @@ public:
         return work;
     }
 
-    // RC2 S10' Q1 (coordinator decision 2026-11-01): the core ingress publication refused for storage space on every
-    // connect attempt, or every replay image refused for storage (the S9a precheck or the archive's STORAGE_SPACE) with
+    // Storage starvation: the core ingress publication refused for storage space on every
+    // connect attempt, or every replay image refused for storage (the precheck or the archive's STORAGE_SPACE) with
     // no source FOLLOWING, held for STORAGE_STARVED_EXIT_NS (30 s, a constant) ends the process 70: restartable and loud,
     // never alive-not-ready forever (the 2026-07-25 /dev/shm shape), never 78. Until then /ready names storage_starved
     // and bridge_storage_starved_seconds_total grows. A replay attempt that fails for another reason, or any source
@@ -436,7 +436,7 @@ public:
         }
     }
 
-    // The invoker given to the SourceSet (S9a 3.3): runs inside a blocked archive call, after every yield of the
+    // The invoker given to the SourceSet: runs inside a blocked archive call, after every yield of the
     // archive client. client.doWork() (keepalives, deadlines), the heartbeat, the gap gauge, park 1 ms; never
     // poll(), never an offer, never an archive call, never the domain.
     void invoke()
@@ -553,7 +553,7 @@ public:
     // ---- LinkEvents (the client's observer, thread B)
     void onClientStateChange(client::ClientState, client::ClientState) noexcept override
     {
-        m_stateChanged = true; // records only (FIX-2): the link machine reads the client state in step 2
+        m_stateChanged = true; // records only: the link machine reads the client state in step 2
         if (app_seams::disabled(app_seams::Rule::LINK_MACHINE_IN_CALLBACK))
         {
             linkStep(); // RED shape: the machine runs here, also inside the archive invoker
@@ -578,7 +578,7 @@ public:
         else
         {
             domainCall();
-            m_domain.onFence(domain::bridge::FenceTrigger::NEW_LEADER, m_now); // G5, 6.1: at the event
+            m_domain.onFence(domain::bridge::FenceTrigger::NEW_LEADER, m_now); // At the event
         }
         resetUp();
         if (CoreLink::C3_REGISTERED == m_link)
@@ -613,10 +613,10 @@ private:
     };
 
     // A FrameSink for the test builds only (never published). ct_bridge_negctl (NEGCTL_DROP_RECORDS_2_3, the A02-T2
-    // control) drops record templates 2 and 3 before the domain. ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3, RC2 S15
-    // PO-3b) is the legacy translator: trades (1) and terminals (2) translate, the outcome (3) is "lost". The record
+    // control) drops record templates 2 and 3 before the domain. ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3)
+    // is the legacy translator: trades (1) and terminals (2) translate, the outcome (3) is "lost". The record
     // still goes through the domain, so the cursor, density and offer accounting see an intact feed (a hole would latch
-    // the core with FEED_GAP, S15 dry run answer 9); only its command id is replaced by one the core never issued, so
+    // the core with FEED_GAP); only its command id is replaced by one the core never issued, so
     // the core counts a stale outcome (assets_order_stale_outcomes_total, Table D U7) and no order ever hears of it.
     class NegctlSink final : public archive::FrameSink
     {
@@ -749,12 +749,12 @@ private:
             code, m_stop.exitCode, m_stop.detail);
     }
 
-    // 3.4: step 3 with limit 0 only, flush nothing (G1, G2), one SessionCloseRequest, then the sources: a dead
-    // source is detached without stopReplay (nothing to stop, FIX-7), a live one finishes its replay within 1 s.
-    // Review FIX-3 (2026-11-01): a requested stop must return 0 within the join bound (7 s) even when it landed during a
+    // 3.4: step 3 with limit 0 only, flush nothing, one SessionCloseRequest, then the sources: a dead
+    // source is detached without stopReplay (nothing to stop), a live one finishes its replay within 1 s.
+    // A requested stop must return 0 within the join bound (7 s) even when it landed during a
     // blocked archive call. A stop older than (join bound - archive timeout) at a point where the next step may issue an
     // archive call skips that step: the limit-0 step 3 and stopReplay are not run, the source is detached (the replay
-    // ends with this process, the next start re-lists; nothing is acknowledged or flushed either way, G1 / G2), and the
+    // ends with this process, the next start re-lists; nothing is acknowledged or flushed either way), and the
     // drain is bounded by what is left of the join bound.
     bool stopIsLate() const noexcept
     {
@@ -897,7 +897,7 @@ private:
             ignored(templateId);
             return;
         }
-        // row 1: this binary speaks money v7 exactly (D2), in every link state
+        // row 1: this binary speaks money v7 exactly, in every link state
         if (codec::MONEY_VERSION != version)
         {
             stop(EXIT_CONFIG, "F10_WRONG_CORE_VERSION", "core frame template %u has money-schema version %u; this binary "
@@ -1040,7 +1040,7 @@ private:
         return lower.find("version") != std::string::npos;
     }
 
-    // C1 FAILED / connect() refused: true = retry after the backoff (F12), false = a terminal refusal (F9).
+    // C1 FAILED / connect() refused: true = retry after the backoff, false = a terminal refusal.
     bool onConnectFailed()
     {
         using client::ConnectError;
@@ -1075,7 +1075,7 @@ private:
         }
         const bool byAck = app_seams::disabled(app_seams::Rule::INFERRED_READS_LAST_ACK) ?
             m_registrar.counters().acksRejected > 0 : m_registrar.rejectedByAck();
-        if (byAck) // S10' F2: the CURRENT refusal came as an AdminAck, not by inference
+        if (byAck) // The CURRENT refusal came as an AdminAck, not by inference
         {
             if (REJECT_DUPLICATE_IDENTITY == m_registrar.lastReason() &&
                 !app_seams::disabled(app_seams::Rule::DUPLICATE_IDENTITY_EXITS))
@@ -1092,10 +1092,10 @@ private:
         }
     }
 
-    // RC2 S10': REJECTED DUPLICATE_IDENTITY: another live registered session holds this identity. After a kill -9 the
+    // REJECTED DUPLICATE_IDENTITY: another live registered session holds this identity. After a kill -9 the
     // dead session stays registered at the core until its session timeout, so a prompt restart meets it: retry with a
     // bounded backoff for 60 s, then exit 78 (a second process with the same BRIDGE_INSTANCE_ID).
-    // The bound counts CONNECTED time only (S10' F1, dupClock): while the bridge has no core session nothing can be
+    // The bound counts CONNECTED time only (dupClock): while the bridge has no core session nothing can be
     // learnt about the other holder, and a core restart or election restarts the core's session-timeout clock anyway. A
     // new session or term inside an episode retries at once (the registrar keeps its REJECTED across the session change),
     // so every 78 follows a REJECTED ack in the current session and term.
@@ -1168,7 +1168,7 @@ private:
         }
     }
 
-    // S10' F1: the DUPLICATE_IDENTITY episode's clock: adds the time between two CONNECTED link steps, nothing while the
+    // The DUPLICATE_IDENTITY episode's clock: adds the time between two CONNECTED link steps, nothing while the
     // client is connecting, closed or awaiting a new leader. Runs at the top of every link step of an open episode.
     void dupClock(bool connected)
     {
@@ -1178,7 +1178,7 @@ private:
         }
         if (app_seams::disabled(app_seams::Rule::DUPLICATE_BUDGET_WALL_CLOCK))
         {
-            connected = true; // RED shape: the pre-review wall clock (an outage counts against the budget)
+            connected = true; // RED shape: the earlier wall clock (an outage counts against the budget)
         }
         if (connected && m_dupLastNs >= 0)
         {
@@ -1367,7 +1367,7 @@ private:
                 domain::bridge::BadReason::COUNT == v.bad ? "-" : domain::bridge::badReasonLabel(v.bad),
                 archive::faultName(v.fault));
         }
-        // RC2 S10' (W0 finding: the T1 rows time a FeedHalt's AdminAck against the gate stream, and the log had no halt
+        // (the T1 rows time a FeedHalt's AdminAck against the gate stream, and the log had no halt
         // line): one line when a halt starts, when its FeedHalt is acknowledged (ACCEPTED or DUPLICATE: the core alone
         // knows which) and when the halt ends; the log time is the steady clock, as `t1-core gate --watch`'s t
         const domain::bridge::HaltRecord &h = m_domain.halt();
@@ -1394,10 +1394,10 @@ private:
             m_loggedHaltCorrelation = h.correlationId;
             m_loggedHaltAcked = h.acked;
         }
-        // RC2 S17 W12 B1 (X-7): once per halt record, the operator's next step (the halt itself is logged above)
+        // Once per halt record, the operator's next step (the halt itself is logged above)
         if (h.active && h.foreignHead && !(m_loggedForeignHead && h.correlationId == m_loggedForeignCorrelation))
         {
-            // review V3: the same refusal is a journal left from another release OR a bridge of another build; never
+            // The same refusal is a journal left from another release OR a bridge of another build; never
             // tell the operator to wipe a valid journal over a version skew
             log(common::LogLevel::WARN,
                 "foreign journal at the chain head of every source (journal schema %d, this bridge reads schema %u): no "
@@ -1417,7 +1417,7 @@ private:
             m_lastConsumed = consumed;
             m_consumedChangedAt = m_now;
         }
-        // RC2 S10' 3.6: a confirm / lane_ahead fence moves the sync cursor (another lane delivered): progress
+        // A confirm / lane_ahead fence moves the sync cursor (another lane delivered): progress
         const std::int64_t syncCursor = m_domain.view().syncCursor;
         if (syncCursor != m_lastSyncCursor && !app_seams::disabled(app_seams::Rule::READY_IGNORES_SYNC_CURSOR))
         {
@@ -1434,7 +1434,7 @@ private:
     common::LogRing *m_log;
     common::DutyHeartbeat *m_heartbeat;
     AppCounters m_counters;
-    common::StorageStarvation m_coreStorage;   // S10' Q1
+    common::StorageStarvation m_coreStorage;   // the core ingress publication's starvation episode
     common::StorageStarvation m_replayStorage;
     common::StorageStarvation m_anyStorage;    // either of them: bridge_storage_starved_seconds_total
     common::ClientStorageFeed<CoreClient> m_coreStorageFeed;
@@ -1462,13 +1462,13 @@ private:
     std::uint64_t m_domainCallsInInvoker = 0;
     std::uint64_t m_invokes = 0;
     std::int64_t m_pendingSinceNs = -1;
-    bool m_loggedHaltActive = false;      // S10': the halt lines of drainVerdicts
+    bool m_loggedHaltActive = false;      // The halt lines of drainVerdicts
     std::int64_t m_loggedHaltCorrelation = 0;
     bool m_loggedHaltAcked = false;
-    bool m_loggedForeignHead = false;     // RC2 S17 W12 B1: the foreign-head WARN of drainVerdicts (once per halt record)
+    bool m_loggedForeignHead = false;     // The foreign-head WARN of drainVerdicts (once per halt record)
     std::int64_t m_loggedForeignCorrelation = 0;
-    bool m_dupActive = false;         // S10': a REJECTED DUPLICATE_IDENTITY episode is open (until enterC3)
-    std::int64_t m_dupHeldNs = 0;     // its CONNECTED time so far (F1: the 60 s bound counts only this)
+    bool m_dupActive = false;         // A REJECTED DUPLICATE_IDENTITY episode is open (until enterC3)
+    std::int64_t m_dupHeldNs = 0;     // its CONNECTED time so far (the 60 s bound counts only this)
     std::int64_t m_dupLastNs = -1;    // the last CONNECTED link step dupClock saw, -1 while not connected
     std::int64_t m_dupEpoch = -1;     // the session epoch and term of the episode's last REJECTED judgement
     std::int64_t m_dupTerm = -1;
@@ -1484,7 +1484,7 @@ private:
     std::int64_t m_lastInvokeNs = 0;
     std::int64_t m_offerEpochMs = 0;
     std::int64_t m_lastConsumed = -1;
-    std::int64_t m_lastSyncCursor = 0; // RC2 S10' 3.6
+    std::int64_t m_lastSyncCursor = 0; // a sync cursor move (confirm / lane_ahead fence) is progress for /ready
     TimePoint m_syncCursorChangedAt{};
     TimePoint m_consumedChangedAt{};
 };

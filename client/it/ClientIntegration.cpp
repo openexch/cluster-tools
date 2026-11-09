@@ -1,4 +1,4 @@
-// Real-cluster integration scenarios for the C++ cluster client (RC2 S11, F2 RED list).
+// Real-cluster integration scenarios for the C++ cluster client (RED list).
 // Driven by client/it/run-it.sh, which starts the media driver, a 3-node assets (core)
 // cluster and a 1-node match (ME) cluster from jars built at the dependencies.lock commits,
 // and does the killing. Each scenario prints PASS/FAIL lines and exits 0 only if all passed.

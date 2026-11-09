@@ -1,15 +1,15 @@
-# The RED column of RC2 S9a contract 9.1/9.2 as a checked-in table. Each line: test case | rule |
+# The RED column of the archive tests as a checked-in table. Each line: test case | rule |
 # why | expected text. run-negative-controls.sh runs the test with
 # CT_TEST_DISABLE_<rule>=1 (a seam that exists only in the seamed test build) and requires it to
 # FAIL, and runs it once more without the variable and requires it to PASS. The fourth field is a
-# text the failure output must carry (review N-10): the RED fails for the stated reason, not any.
+# text the failure output must carry: the RED fails for the stated reason, not any.
 FramePeekTest.refusesEveryRow|PEEK_FLAGS|flags 0x80 and 0x40 frames pass row 1|CHECK_FALSE( a.accepted() )
 FramePeekTest.refusesEveryRow|PEEK_LENGTH|1113 B passes row 2 (refused later for the wrong reason)|CHECK( a.refusal == row.expected )
 FramePeekTest.refusesEveryRow|PEEK_SCHEMA|schema 3 v1, schema 4 v2 and schema 1 frames pass row 3|CHECK_FALSE( a.accepted() )
 FramePeekTest.refusesEveryRow|PEEK_TEMPLATE|template 6 and 0 pass row 4|CHECK( a.refusal == row.expected )
 FramePeekTest.refusesEveryRow|PEEK_BLOCK|block 108 and 110 pass row 5|CHECK( a.refusal == row.expected )
 FramePeekTest.refusesEveryRow|PEEK_FRAME_LENGTH|a 49-entry header, a 55 B record 4, group block 21 pass row 6|CHECK_FALSE( a.accepted() )
-FramePeekTest.refusesEveryRow|PEEK_HEAD|journalSeq 0, meEpoch 0 and -1 pass row 7 (the silent skip of F5)|CHECK_FALSE( a.accepted() )
+FramePeekTest.refusesEveryRow|PEEK_HEAD|journalSeq 0, meEpoch 0 and -1 pass row 7 (the silent skip)|CHECK_FALSE( a.accepted() )
 FramePeekTest.peeksHeadAtFixedOffsets|PEEK_OFFSETS_SHIFTED|offsets shifted by 8: wrong seq|CHECK( a.peek.journalSeq == 77 )
 FramePeekTest.peeksEveryJavaFixture|PEEK_BLOCK_OFF_BY_ONE|block table off by one: the Java fixtures are refused|REQUIRE( a.accepted() )
 FramePeekTest.everyMutationOfEveryFixtureRefusedOrPassedAsTheTableSays|PEEK_FRAME_LENGTH|length +- 1 mutations pass|CHECK( a.refusal == want )
@@ -60,8 +60,8 @@ ResumeMemoTest.retainedAcrossAReportAdvance|MEMO_PROVE_FROM_SKIP|5.2 rule 1 off:
 ResumeMemoTest.proofOnlyFromSeqAtOrBelowCursor|MEMO_PROVE_FROM_SKIP|5.2 rule 1 off: the seq-5 proof is never made|CHECK( memo.proveFromSkip(A, key(0), peek(5), 160) )
 ChainWalkPropertyTest.forwardedSeqsAreDenseAndHolesAreRealAcrossRandomChains|PROPERTY_FORWARD_GREATER|forward rule seq > last: a hole is forwarded|offered
 ChainWalkPropertyTest.forwardedSeqsAreDenseAndHolesAreRealAcrossRandomChains|MEMO_HOLE_VERIFY|hole verification off: a false GAP from a memo read|FeedHalt GAP at
-FollowPolicyTest.successorListedLateContinuesTheRead|FOLLOW_CONTINUATION|F-1 off: the chain is re-replayed until the successor is listed|CHECK( h.archive.requests.size() == 2 )
-FollowPolicyTest.sinkAbortBackPressureIsNotAStall|FOLLOW_ABORT_IS_PAUSE|F-4 off: owner back-pressure via ABORT is a false STALL|CHECK( h.observer.faults.empty() )
-FollowPolicyTest.stopAfterPaddingIsDrainedNotEarlyEof|FOLLOW_PADDING_REACHED|N-1 off: a stop after padding is EARLY_EOF on every attach|CHECK_FALSE( h.observer.sawFault(FaultKind::EARLY_EOF) )
-ResumeMemoTest.secondPurgeRaceAfterAFaultStillTrims|FOLLOW_RELIST_RESET|F-2 off: a second purge race invalidates the memo|CHECK( h.metrics.invalidations(MemoReason::POSITION_REJECTED) == 0 )
-ResumeMemoTest.believedHoleIsVerifiedAndStopsForcingColdWalks|MEMO_VERIFIED_MARKER|F-3 off: a believed hole forces cold walks for the sync|CHECK_FALSE( memo.holeVerificationPending(0) )
+FollowPolicyTest.successorListedLateContinuesTheRead|FOLLOW_CONTINUATION|Seam off: the chain is re-replayed until the successor is listed|CHECK( h.archive.requests.size() == 2 )
+FollowPolicyTest.sinkAbortBackPressureIsNotAStall|FOLLOW_ABORT_IS_PAUSE|Seam off: owner back-pressure via ABORT is a false STALL|CHECK( h.observer.faults.empty() )
+FollowPolicyTest.stopAfterPaddingIsDrainedNotEarlyEof|FOLLOW_PADDING_REACHED|Seam off: a stop after padding is EARLY_EOF on every attach|CHECK_FALSE( h.observer.sawFault(FaultKind::EARLY_EOF) )
+ResumeMemoTest.secondPurgeRaceAfterAFaultStillTrims|FOLLOW_RELIST_RESET|Seam off: a second purge race invalidates the memo|CHECK( h.metrics.invalidations(MemoReason::POSITION_REJECTED) == 0 )
+ResumeMemoTest.believedHoleIsVerifiedAndStopsForcingColdWalks|MEMO_VERIFIED_MARKER|Seam off: a believed hole forces cold walks for the sync|CHECK_FALSE( memo.holeVerificationPending(0) )

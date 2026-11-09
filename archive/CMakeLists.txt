@@ -1,4 +1,4 @@
-# archive - the C++ bridge's archive side (RC2 S9a). The pure core (frame admission gate, chain
+# archive - the C++ bridge's archive side. The pure core (frame admission gate, chain
 # model, follow decision table and loop, per-source resume memo, strict settings, metrics) builds
 # in every configuration, the WITH_AERON=OFF job included; the Aeron adapter is archive/aeron
 # (WITH_BRIDGE).
@@ -6,7 +6,7 @@
 # ct_archive_core         the production library: the CT_TEST_DISABLE_* seams compile to nothing.
 # ct_archive_core_seamed  the same sources with CT_TEST_SEAMS, linked ONLY by test targets: each rule
 #                         the tests pin can be switched off (env CT_TEST_DISABLE_<RULE>=1) so the
-#                         negative-control run proves the test fails without it (contract 9).
+#                         negative-control run proves the test fails without it.
 
 set(CT_ARCHIVE_CORE_SOURCES
     src/ArchiveMetrics.cpp

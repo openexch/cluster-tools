@@ -8,12 +8,12 @@
 #include "cluster_tools/domain/forwarder/DispatchRules.h"
 #include "cluster_tools/domain/forwarder/SendRing.h"
 
-// ResyncMachine - the dispatch machine D of RC2 S12 contract 4.3 and the resync rules of section 6.
+// ResyncMachine - the dispatch machine D and the resync rules.
 //
 // Inputs are what the agent decoded from core egress AFTER the term filter (rule S of 6.2): dispatch
 // entries in arrival order, each with its 5.4 classification; PendingDispatchEnd; triggers; time.
 // Output: pushes into the SendRing in the 5.5 form, strictly ascending in dispatchSeq between triggers
-// (G3), and the RequestPendingDispatch (65) the agent must offer to the core.
+// And the RequestPendingDispatch (65) the agent must offer to the core.
 //
 //   D0 IDLE            not registered: entries dropped; entering D0 clears hold and abandons the request
 //   D1 RESYNCING       a probe or page is outstanding or due: entries appended to hold
@@ -71,8 +71,8 @@ struct PendingRequest
 enum class ResyncVerdict : std::uint8_t
 {
     NONE,
-    PRE_S8_CORE, // F15: a probe 108 with count != 0 (exit 78)
-    INVARIANT,   // F2: the cursor went backwards or a push was not ascending (exit 70)
+    PRE_HEAD_PROBE_CORE, // A probe 108 with count != 0 (exit 78)
+    INVARIANT,   // The cursor went backwards or a push was not ascending (exit 70)
 };
 
 enum class ShapeCheck : std::uint8_t
@@ -110,7 +110,7 @@ struct ResyncCounters
     std::uint64_t heldResolved = 0;
     std::uint64_t requestsSent = 0;
     std::uint64_t ignoredIdleTriggers = 0;
-    std::uint64_t seqBelowOne = 0; // review NOTE-2: refused in every mode
+    std::uint64_t seqBelowOne = 0; // Refused in every mode
 };
 
 class ResyncMachine
@@ -127,7 +127,7 @@ public:
     explicit ResyncMachine(SendRing &ring) : m_ring(ring) {}
 
     // ---- link
-    // Entry into C3 (T1): head probe first (F15 check), then RESYNC(0).
+    // Entry into C3 (T1): head probe first (the pre-resync-core check), then RESYNC(0).
     void onRegistered(std::int64_t nowNs) noexcept;
     // Every exit from C3: D0. hold cleared, the outstanding request abandoned. The ring is kept (its
     // entries are valid commands; the RESYNC(0) at the next C3 clears it).

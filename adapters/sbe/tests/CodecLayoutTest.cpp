@@ -1,4 +1,4 @@
-// Codec goldens shared with the Java side (rc2-forwarder.md section 4, F1): frames encoded by
+// Codec goldens shared with the Java side: frames encoded by
 // the engines' own Java encoders (golden/golden_frames.inc, regen.sh) must decode field for
 // field with the C++ codecs generated here, and the C++ encoders must reproduce them byte for
 // byte. A schema drift between this build's MONEY_SCHEMA / MATCH_SCHEMA and the engines then
@@ -57,7 +57,7 @@ TEST_CASE("build info names the schemas this binary speaks")
     CHECK(money::MessageHeader::sbeSchemaId() == 2);
     CHECK(me::MessageHeader::sbeSchemaId() == 1);
     CHECK(journal::MessageHeader::sbeSchemaId() == 4);
-    // The pins of RC2 S1 / dependencies.lock: money v7, order v12, ME journal v1.
+    // The pins of / dependencies.lock: money v7, order v12, ME journal v1.
     CHECK(money::MessageHeader::sbeSchemaVersion() == 7);
     CHECK(me::MessageHeader::sbeSchemaVersion() == 12);
     CHECK(journal::MessageHeader::sbeSchemaVersion() == 1);
@@ -73,9 +73,9 @@ TEST_CASE("v7/v12 block lengths: the layouts the engines encode")
     CHECK(me::DurableOrderCommand::sbeBlockLength() == 80);  // v11 was 71: timeInForce + expectedOldRemaining
 }
 
-TEST_CASE("RC2 S12 floors: the templates the forwarder reads and writes exist at their v7/v12 layouts")
+TEST_CASE("forwarder floors: the templates the forwarder reads and writes exist at their v7/v12 layouts")
 {
-    // dependencies.lock requires money 65/101 and match 10 (W1); the forwarder's fixed frame sizes (contract 5.1)
+    // dependencies.lock requires money 65/101 and match 10; the forwarder's fixed frame sizes
     // follow from these block lengths.
     CHECK(money::RequestPendingDispatch::sbeTemplateId() == 65);
     CHECK(money::RequestPendingDispatch::sbeBlockLength() == 20);
@@ -204,8 +204,8 @@ TEST_CASE("MeDispatchBatch: Java golden decodes entry by entry, C++ re-encodes b
 
 TEST_CASE("MeDispatch entry -> DurableOrderCommand: the one-to-one copy equals match's Java encoder bytes")
 {
-    // rc2-forwarder.md 2.5 step 3, at ME v12: the 12 intent fields copied, dispatchSeq dropped,
-    // timeInForce and expectedOldRemaining now carried (X6 closed by the v12 template 9 tail).
+    // At ME v12: the 12 intent fields copied, dispatchSeq dropped,
+    // timeInForce and expectedOldRemaining now carried (closed by the v12 template 9 tail).
     // Entry 1 of the batch golden is the source.
     std::vector<std::uint8_t> golden = JAVA_ME_DISPATCH_BATCH;
     money::MessageHeader header(bytes(golden), 0, golden.size(), 0);
@@ -319,11 +319,11 @@ TEST_CASE("ME journal codecs are generated: schemaId 4 v1, templates 1..5")
 }
 
 // ============================================================================================================
-// RC2 S13 W1 (contract 11.3): the K4 templates. The forwarder reads 22 / 25 / 26 by raw offsets and writes 60 with the
+// The templates. The forwarder reads 22 / 25 / 26 by raw offsets and writes 60 with the
 // generated encoder; these are the numbers the raw reads rest on (ForwarderCodec.cpp static_asserts the same).
 // ============================================================================================================
 
-TEST_CASE("RC2 S13 floors: ids, block lengths and group headers of 22, 25, 26 and 60")
+TEST_CASE("market-data floors: ids, block lengths and group headers of 22, 25, 26 and 60")
 {
     CHECK(me::BookSnapshot::sbeTemplateId() == 22);
     CHECK(me::BookSnapshot::sbeBlockLength() == 36);
@@ -447,7 +447,7 @@ TEST_CASE("TradeExecutionBatch: Java golden decodes through the generated codec;
         i++;
     }
     CHECK(i == 3);
-    // the CL-F-9 golden is the same bytes except the group header's blockLength (offset 20) = 88
+    // the golden is the same bytes except the group header's blockLength (offset 20) = 88
     std::vector<std::uint8_t> bad = JAVA_TRADE_EXECUTION_BATCH_BAD_GROUP_BL;
     REQUIRE(bad.size() == golden.size());
     CHECK(bad[20] == 88);

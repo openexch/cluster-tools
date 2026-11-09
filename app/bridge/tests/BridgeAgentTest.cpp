@@ -1,5 +1,5 @@
-// RC2 S9c 12.2 BridgeAgentTest: the real agent over ClusterClient<FakeTransport> + the StubCore behind it + SimSources,
-// a manual clock, egress delivered 1..8 iterations late (checklist C1). The RED column is negative-controls.txt.
+// BridgeAgentTest: the real agent over ClusterClient<FakeTransport> + the StubCore behind it + SimSources,
+// a manual clock, egress delivered 1..8 iterations late. The RED column is negative-controls.txt.
 #include "doctest/doctest.h"
 
 #include <algorithm>
@@ -84,7 +84,7 @@ TEST_CASE("BridgeAgentTest.noFeedOfferBeforeNewTermReport")
 
 TEST_CASE("BridgeAgentTest.noOfferBetweenPublicationSwapAndFence")
 {
-    // N-8: a report of the new term processed in the SAME poll right after the NewLeaderEvent must find the fence
+    // A report of the new term processed in the SAME poll right after the NewLeaderEvent must find the fence
     // already applied (else it answers the pre-fence query and the domain acts on it before the fence)
     AppRig r(1);
     SimRecording &rec = r.journal(0, 1, 30);
@@ -352,14 +352,14 @@ TEST_CASE("BridgeAgentTest.registrarRejectedExits78")
     r.runFor(5 * SECOND);
     REQUIRE(r.agent->stopped());
     const bool observedRefusalIs78 = 78 == r.agent->stopReason().exitCode;
-    CHECK(observedRefusalIs78); // EXIT_CODES_ALL_70 RED: the S9a F4 reading
+    CHECK(observedRefusalIs78); // EXIT_CODES_ALL_70 RED: the earlier reading
     CHECK(std::string(r.agent->stopReason().code) == "F8_REJECTED");
     CHECK(r.agent->counters().sessionUps == 0);
 }
 
 TEST_CASE("BridgeAgentTest.duplicateIdentityRetriesUntilTheOldSessionTimesOut")
 {
-    // RC2 S10': a restart right after a kill -9 meets the dead session of its identity, still registered at the core
+    // A restart right after a kill -9 meets the dead session of its identity, still registered at the core
     // until the core session timeout: REJECTED DUPLICATE_IDENTITY (44) is retried, the bridge registers once it is gone
     AppRig r(1);
     r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
@@ -395,7 +395,7 @@ TEST_CASE("BridgeAgentTest.duplicateIdentityPastTheBoundExits78")
 
 TEST_CASE("BridgeAgentTest.duplicateIdentitySurvivesALongCoreOutage")
 {
-    // S10' F1: the 60 s bound counts CONNECTED time only. 5 s of REJECTED 44, then the core closes the session and
+    // The 60 s bound counts CONNECTED time only. 5 s of REJECTED 44, then the core closes the session and
     // answers no connect for 70 s (a core restart); the restarted core still holds the dead session for 10 s more (its
     // session-timeout clock restarted). The registrar keeps its REJECTED across the outage: the new session must retry
     // at once, not judge the stale refusal against 75 s of wall clock.
@@ -429,7 +429,7 @@ TEST_CASE("BridgeAgentTest.duplicateIdentitySurvivesALongCoreOutage")
 
 TEST_CASE("BridgeAgentTest.duplicateIdentityAfterAnOutageStillExits78")
 {
-    // S10' F1, the other side: a genuine duplicate is not hidden by an outage. 30 s of REJECTED 44, 70 s without a
+    // The other side: a genuine duplicate is not hidden by an outage. 30 s of REJECTED 44, 70 s without a
     // session, then the identity is still held: exit 78 after 30 s more CONNECTED time, not before, and only after a
     // REJECTED ack of the new session
     AppRig r(1);
@@ -462,8 +462,8 @@ TEST_CASE("BridgeAgentTest.duplicateIdentityAfterAnOutageStillExits78")
 
 TEST_CASE("BridgeAgentTest.inferredRefusalDuringDuplicateIdentityExits75")
 {
-    // S10' F2: inside a DUPLICATE_IDENTITY episode the core goes silent and closes three sessions with the retry
-    // pending: the refusal is now INFERRED (S9c F8B, 75), not the earlier ack's 44 (which would retry, then exit 78)
+    // Inside a DUPLICATE_IDENTITY episode the core goes silent and closes three sessions with the retry
+    // pending: the refusal is now INFERRED (F8B, 75), not the earlier ack's 44 (which would retry, then exit 78)
     AppRig r(1);
     r.reg = AppRig::Reg::DUPLICATE_IDENTITY;
     r.duplicateUntilNs = r.t.now + 3600 * SECOND;
@@ -491,7 +491,7 @@ TEST_CASE("BridgeAgentTest.inferredRefusalDuringDuplicateIdentityExits75")
 
 TEST_CASE("BridgeAgentTest.duplicateIdentityEpisodeResetsTwiceInOneRun")
 {
-    // S10' F3 (checklist C4): the episode markers reset at each registration. Three episodes in one process, each a
+    // Episode reset: the episode markers reset at each registration. Three episodes in one process, each a
     // partition where the core still holds the old session for 20 s, with 70 s registered between them: an episode
     // judged against an earlier one's time would exit 78 at its first REJECTED of the new session
     AppRig r(1);
@@ -742,7 +742,7 @@ TEST_CASE("BridgeAgentTest.readyBitsEachFail")
 
 TEST_CASE("BridgeAgentTest.readyConfirmFenceAdvancesTheSyncCursor")
 {
-    // RC2 S10' 3.6 ("confirm fences advance the sync cursor: READY"): a lane whose only source lacks e = 11 (a hole,
+    // ("confirm fences advance the sync cursor: READY"): a lane whose only source lacks e = 11 (a hole,
     // seq 12 present) confirms before a GAP halt; another lane delivered 11 and 12 meanwhile (the stub core's cursor,
     // no frame through this lane), but the confirming report reaches this lane only 35 s later (held egress). The
     // lane_ahead fence then syncs from C' = 12: no forward, a backlog claimed. The sync cursor's move is progress.
@@ -790,7 +790,7 @@ TEST_CASE("BridgeAgentTest.readyConfirmFenceAdvancesTheSyncCursor")
 
 TEST_CASE("BridgeAgentTest.readySkipWalkIsProgress")
 {
-    // FIX-10: a cold restart behind applied records is a skip walk at full speed and stays READY; backlog without the
+    // A cold restart behind applied records is a skip walk at full speed and stays READY; backlog without the
     // consumed position moving is not
     using namespace app::not_ready;
     AppRig r(1);
@@ -876,7 +876,7 @@ TEST_CASE("BridgeAgentTest.mtuRefusedEverywhereExits78")
 
 TEST_CASE("BridgeAgentTest.negctlDropsOutcomesAndTerminals")
 {
-    // ct_bridge_negctl (the A02-T2 control, used by S10' / S15): records 2 and 3 never reach the domain
+    // ct_bridge_negctl (the drop-records control): records 2 and 3 never reach the domain
     // (smoke-tested here with the seam forced on: the run below is only meaningful under CT_TEST_DISABLE_NEGCTL_...)
     AppRig r(1);
     SimRecording &rec = r.archive(0).record();
@@ -921,7 +921,7 @@ std::int64_t commandIdHighOf(const ct_archive_test::Bytes &record)
 
 TEST_CASE("BridgeAgentTest.outcomeKeepsItsCommandIdAndSeq")
 {
-    // RC2 S15 W4: the production reading, and the RED of ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3 on): the outcome
+    // The production reading, and the RED of ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3 on): the outcome
     // (record 3) reaches the domain with the ME's command id, so the core can bind it to its pending command.
     AppRig r(1);
     SimRecording &rec = r.archive(0).record();
@@ -946,7 +946,7 @@ TEST_CASE("BridgeAgentTest.outcomeKeepsItsCommandIdAndSeq")
 
 TEST_CASE("BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId")
 {
-    // ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3, S15 PO-3 / PO-3b), meaningful with the seam forced on: the feed stays
+    // ct_bridge_nc_legacy (NEGCTL_DROP_RECORD_3), meaningful with the seam forced on: the feed stays
     // dense (a hole would latch the core FEED_GAP), trades and terminals translate unchanged, and only the outcome
     // loses its command id (a never-issued one, the core counts a stale outcome).
     AppRig r(1);
@@ -956,7 +956,7 @@ TEST_CASE("BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId")
     appendJournal(r.archive(0), rec, 6, 8, EPOCH, TEMPLATE_TERMINAL);
     r.bringUp();
     r.runFor(3 * SECOND);
-    // S15 review F2: ctest bridge.app_nc_legacy_control runs this case with the seam forced on AND this variable set,
+    // Ctest bridge.app_nc_legacy_control runs this case with the seam forced on AND this variable set,
     // so a renamed rule or env cannot turn the case into a vacuous early return there
     if (nullptr != std::getenv("CT_TEST_REQUIRE_NEGCTL_DROP_RECORD_3"))
     {
@@ -989,7 +989,7 @@ TEST_CASE("BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId")
 
 TEST_CASE("BridgeAgentTest.legacyControlPatchRefusesWhatItCannotPatch")
 {
-    // S15 review F3: the nc_legacy patch either rewrites the command id or reports false (the sink then aborts); a
+    // The nc_legacy patch either rewrites the command id or reports false (the sink then aborts); a
     // frame outside the length guard never comes back unpatched
     std::uint8_t out[cluster_tools::archive::MAX_FRAME_LENGTH]{};
     ct_archive_test::Bytes outcome = ct_archive_test::makeFrame(TEMPLATE_OUTCOME, 5, EPOCH, 320);
@@ -1010,7 +1010,7 @@ TEST_CASE("BridgeAgentTest.legacyControlPatchRefusesWhatItCannotPatch")
 
 namespace {
 
-// RC2 S16 W4 (F-S16-3, RED-A04): the live ME re-genesis. The bridge's cursor is 10; the old ME's recording ends and the
+// The live ME re-genesis. The bridge's cursor is 10; the old ME's recording ends and the
 // fresh ME records seqs 1..5 under a NEW epoch in a second recording.
 struct RegenesisRun
 {
@@ -1037,7 +1037,7 @@ RegenesisRun runRegenesis(AppRig &r)
 
 TEST_CASE("BridgeAgentTest.regenesisHaltsOnAForeignEpochSeqBelowTheCursor")
 {
-    // The product refuses the foreign epoch before the skip rule (BDM row 1) and halts: SOURCE_SCHEMA by the stale-prefix
+    // The product refuses the foreign epoch before the skip rule (the domain's epoch row) and halts: SOURCE_SCHEMA by the stale-prefix
     // rule or EPOCH_MISMATCH by the foreign-epoch rule. Nothing of the fresh epoch is offered. EPOCH_CHECK_OFF is its RED
     // (negative-controls.txt), ct_bridge_nc_noepoch the same RED as a binary.
     AppRig r(1);
@@ -1074,10 +1074,10 @@ TEST_CASE("BridgeAgentTest.noEpochControlSkipsAForeignSeqAtOrBelowTheCursor")
 
 TEST_CASE("BridgeAgentTest.foreignJournalHeadHealthDetail")
 {
-    // RC2 S17 W12 B1 (X-7, C5): the only source's chain starts with a journal of another schema (schema 3 from its first
-    // byte; the RC2 ME's own journal follows in a later recording). /health is 503 with "haltDetail":"FOREIGN_JOURNAL_HEAD"
+    // A foreign journal head: the only source's chain starts with a journal of another schema (schema 3 from its first
+    // byte; the ME's own journal follows in a later recording). /health is 503 with "haltDetail":"FOREIGN_JOURNAL_HEAD"
     // and relistsSinceHalt 0 across two re-scans; the WARN "foreign journal at the chain head" is logged once, naming both
-    // schema ids and the build check before any wipe (review V3)
+    // schema ids and the build check before any wipe
     AppRig r(1);
     SimRecording &old = r.archive(0).record();
     for (std::int64_t s = 1; s <= 4; ++s)
@@ -1098,7 +1098,7 @@ TEST_CASE("BridgeAgentTest.foreignJournalHeadHealthDetail")
             if (common::LogLevel::WARN == rec.level && std::strstr(rec.text, "foreign journal at the chain head") != nullptr)
             {
                 ++warns;
-                // review V3: both schema ids, the build check first, and the wipe only for a journal of another release
+                // Both schema ids, the build check first, and the wipe only for a journal of another release
                 warnNamesSchemas = warnNamesSchemas || std::strstr(rec.text, "journal schema 3, this bridge reads schema 4") != nullptr;
                 warnBuildFirst = warnBuildFirst || (std::strstr(rec.text, "check the bridge build against the ME journal schema first") != nullptr &&
                     std::strstr(rec.text, "wipe only a journal left from another release") != nullptr);

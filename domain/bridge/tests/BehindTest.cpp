@@ -1,4 +1,4 @@
-// BehindTest (RC2 S9b 13.6, Q3 of S9a/README): the BEHIND verdict of 8.4 and rows 2-3 of 8.3.
+// BehindTest: the BEHIND verdict of 8.4 and rows 2-3 of 8.3.
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -114,7 +114,7 @@ TEST_CASE("BehindTest.holeWithLaggingSourceWaitsThenHalts")
 
 TEST_CASE("BehindTest.allBehindParksOnTheLastLiveSource")
 {
-    // FIX-5: dead node 0, live node 1, a quiet period: parked on 1, not on the first configured
+    // Dead node 0, live node 1, a quiet period: parked on 1, not on the first configured
     Rig rig(2);
     run(rig.archive(0), 1, 5, false);
     SimRecording &live = run(rig.archive(1), 1, 10, false);
@@ -132,7 +132,7 @@ TEST_CASE("BehindTest.allBehindParksOnTheLastLiveSource")
 
 TEST_CASE("BehindTest.dwellStartsAfterTheFirstProbe")
 {
-    // FIX-6: after a switch the backlog gauge still holds the previous source's value (0, at its head) until the
+    // After a switch the backlog gauge still holds the previous source's value (0, at its head) until the
     // new source's first probe; it must not make the new one BEHIND
     Direct d(2, [](BridgeSettings &s) { s.behindDwell = 10'000ms; });
     d.core.bound = EPOCH;

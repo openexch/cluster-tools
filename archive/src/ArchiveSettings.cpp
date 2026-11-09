@@ -35,7 +35,7 @@ std::string canonicalHost(const std::string &host)
         return "127.0.0.1";
     }
     // Every IPv4 form inet_aton accepts (127.1, 0x7f.1, 2130706433) to dotted quad; IPv6 to its
-    // RFC 5952 text; a v4-mapped IPv6 address to its IPv4 form (review N-12).
+    // RFC 5952 text; a v4-mapped IPv6 address to its IPv4 form.
     in_addr v4{};
     if (h.find(':') == std::string::npos && ::inet_aton(h.c_str(), &v4) != 0)
     {

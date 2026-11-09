@@ -1,4 +1,4 @@
-// FramePeek: the 4.4 admission gate and head peek (RC2 S9a contract 9.1, 9.2), against built frames
+// FramePeek: the 4.4 admission gate and head peek, against built frames
 // and the six golden fixtures of match's MeJournalFixtureDump.
 #include "doctest/doctest.h"
 

@@ -1,4 +1,4 @@
-// RC2 S9c 12.2 agentOverLaggedCoreRecoversHalts (checklist C5): the S9b property shape driven THROUGH the app wiring
+// agentOverLaggedCoreRecoversHalts: the property shape driven THROUGH the app wiring
 // (the real agent, the real ClusterClient, the registrar, rule S, the link machine): per seed, two sources, egress
 // 1..8 iterations late, lossy elections (only while a frame is uncommitted), egress image losses before an election,
 // session losses (also while halted: a kept halt), a hole on one source (failover) or on every source (GAP halt,
@@ -123,7 +123,7 @@ bool oneSeed(std::uint64_t seed, Totals &totals, std::string &why)
         if (2 == shape && halted && !filled && written == n && r.core.cursor == hole - 1 && chance(50))
         {
             // the operator fills one node: a new recording on source 0 carries hole..n
-            // (one complete active recording: the node's journal re-written, the S9b property's fill)
+            // (one complete active recording: the node's journal re-written, the property's fill)
             r.archive(0).recordings.clear();
             SimRecording &fill = r.archive(0).record();
             appendJournal(r.archive(0), fill, 1, n);

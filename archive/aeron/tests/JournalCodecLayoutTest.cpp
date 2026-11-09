@@ -1,4 +1,4 @@
-// JournalCodecLayoutTest (RC2 S9a contract 9.2, WITH_BRIDGE): the 4.4 constants equal the
+// JournalCodecLayoutTest (WITH_BRIDGE): the 4.4 constants equal the
 // generated schema 4 codecs, and the six fixtures decode with them field for field.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"

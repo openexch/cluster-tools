@@ -2,8 +2,8 @@
 
 #include "cluster_tools/domain/forwarder/TestSeams.h"
 
-// RC2 S13 contract section 4 (rules 1-7, 4.2 in every state, rule U), section 5 (the trade mark through the
-// stitcher) and 4.1 rule 6 (session end). Every "RED shape" branch is a test seam that compiles to nothing in the
+// The ladder rules (1-7, in every state, rule U), the trade mark through the
+// stitcher and the session end. Every "RED shape" branch is a test seam that compiles to nothing in the
 // production library (TestSeams.h).
 
 namespace cluster_tools { namespace domain { namespace forwarder {
@@ -85,7 +85,7 @@ LadderOutcome BookLadder::applySnapshot(const BookFrame &f, std::int64_t nowNs) 
     const bool wasBroken = LadderState::BROKEN == m_state;
     if (wasOk && f.bookVersion < m_version)
     {
-        m_counters.versionRegressions++; // section 9 case V: safe only because of the step 4 stale-term filter
+        m_counters.versionRegressions++; // Case V: safe only because of the step 4 stale-term filter
     }
     for (int i = 0; i < f.nBids; i++)
     {
@@ -180,7 +180,7 @@ bool BookLadder::applyChange(const BookChange &c) noexcept
             levels[at].orderCount = c.orderCount;
             return true;
         }
-        // CL-N-11: the RED shape caps the effective capacity at 20 by this bound check, never by a smaller array
+        // The RED shape caps the effective capacity at 20 by this bound check, never by a smaller array
         const int capacity = seams::disabled(seams::Rule::STITCH_40_SLOTS) ? LADDER_LEVELS : LADDER_SLOTS;
         if (count >= capacity)
         {

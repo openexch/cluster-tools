@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_APP_FORWARDER_SUPERVISOR_H
 #define CLUSTER_TOOLS_APP_FORWARDER_SUPERVISOR_H
 
-// The forwarder's names for the shared app/common Supervisor (RC2 S9c W1: moved, not copied; the SupervisorSettings
+// The forwarder's names for the shared app/common Supervisor (moved, not copied; the SupervisorSettings
 // defaults are the forwarder's: 2 s join bound, SIGHUP = resync, "ct-forwarder", fwd-duty / fwd-http).
 #include "common/Supervisor.h"
 

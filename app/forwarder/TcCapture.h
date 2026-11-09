@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-// TcCapture - the frame capture of ct_forwarder_tc_capture (RC2 S10' contract 7.1 item 2, T1-F re-sends; never
+// TcCapture - the frame capture of ct_forwarder_tc_capture (T1-F re-sends; never
 // published: publish.yml refuses every ct_forwarder_tc_* name). ForwarderAgent includes this header and calls it only
 // under CT_FORWARDER_TC_CAPTURE, so the production ct-forwarder's drain path is unchanged.
 //
@@ -19,7 +19,7 @@
 // appended to <dir>/sidecar.txt:
 //   n template commandIdHigh commandIdLow kind dispatchSeq sha256
 // template 10: the ids of the frame's FIRST entry (commandIdLow = its idLowFloor), kind 3, dispatchSeq = the frame's
-// releaseSeq; the frame's other entries are in the .bin. sha256 is the hex SHA-256 of the .bin (review N-11: the
+// releaseSeq; the frame's other entries are in the .bin. sha256 is the hex SHA-256 of the .bin (the
 // re-send input is pinned by it). The .bin is complete and closed before its sidecar line is written and flushed, so
 // a SIGKILL never leaves a line naming a partial frame. Duty-thread blocking I/O: acceptable in a test build only.
 

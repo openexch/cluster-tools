@@ -150,10 +150,10 @@ if(NOT CT_JOURNAL_SHA256 STREQUAL CT_LOCK_JOURNAL_SHA)
         "dependencies.lock pins ${CT_LOCK_JOURNAL_SHA}")
 endif()
 
-# RC2 S9a (contract 2.2): the bridge reads the ME journal and writes the core money wire, and the
+# The bridge reads the ME journal and writes the core money wire, and the
 # core gate is exact (v7 only). Under WITH_BRIDGE both schemas are pinned by EXACT sha256 and exact
 # root version, unlike the structural floor above: a money v8 file would pass a floor and be refused
-# by the exact-7 core gate at run time (R-B1-1's C++ twin).
+# by the exact-7 core gate at run time (C++ twin).
 if(WITH_BRIDGE)
     string(JSON CT_LOCK_MONEY_SHA GET "${CT_DEPENDENCY_LOCK}" money_schema_sha256)
     if(NOT CT_MONEY_SHA256 STREQUAL CT_LOCK_MONEY_SHA)
@@ -174,7 +174,7 @@ if(WITH_BRIDGE)
     endif()
 endif()
 
-# RC2 S1 refuter X6: a v12 order schema whose DurableOrderCommand (template 9) has no
+# Refuter: a v12 order schema whose DurableOrderCommand (template 9) has no
 # timeInForce is not the schema the lock names, whatever its root version says.
 file(READ "${MATCH_SCHEMA}" CT_MATCH_XML)
 string(REGEX MATCH "<sbe:message[ \t\r\n]+name=\"[A-Za-z0-9_]+\"[ \t\r\n]+id=\"9\"" CT_T9_OPEN "${CT_MATCH_XML}")
@@ -202,7 +202,7 @@ set(AERON_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
 set(AERON_BUILD_DOCUMENTATION OFF CACHE BOOL "" FORCE)
 set(AERON_INSTALL_TARGETS OFF CACHE BOOL "" FORCE)
 set(AERON_HIDE_DEPRECATION_MESSAGE ON CACHE BOOL "" FORCE)
-# RC2 S12 review Q5 / NOTE-9: never link libbsd / libmd. Aeron's C build probes bsd/stdlib.h and libbsd and links them
+# Never link libbsd / libmd. Aeron's C build probes bsd/stdlib.h and libbsd and links them
 # when the build host happens to have libbsd-dev, which makes the shipped binaries depend on what the runner had
 # installed (and the bare-box allowlist of publish.yml refuses them). glibc >= 2.36 has arc4random in stdlib.h, so with
 # the probes pre-answered Aeron takes it from libc. Normal variables shadow the probes' cache entries (CMP0125 NEW in

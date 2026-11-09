@@ -62,7 +62,7 @@ void ResyncMachine::onRegistered(std::int64_t nowNs) noexcept
     m_probeVerified = false;
     if (noTriggers())
     {
-        // ct_forwarder_nc_noresync: the naive relay that never asks the core (contract 11.4 control).
+        // ct_forwarder_nc_noresync: the naive relay that never asks the core (a negative control).
         m_mode = Mode::LIVE;
         m_lastPushedSeq = m_cursor;
         abandonRequest();
@@ -76,7 +76,7 @@ void ResyncMachine::onUnregistered() noexcept
     m_mode = Mode::IDLE;
     if (!disabled(Rule::RESYNC_D0_CLEARS_HOLD))
     {
-        m_hold.clear(); // a partial reply of the old term is not trusted (NOTE-11)
+        m_hold.clear(); // a partial reply of the old term is not trusted
     }
     abandonRequest();
     m_probeScheduled = false;
@@ -96,7 +96,7 @@ void ResyncMachine::resyncFromZero(Trigger trigger, std::int64_t nowNs) noexcept
     }
     if (Mode::OVERFLOW_WAIT == m_mode && disabled(Rule::RESYNC_D3_ZERO_AT_ONCE))
     {
-        return; // RED shape of FIX-5: waits for the drain
+        return; // RED shape: waits for the drain
     }
     startResync(0, trigger, nowNs);
 }
@@ -179,7 +179,7 @@ bool ResyncMachine::push(const HeldEntry &entry) noexcept
         return true;
     }
     const std::int64_t seq = entry.dispatch.dispatchSeq;
-    // F2: within one resync or LIVE period pushes are strictly ascending (seq < 1 never gets here, NOTE-2).
+    // Within one resync or LIVE period pushes are strictly ascending (seq < 1 never gets here).
     if (seq <= m_lastPushedSeq)
     {
         fail(ResyncVerdict::INVARIANT, seq);
@@ -222,7 +222,7 @@ void ResyncMachine::fail(ResyncVerdict verdict, std::int64_t detail) noexcept
 void ResyncMachine::onDispatch(const Dispatch &d, const Classification &c, std::int64_t nowNs) noexcept
 {
     m_counters.received++;
-    // Review NOTE-2: a dispatchSeq below 1 cannot be ordered and only a corrupt core produces one (it mints from 1): it
+    // A dispatchSeq below 1 cannot be ordered and only a corrupt core produces one (it mints from 1): it
     // is refused in every mode (never held, never pushed, no carrier, the cursor stays) and counted. The agent's codec
     // already refuses the whole frame; this is the domain's own guard.
     if (d.dispatchSeq < 1 && !disabled(Rule::RESYNC_SEQ_BELOW_ONE))
@@ -318,7 +318,7 @@ void ResyncMachine::onProbeAnswer(std::int32_t count, std::int64_t head, std::in
 {
     if (0 != count && !disabled(Rule::RESYNC_PROBE_COUNT))
     {
-        fail(ResyncVerdict::PRE_S8_CORE, count); // F15: a pre-S8 core answers maxEntries 0 with a page
+        fail(ResyncVerdict::PRE_HEAD_PROBE_CORE, count); // A core without the head probe answers maxEntries 0 with a page
         return;
     }
     m_lastHead = head;
@@ -438,7 +438,7 @@ void ResyncMachine::finishPage(std::int32_t count, std::int64_t head, std::int64
     }
     if (disabled(Rule::RESYNC_FINAL_DROP))
     {
-        // RED shape (pre FIX-4): "push the rest".
+        // RED shape: "push the rest".
         for (std::size_t i = 0; i < m_hold.size(); i++)
         {
             if (!push(m_hold.at(i)))

@@ -1,4 +1,4 @@
-# The RED column of RC2 S12 contract 11.1 (light method: nothing is committed, so each rule's RED is a
+# The RED column of the forwarder domain tests (light method: nothing is committed, so each rule's RED is a
 # negative control re-proved on every run). Each line: test case | rule | why | expected text. The runner
 # (archive/tests/run-negative-controls.sh) runs the test with CT_TEST_DISABLE_<rule>=1 (a seam that exists
 # only in ct_forwarder_domain_seamed) and requires an ASSERTION failure carrying the expected text, then runs
@@ -21,7 +21,7 @@ DispatchRulesTest.failingRowPerRuleAndKind|RULE_V1|seq below 1 passes|CHECK( got
 DispatchRulesTest.failingRowPerRuleAndKind|RULE_X1|bad release id grouped with its neighbours|CHECK( got == r.want )
 DispatchRulesTest.failingRowPerRuleAndKind|RULE_X2|scope 2 grouped with its neighbours|CHECK( got == r.want )
 DispatchRulesTest.failingRowPerRuleAndKind|RULE_A1|release payload anomalies pass unflagged|CHECK( got == r.want )
-DispatchRulesTest.evaluationOrderReportsTheFirstFailingRule|RULE_ORDER_B_BEFORE_R|B3 reported before R2 (FIX-10 order)|CHECK( classify(d) == Classification{ DispatchClass::CARRIER, RuleId::R2 } )
+DispatchRulesTest.evaluationOrderReportsTheFirstFailingRule|RULE_ORDER_B_BEFORE_R|B3 reported before R2 (the ME's rule order)|CHECK( classify(d) == Classification{ DispatchClass::CARRIER, RuleId::R2 } )
 # 5.5 carrier
 CarrierTest.everyCarrierIsReaderValidAndJournaledInvalid|CARRIER|class C sent verbatim: the ME decode-drops it, the order stays pending|CHECK( me_port::react(carrier) == me_port::MeReaction::INVALID )
 CarrierTest.everyCarrierIsReaderValidAndJournaledInvalid|CARRIER_TIF|the carrier keeps the tif: some carriers are judged instead of INVALID|CHECK( me_port::react(carrier) == me_port::MeReaction::INVALID )
@@ -30,11 +30,11 @@ SendRingTest.releaseRunOf64IsCutAt48|RING_GROUP_CAP_48|a 64 run in one frame (th
 SendRingTest.releaseRunOf64IsCutAt48|RING_GROUP_RELEASES|every release alone|CHECK( p.count == 48 )
 SendRingTest.template9SlotSplitsARunAndRxIsAlone|RING_RX_ISOLATION|an RX entry joins its neighbours (one bad entry drops the frame)|CHECK( got.count == want.count )
 MappingTest.releaseEntryPer5_3|RING_RX_ISOLATION|the RX slot is not isolated|CHECK( rxSlot.form == SlotForm::RELEASE_ISOLATED )
-# 4.3 / section 6 resync machine
+# Resync machine
 ResyncMachineTest.replyBlockIsTheLastCountEntries|RESYNC_REPLY_LAST|block taken from the front of hold|CHECK( h.ringSeqs() == Seqs{ 2, 4, 6, 9 } )
-ResyncMachineTest.replyBlockIsTheLastCountEntries|RESYNC_FINAL_DROP|remaining held entries pushed (pre FIX-4)|CHECK( h.m.counters().heldResolved == 3 )
+ResyncMachineTest.replyBlockIsTheLastCountEntries|RESYNC_FINAL_DROP|remaining held entries pushed|CHECK( h.m.counters().heldResolved == 3 )
 ResyncMachineTest.shapeS1CountBounds|RESYNC_SHAPE_S1|count above hold or page accepted|CHECK( h.m.counters().shapeViolations[0] == 1 )
-ResyncMachineTest.shapeS1CountBounds|RESYNC_PROBE_COUNT|a probe answered with entries accepted (pre-S8 core undetected, F15)|CHECK( h.m.verdict() == ResyncVerdict::PRE_S8_CORE )
+ResyncMachineTest.shapeS1CountBounds|RESYNC_PROBE_COUNT|a probe answered with entries accepted (a core without the head probe undetected)|CHECK( h.m.verdict() == ResyncVerdict::PRE_HEAD_PROBE_CORE )
 ResyncMachineTest.shapeS2BlockOrderAndBounds|RESYNC_SHAPE_S2|a non-ascending or out-of-range block accepted|CHECK( h.m.counters().shapeViolations[1] == 1 )
 ResyncMachineTest.shapeS3HeldEntryAboveHeadAtTheFinalPage|RESYNC_SHAPE_S3|a held entry above head dropped silently|CHECK( h.m.counters().shapeViolations[2] == 1 )
 ResyncMachineTest.t9ReissuesWithANewIdAndItsTimerRestartsOnEveryCoreFrame|RESYNC_T9|a lost 108 is never re-issued|REQUIRE( nullptr != h.m.requestDue() )
@@ -42,15 +42,15 @@ ResyncMachineTest.t9ReissuesWithANewIdAndItsTimerRestartsOnEveryCoreFrame|RESYNC
 ResyncMachineTest.enteringD0ClearsHoldAndAbandonsTheRequest|RESYNC_D0_CLEARS_HOLD|a partial reply of the old term stays held|CHECK( h.m.holdSize() == 0 )
 ResyncMachineTest.resyncZeroInD1RestartsAndClearsRingAndHold|RESYNC_ZERO_CLEARS_RING|RESYNC(0) keeps the ring|CHECK( h.ring.empty() )
 ResyncMachineTest.liveGapIsHeldAndResyncCursorRuns|RESYNC_T5_GAP|a live gap is pushed, the missing entries never asked for|CHECK( h.m.mode() == Mode::RESYNCING )
-ResyncMachineTest.liveGapIsHeldAndResyncCursorRuns|RESYNC_GAP_HELD|the gap entry is dropped (NOTE-11)|CHECK( h.m.holdSize() == 1 )
-ResyncMachineTest.duplicatesDroppedInLive|RESYNC_DUPLICATE_DROP|an entry at or below the cursor is pushed again (the F2 guard refuses it)|CHECK( h.m.verdict() == ResyncVerdict::NONE )
+ResyncMachineTest.liveGapIsHeldAndResyncCursorRuns|RESYNC_GAP_HELD|the gap entry is dropped|CHECK( h.m.holdSize() == 1 )
+ResyncMachineTest.duplicatesDroppedInLive|RESYNC_DUPLICATE_DROP|an entry at or below the cursor is pushed again (the guard refuses it)|CHECK( h.m.verdict() == ResyncVerdict::NONE )
 ResyncMachineTest.headProbeEveryTenSecondsInLiveOnlyWithMaxEntriesZero|RESYNC_HEAD_PROBE|no periodic head probe|REQUIRE( nullptr != h.m.requestDue() )
 ResyncMachineTest.headAboveCursorIsT7|RESYNC_T7|head above the cursor ignored|CHECK( h.m.counters().headProbeBehind == 1 )
 ResyncMachineTest.ringFullMidPageEntersD3WithTheCursorAtTheLastPushThenResyncCursorAt32768|RESYNC_D3_RESUME|D3 never resumes|CHECK( h.m.mode() == Mode::RESYNCING )
-ResyncMachineTest.resyncZeroInD3ClearsAndStartsAtOnce|RESYNC_D3_ZERO_AT_ONCE|RESYNC(0) in D3 waits for the drain (FIX-5)|CHECK( h.m.mode() == Mode::RESYNCING )
+ResyncMachineTest.resyncZeroInD3ClearsAndStartsAtOnce|RESYNC_D3_ZERO_AT_ONCE|RESYNC(0) in D3 waits for the drain|CHECK( h.m.mode() == Mode::RESYNCING )
 ResyncMachineTest.pageContinuationFromTheLastReplySeq|RESYNC_CURSOR_MAX_HEAD|the final page leaves the cursor at the last reply seq|CHECK( h.m.cursor() == 100'000 )
-ResyncMachineTest.seqBelowOneIsRefusedInEveryMode|RESYNC_SEQ_BELOW_ONE|a dispatchSeq below 1 reaches the mode logic (review NOTE-2)|CHECK( h.m.counters().seqBelowOne == 2 )
-ResyncMachineTest.registrationProbesFirstThenPagesFromZero|AGENT_PROBE_AT_C3|RESYNC(0) at C3 without the head probe (F15 unchecked)|CHECK( probe.kind == RequestKind::PROBE )
+ResyncMachineTest.seqBelowOneIsRefusedInEveryMode|RESYNC_SEQ_BELOW_ONE|a dispatchSeq below 1 reaches the mode logic|CHECK( h.m.counters().seqBelowOne == 2 )
+ResyncMachineTest.registrationProbesFirstThenPagesFromZero|AGENT_PROBE_AT_C3|RESYNC(0) at C3 without the head probe (unchecked)|CHECK( probe.kind == RequestKind::PROBE )
 # the property test (10,000 seeds in the green run; the runner uses CT_FORWARDER_PROPERTY_SEEDS=2000)
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_REPLY_LAST|a live entry before the reply is taken for a reply entry|P1: pending seq
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_T5_GAP|a gap is pushed over, the missing entry never re-asked|P1: pending seq
@@ -58,9 +58,9 @@ ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_T7|a broa
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_T9|a lost request wedges the resync|P6 liveness
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_ALL_TRIGGERS|the naive relay never asks the core: coverage is never established|P6 liveness
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_ZERO_CLEARS_RING|RESYNC(0) keeps stale ring entries: the stream is no longer ascending|P2 broken
-ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_FINAL_DROP|pushing the unreplied rest breaks the ascending invariant (F2)|REQUIRE( machine->verdict() == ResyncVerdict::NONE )
-ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_SEND_INVALID|classes I and C discarded (the pre-review rule): those orders stay pending|P1: pending seq
-ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_STALE_TERM_FILTER|without rule S a stale-term copy reaches the ring (review FIX-4: P7 by provenance)|P7: a stale-term entry was pushed
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|RESYNC_FINAL_DROP|pushing the unreplied rest breaks the ascending invariant|REQUIRE( machine->verdict() == ResyncVerdict::NONE )
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_SEND_INVALID|classes I and C discarded (the earlier rule): those orders stay pending|P1: pending seq
+ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_STALE_TERM_FILTER|without rule S a stale-term copy reaches the ring (P7 by provenance)|P7: a stale-term entry was pushed
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_T2|no RESYNC(0) after an ME leader change or a new ME session: truncated offers stay lost|P8: pending seq
 ResyncPropertyTest.everyPendingDispatchReachesTheMeAtQuiescence|AGENT_RELEASE_RELAY|RELEASE_ID entries discarded: the backlog never drains|P1: pending seq
 # 4.2 epoch binder
@@ -69,35 +69,35 @@ EpochBinderTest.zeroInM3IsFatal|EPOCH_ZERO_FATAL|an ME that lost its identity is
 EpochBinderTest.differentEpochIsFatalInM2AndM3|EPOCH_MISMATCH_FATAL|a re-genesised ME is accepted|CHECK( b.onHeartbeat(E + 1, 2) == EpochVerdict::FATAL_MISMATCH )
 EpochBinderTest.fiveSecondsUnverifiedReconnects|EPOCH_WAIT|an unverified session waits forever|CHECK( b.tick(100 + 5 * S) == EpochVerdict::RECONNECT )
 EpochBinderTest.newSessionNeedsANewVerification|EPOCH_PER_SESSION|a new ME session inherits the old verification|CHECK_FALSE( b.verified() )
-# W16 admission watcher
-AdmissionWatcherTest.originResetsTheBaselineAndNeverTriggers|ADMISSION_ORIGIN_BASELINE|an ORIGIN reply fires T3 (NOTE-4)|CHECK_FALSE( w.onOrigin(0, OPEN, 0) )
-AdmissionWatcherTest.perMarketIgnored|ADMISSION_GLOBAL_ONLY|a per-market state fires T3 (Q9)|CHECK_FALSE( w.onBroadcast(3, SUSPENDED, ME_CAPACITY) )
+# Admission watcher
+AdmissionWatcherTest.originResetsTheBaselineAndNeverTriggers|ADMISSION_ORIGIN_BASELINE|an ORIGIN reply fires T3|CHECK_FALSE( w.onOrigin(0, OPEN, 0) )
+AdmissionWatcherTest.perMarketIgnored|ADMISSION_GLOBAL_ONLY|a per-market state fires T3|CHECK_FALSE( w.onBroadcast(3, SUSPENDED, ME_CAPACITY) )
 AdmissionWatcherTest.broadcastChangeInStateOrAnyReasonBitTriggers|ADMISSION_REASON_BITS|a cleared CAPACITY bit under an unchanged state is missed|CHECK( w.onBroadcast(0, SUSPENDED, BRIDGE_HALT) )
-# RC2 S13 contract 11.7: the ladder (section 4) and the emitter (section 6)
+# The ladder and the emitter
 BookLadderTest.deltaWithForeignFromBreaksTheChain|STITCH_CHAIN_CHECK|a delta with a foreign fromVersion is applied (the chain is never checked)|CHECK( l.state() == LadderState::BROKEN )
 BookLadderTest.newOfPresentPriceBreaks|STITCH_STRICT_LEVEL_OPS|a NEW of a present price updates it (lenient level ops)|CHECK( l.breakCause() == BreakCause::LEVEL_OP )
 BookLadderTest.moreThan20LevelsAtFrameEndBreaks|STITCH_DEPTH_CHECK|21 levels at the frame end accepted|CHECK( l.breakCause() == BreakCause::DEPTH )
-BookLadderTest.newBeforeDeleteHolds21LevelsMidFrame|STITCH_40_SLOTS|the insert bound caps a side at 20 mid frame: DEPTH on the 21st insert (CL-N-11)|CHECK( l.state() == LadderState::OK )
+BookLadderTest.newBeforeDeleteHolds21LevelsMidFrame|STITCH_40_SLOTS|the insert bound caps a side at 20 mid frame: DEPTH on the 21st insert|CHECK( l.state() == LadderState::OK )
 BookLadderTest.malformedFrameRuleInEveryState|STITCH_RAW_ENUM_CHECK|a raw side 2 / updateType 3 reaches the level ops|CHECK( l.breakCause() == BreakCause::MALFORMED )
 BookLadderTest.sessionEndResetsEveryLadderAndTradeMark|LADDER_RESET_ON_SESSION_END|an ME session end keeps the ladders and marks|CHECK( l.state() == LadderState::EMPTY )
 BookLadderTest.unversionedEmptySnapshotIsEmptyNotBrokenInEveryState|STITCH_UNVERSIONED_EMPTY|a version-0 empty snapshot is malformed (BROKEN, pages)|CHECK( l.state() == LadderState::EMPTY )
-BookLadderTest.groupBlockLengthBelowEntryIsMalformed|STITCH_GROUP_BLOCK_LENGTH|a group blockLength below the entry size accepted (CL-F-9)|CHECK( l.breakCause() == BreakCause::MALFORMED )
+BookLadderTest.groupBlockLengthBelowEntryIsMalformed|STITCH_GROUP_BLOCK_LENGTH|a group blockLength below the entry size accepted|CHECK( l.breakCause() == BreakCause::MALFORMED )
 BookLadderTest.tradeBatchMalformedRules|STITCH_TRADE_VALIDATE|a 26 entry with tradeId 0 or price 0 moves the mark|CHECK( m.tradeId() == 0 )
 TickEmitterTest.brokenLadderOffersNothingAndTheTrailingFlagWaits|TICK_BROKEN_HOLD|a BROKEN ladder's discarded state is offered at the trailing edge|CHECK( offers.empty() )
 TickEmitterTest.crossedCandidateIsRefusedAndBreaks|TICK_VALIDATE|a crossed candidate is offered (E9 absent)|CHECK( offers.empty() )
 TickEmitterTest.deeperLevelChangeEmitsNothing|TICK_TOP_ONLY|a deeper-level version move is a change|CHECK( offers.size() == 1 )
-TickEmitterTest.tradeOnlyChangeEmitsNothing|TICK_TRADE_ONLY_SILENT|a trade without a version move is offered (the RC1 X6 text)|CHECK( offers.size() == 1 )
+TickEmitterTest.tradeOnlyChangeEmitsNothing|TICK_TRADE_ONLY_SILENT|a trade without a version move is offered (the earlier emission rule)|CHECK( offers.size() == 1 )
 TickEmitterTest.isolatedChangeIsOfferedAtOnce|TICK_LEADING_EDGE|an isolated change waits for the window end|CHECK( offers.size() == 1 )
 TickEmitterTest.burstEndsWithTheNewestState|TICK_TRAILING_NEWEST|the trailing offer carries the state that set the flag|CHECK( offers.back().bid == newestBid )
 TickEmitterTest.atMostOneOfferPerTcapPerMarket|TICK_RATE_CAP|every change offered at once (10,000 in 10 s)|CHECK( offers.size() <= 101 )
 TickEmitterTest.versionNotAboveLastOfferedIsSuppressed|TICK_VERSION_ABOVE|a candidate at or below lastOffered.version is offered (the core drops it)|CHECK( offers.size() == 1 )
 TickEmitterTest.failedOfferKeepsTheCandidateAndRetriesNextIteration|TICK_CONFIRMED_ONLY|a back-pressured offer moves lastOffered (C3)|CHECK( e.lastOffered().version == 0 )
 TickEmitterTest.reofferTwiceInOneRun|TICK_REOFFER_ON_REGISTER|a re-registration re-offers nothing (a tick lost at a core leader change stays lost)|CHECK( offers.size() == 3 )
-TickEmitterTest.reofferAfterRegistrationEvenWhenEqual|TICK_REOFFER_OUTSIDE_RATE|a re-offer restarts the window: a top change 50 ms after it waits for a trailing edge (review F-1)|CHECK( offers.size() == 3 )
+TickEmitterTest.reofferAfterRegistrationEvenWhenEqual|TICK_REOFFER_OUTSIDE_RATE|a re-offer restarts the window: a top change 50 ms after it waits for a trailing edge|CHECK( offers.size() == 3 )
 TickEmitterTest.pendingAgeIsZeroWhileBroken|TICK_PENDING_AGE_GATED|the pending-age clock runs while BROKEN (ForwarderTickStuck pages on a case-B break)|CHECK( e.pendingAgeNs(now) == 0 )
 TickEmitterTest.trailingEdgeTwiceInOneRun|TICK_TRAILING_EDGE|a change inside the window is dropped (no trailing edge)|CHECK( offers.size() == 4 )
 TickEmitterTest.suppressedEpisodeCountsOncePerEpisodeTwice|TICK_EPISODE_RESET|the episode flag never clears: the second episode is not counted|CHECK( suppressedUnbound == 2 )
-# RC2 S13 contract 11.7: the property test (11.2; 2000 seeds under ctest, CT_FORWARDER_PROPERTY_SEEDS)
+# The property test (11.2; 2000 seeds under ctest, CT_FORWARDER_PROPERTY_SEEDS)
 StitcherPropertyTest.properties|STITCH_CHAIN_CHECK|a delta after a lossy drop is applied to the wrong base (the chain is never checked)|S1: an OK ladder differs from the model at version
 StitcherPropertyTest.properties|TICK_BROKEN_HOLD|a BROKEN ladder's discarded state is offered at the trailing edge|S3: a tick was offered while the ladder was BROKEN
 StitcherPropertyTest.properties|TICK_TRAILING_EDGE|a change inside the window is dropped: the core waits for the next periodic snapshot|S4: the final top did not reach the core within T_cap

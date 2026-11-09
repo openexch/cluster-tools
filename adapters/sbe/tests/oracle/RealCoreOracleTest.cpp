@@ -1,5 +1,5 @@
-// RealCoreOracleTest (RC2 S9b 13.17, the E3 foundation; D-S9b-8): the real BridgeDomain + BridgeCodec, reading
-// SimArchive sources built from an S9h `story` journal through S9a's real follower, feed the REAL behaviour-3 core
+// RealCoreOracleTest (the E3 foundation): the real BridgeDomain + BridgeCodec, reading
+// SimArchive sources built from an `story` journal through real follower, feed the REAL behaviour-3 core
 // (`serve`, assets b05b8e8 production code inside the pinned harness jar). The records of round r are appended to
 // the simulated archives only after `ROUND r` was applied (the ME journals an answer only after it saw the command),
 // so the log order equals the story's. Faults: cold restarts of the domain at random points (the one BRIDGE session
@@ -8,10 +8,10 @@
 // re-journalled duplicate recordings, back-pressure.
 //
 // Class 1 (clean): the final snapshotSha256 equals the story's clean hash; lastAppliedJournalSeq == N; no latch
-// (the `L` line of DUMP asserted, S9h 17.1); feedDuplicateCount == 0 (N = 1); invariantsHold; per sync ascending
+// (the `L` line of DUMP asserted); feedDuplicateCount == 0 (N = 1); invariantsHold; per sync ascending
 // offers. Class 2 (a hole on every source): GAP at e; DUMP(e - 1) equals the clean model prefix with `L true 1`;
 // after an operator refill the re-scan recovers, ADMIN OPEN, and the final hash equals the clean run's with `L false 0`.
-// Class 3 (D-S9b-11): an outcome with ledgerCapacity 0 (or a release entry with commandIdHigh 0) on every copy: the
+// Class 3: an outcome with ledgerCapacity 0 (or a release entry with commandIdHigh 0) on every copy: the
 // core refuses it, the bridge rotates once per source and parks in CORE_REFUSED, the seq offered at most
 // stormFences x sources times.
 #include "doctest/doctest.h"
@@ -105,7 +105,7 @@ struct OracleCore : CorePort
     std::deque<ct_oracle::Bytes> inflight;
     std::deque<std::pair<long, ct_oracle::Bytes>> egress; // (the iteration it was emitted, the frame)
     long iteration = 0;
-    int lag = 1; // FIX-1 (2026-10-31 review): egress reaches the domain lag duty iterations after the commit
+    int lag = 1; // egress reaches the domain lag duty iterations after the commit
     double retry = 0;
     std::string failure;
     std::uint64_t offerSync = ~0ULL;
@@ -713,7 +713,7 @@ TEST_CASE("RealCoreOracleTest.aCoreOnlyRangeRecordEndsInCoreRefusedWithoutAReoff
             first = o.failure;
         }
     }
-    MESSAGE("E3 oracle (core-only range record, D-S9b-11): " << n << " stories");
+    MESSAGE("E3 oracle (core-only range record): " << n << " stories");
     INFO(first);
     CHECK(failures == 0);
 }

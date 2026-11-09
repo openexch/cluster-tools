@@ -1,4 +1,4 @@
-// RC2 S13 contract 11.1 TickEmitterTest (section 6 rules E1-E11, the 6.0 reset table with two cycles per field in one
+// TickEmitterTest (rules E1-E11, the 6.0 reset table with two cycles per field in one
 // run). One market (1) through a rig; the ladder is driven with decoded frames (BookFixtures.h) and time is handed in.
 #include "doctest/doctest.h"
 
@@ -370,7 +370,7 @@ TEST_CASE("TickEmitterTest.reofferAfterRegistrationEvenWhenEqual")
     CHECK(e.counters().offeredOn(TickEdge::REOFFER) == 1);
     // a never-offered market has nothing to re-offer: the registration flags nothing there
     CHECK_FALSE(e.em.reofferDue(2));
-    // review F-1 (6.0, E10): the re-offer does not restart the window. The window of the t = 0 offer ends at 100 ms, so
+    // (6.0, E10): the re-offer does not restart the window. The window of the t = 0 offer ends at 100 ms, so
     // a real top change 50 ms after the re-offer is a LEADING offer at once, not a trailing edge 100 ms later.
     REQUIRE(e.book(topMove(1, 2, 105), 100 * MS) == LadderOutcome::DELTA_APPLIED);
     e.step(100 * MS);

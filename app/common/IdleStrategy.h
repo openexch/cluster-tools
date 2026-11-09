@@ -6,11 +6,11 @@
 
 #include <cstdint>
 
-// The duty threads' idle strategy (RC2 S12 section 3, RC2 S9c W1): after an iteration that did no work, spin
+// The duty threads' idle strategy: after an iteration that did no work, spin
 // `spins` times, then sched_yield `yields` times, then nanosleep `parkNs` (the only sleep, between iterations, never
 // inside a step). Two named policies, one implementation:
-//   FORWARDER_IDLE  spin 100, yield 100, park 100 us   (ct-forwarder, S12)
-//   BRIDGE_IDLE     spin 0, yield 10, park 1 ms        (ct-bridge, S9a 3.2 step 6: no busy spin on a shared box)
+//   FORWARDER_IDLE  spin 100, yield 100, park 100 us   (ct-forwarder)
+//   BRIDGE_IDLE     spin 0, yield 10, park 1 ms        (ct-bridge: no busy spin on a shared box)
 
 namespace cluster_tools { namespace app { namespace common {
 

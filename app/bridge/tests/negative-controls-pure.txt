@@ -1,8 +1,8 @@
-# The RED column of RC2 S9c contract 12.1 (light method: re-proved on every run). Each line: test case | rule | why |
+# The RED column of ct_bridge_config_tests (light method: re-proved on every run). Each line: test case | rule | why |
 # expected text; run by archive/tests/run-negative-controls.sh against ct_bridge_config_tests (linked with
 # ct_bridge_pure_seamed): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass without it.
 BridgeConfigTest.everyKeyMissingIsRefusedAndNamed|CONFIG_DEFAULTS|a default fills BRIDGE_AE_PORT_BASE|CHECK( refused )
-BridgeConfigTest.haltOnGapPresentIsRefused|CONFIG_HALT_ON_GAP_IGNORED|BRIDGE_HALT_ON_GAP present is not refused (cpp F5)|CHECK( haltOnGapRefused )
+BridgeConfigTest.haltOnGapPresentIsRefused|CONFIG_HALT_ON_GAP_IGNORED|BRIDGE_HALT_ON_GAP present is not refused|CHECK( haltOnGapRefused )
 BridgeConfigTest.credentialClassMustBeBridge|CONFIG_CLASS_CHECK_OFF|the FORWARDER key passes|CHECK( classRefused )
 BridgeConfigTest.driverModeIsStrict|CONFIG_DRIVER_MODE_DEFAULT|a missing BRIDGE_DRIVER_MODE becomes embedded (C13)|CHECK( missingRefused )
 BridgeConfigTest.ingressEndpointsEqualJava|CONFIG_PORT_FORMULA|the ingress port without the client-facing offset 2|CHECK( r.config.ingressEndpoints == "0=a:19302,1=b:19402,2=c:19502" )

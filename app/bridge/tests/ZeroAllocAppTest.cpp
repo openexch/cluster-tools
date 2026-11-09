@@ -1,6 +1,6 @@
-// RC2 S9c 12.2 zeroAllocDutyIteration (S9b NOTE-10, the forwarder's test): a counted operator new armed around every
+// zeroAllocDutyIteration (the pattern of the forwarder's test): a counted operator new armed around every
 // agent iteration, the snapshot fill and the status publish, over 10^4 steady-state iterations with reports, acks,
-// cap-64 62 frames (64 histogram observations each, review NOTE-9) and the verdict drain: 0 allocations. The harness's
+// cap-64 62 frames (64 histogram observations each) and the verdict drain: 0 allocations. The harness's
 // own work (journal appends, egress injection, reading the offers) runs with the counter disarmed; the transport copies
 // offers into a preallocated ring.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
@@ -76,8 +76,8 @@ TEST_CASE("ZeroAllocAppTest.zeroAllocDutyIteration")
     SimRecording &rec = r.journal(0, 1, 200);
     r.bringUp();
     REQUIRE(r.runUntil([&] { return r.core.cursor == 200; }));
-    // warm-up: a periodic report that proves the ring into the memo (S9a's memo allocates its proof table at the first
-    // proof of a recording key: warm-up, not steady state; S9b README deviation 10)
+    // warm-up: a periodic report that proves the ring into the memo (memo allocates its proof table at the first
+    // proof of a recording key: warm-up, not steady state; README deviation 10)
     const std::uint64_t queries = BridgeMetrics::get(r.agent->metrics().reportQueries);
     REQUIRE(r.runUntil([&] { return BridgeMetrics::get(r.agent->metrics().reportQueries) > queries + 1; }, 30 * SECOND));
     r.runFor(500 * MS);

@@ -189,7 +189,7 @@ inline Bytes meOther(std::uint16_t templateId)
     return b;
 }
 
-// ---- RC2 S13 ME book egress (order-schema v12, the match pin's own generated encoders)
+// ---- ME book egress (order-schema v12, the match pin's own generated encoders)
 struct Level
 {
     std::int64_t price = 0;
@@ -482,7 +482,7 @@ struct Rig
         REQUIRE(agent.resync().mode() == domain::forwarder::Mode::LIVE);
     }
 
-    // RC2 S13: a long run in LIVE that keeps the dispatch side healthy (an ME heartbeat every 100 ms keeps the egress
+    // A long run in LIVE that keeps the dispatch side healthy (an ME heartbeat every 100 ms keeps the egress
     // fresh; every head probe is answered at once), so only tick readiness can change. `each` runs once per second.
     template<typename Each>
     void runLive(std::int64_t ns, Each &&each, std::int64_t head = 0)

@@ -1,4 +1,4 @@
-# RC2 S9h 9.2 (review FIX-3): the feed harness jar guard. The S9h harness jar (assets test scope: the Java reference
+# The feed harness jar guard. The harness jar (assets test scope: the Java reference
 # translator, serve, story, t1-*) is the only source of the expected bytes the C++ bridge is graded against, so a
 # configure that is given one (CT_FEED_HARNESS_JAR) refuses it unless
 #   (a) the money schema sha256 the jar carries (META-INF/feed-harness.properties) equals the lock's money_schema_sha256,
@@ -42,7 +42,7 @@ function(ct_verify_feed_harness jar lock_file work_dir)
     file(MAKE_DIRECTORY "${work_dir}")
     file(ARCHIVE_EXTRACT INPUT "${jar}" DESTINATION "${work_dir}" PATTERNS "META-INF/feed-harness.properties")
     if(NOT EXISTS "${work_dir}/META-INF/feed-harness.properties")
-        message(FATAL_ERROR "${jar} carries no META-INF/feed-harness.properties: not an S9h feed harness jar")
+        message(FATAL_ERROR "${jar} carries no META-INF/feed-harness.properties: not a feed harness jar")
     endif()
     file(READ "${work_dir}/META-INF/feed-harness.properties" props)
     ct_jar_property("${props}" money_schema_sha256 jar_money)
@@ -51,7 +51,7 @@ function(ct_verify_feed_harness jar lock_file work_dir)
     ct_jar_property("${props}" main_tree_ref jar_ref)
     if(NOT jar_money STREQUAL want_money)
         message(FATAL_ERROR "feed harness ${jar}: it was built against money schema sha256 '${jar_money}'; "
-            "dependencies.lock money_schema_sha256 is ${want_money} (S9h 9.2 a: one core, one jar)")
+            "dependencies.lock money_schema_sha256 is ${want_money} (one core, one jar)")
     endif()
     if(NOT jar_journal STREQUAL want_journal)
         message(FATAL_ERROR "feed harness ${jar}: journal schema sha256 '${jar_journal}'; the lock pins ${want_journal}")
@@ -63,7 +63,7 @@ function(ct_verify_feed_harness jar lock_file work_dir)
     string(SUBSTRING "${money_ref}" 0 ${ref_len} money_ref_prefix)
     if(NOT jar_equal STREQUAL "true" OR NOT jar_ref STREQUAL money_ref_prefix)
         message(FATAL_ERROR "feed harness ${jar}: main_tree_equals_ref=${jar_equal} main_tree_ref=${jar_ref}; "
-            "its production code must equal money_schema_ref ${money_ref} (S9h 9.2, review FIX-6)")
+            "its production code must equal money_schema_ref ${money_ref}")
     endif()
     file(SHA256 "${jar}" got_jar)
     if(NOT got_jar STREQUAL want_jar)

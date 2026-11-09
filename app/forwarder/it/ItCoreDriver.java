@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// RC2 S12 W8, the core half of the T1 driver (contract 11.4). A single-file Java program run against the assets
-// jar (java -cp assets-cluster.jar T1CoreDriver.java ...): the AE and ME jars pin different Aeron versions
-// (assets 1.53.0, match 1.53.1; contract assumption 3), so the driver is split into this core driver and
-// T1MeDriver.java.
+// The core half of the T1 driver. A single-file Java program run against the assets
+// jar (java -cp assets-cluster.jar ItCoreDriver.java ...): the AE and ME jars pin different Aeron versions
+// (assets 1.53.0, match 1.53.1), so the driver is split into this core driver and
+// ItMeDriver.java.
 //
 //   genesis <aeronDir> <ingress> <genesisId> <ledgerCapacity> <users>
 //       ADMIN CoreConfig 1 -> 2 -> 3 (behaviour 3, genesisId); BRIDGE RegisterSession + the ME's FRESH record as
 //       MeEngineConfig 68 (journalSeq 1, meEpoch = genesisId: the only feed record the T1 run needs, see below);
 //       ADMIN OPEN GLOBAL (retried until the bind is in the log); TOOL deposits (USD) for users 1..N.
-//       RC2 S9c W7: with a 6th argument "via-bridge" the BRIDGE session and its 68 are skipped: the ME's own FRESH record
-//       reaches the core through ct-bridge (the await-bound genesis of S9c 12.5), and OPEN is retried for up to 60 s.
+//       With a 6th argument "via-bridge" the BRIDGE session and its 68 are skipped: the ME's own FRESH record
+//       reaches the core through ct-bridge (the await-bound genesis), and OPEN is retried for up to 60 s.
 //   load <aeronDir> <ingress> <seconds> <perSecond> <users> <orderTag>
 //       GATEWAY RegisterSession, then non-crossing LIMIT GTC BUY CreateOrders (they all rest at the ME) at the rate;
 //       prints "LOAD sent=N rejects=R".
@@ -18,25 +18,25 @@
 //       pages of 4096 from 0 until a short page; writes "seq idHigh idLow kind" per pending dispatch; prints
 //       "PENDING count=N head=H".
 //   capture <aeronDir> <ingress> <outDir> <seconds> <sourceEpoch>
-//       RC2 S10' 7.1 item 1 (O-F5, T1-G): the tap of `pending` (a FORWARDER session registered with dispatch, sourceEpoch =
+//       (O-F5, T1-G): the tap of `pending` (a FORWARDER session registered with dispatch, sourceEpoch =
 //       the bound epoch) that sends NO request and records every BROADCAST MeDispatch / MeDispatchBatch entry for <seconds>
 //       into <outDir>/dispatch.map, one line "dispatchSeq commandIdHigh commandIdLow kind receiveMs" (receiveMs = this
-//       JVM's wall clock at the egress poll that delivered it) in arrival order. The broadcast is emitted at mint (S12
-//       D-S12-6, dense), so the map is taken WHILE the commands are pending. Prints "CAPTURE armed sourceEpoch=E" once
+//       JVM's wall clock at the egress poll that delivered it) in arrival order. The broadcast is emitted at mint (
+//       Dense), so the map is taken WHILE the commands are pending. Prints "CAPTURE armed sourceEpoch=E" once
 //       registered, then "CAPTURE count=N firstSeq=F lastSeq=L"; exit 0 when the seqs are dense over [F, L], exit 1 at a
 //       gap ("CAPTURE GAP ..."; a non-dense map is not joined). A seq seen twice is counted and kept once.
 //   events <aeronDir> <ingress> <outFile> <seconds>
-//       RC2 S10' 7.2 T1-G (the reject reason by name: `t1-core dump --orders` prints none): a GATEWAY session (orders
+//       T1-G (the reject reason by name: `t1-core dump --orders` prints none): a GATEWAY session (orders
 //       channel) records every BROADCAST OrderEvent for <seconds> (0 = until SIGTERM), one flushed line
 //       "orderId userId eventKind status reason meReason receiveMs" (enum names, UNKNOWN_<raw> for a value the schema
 //       does not name). Prints "EVENTS armed" once registered, "EVENTS count=N" at the end.
 //   names
-//       Review F9 (2026-11-01), no cluster: the events naming on the raw values 200 (unnamed by EventKind, OrderStatus and
+//       No cluster: the events naming on the raw values 200 (unnamed by EventKind, OrderStatus and
 //       CoreRejectReason: get() throws) and 255 (the uint8 null value: NULL_VAL), plus one named value. Prints one
 //       "NAMES <enum> <raw> -> <name>" line each, then "NAMES PASS" (exit 0) or "NAMES FAIL: unnamed raw not printed as
 //       UNKNOWN_<raw>" (exit 1).
 //
-// What this T1 run does NOT have: the RC2 S9 Java bridge (contract assumption 2). At assets b05b8e8 the bridge still
+// What this T1 run does NOT have: the Java bridge. At assets b05b8e8 the bridge still
 // speaks the v5 settlement journal (schemaId 3: Settle / TerminalRelease), which a behaviour-3 core refuses, so no ME
 // outcome ever reaches the core: every minted CREATE stays pending, and the scenarios that need outcomes (T1-A, T1-F,
 // T1-G and the O-F4 "nothing pending" row) cannot close here. The 68 above is the genesis record a bridge would feed;
@@ -91,7 +91,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-public final class T1CoreDriver {
+public final class ItCoreDriver {
 
     private static final long ONE = FixedPoint.fromDouble(1.0);
     private static final long TIMEOUT_MS = 30_000;
@@ -163,7 +163,7 @@ public final class T1CoreDriver {
         }
 
         /**
-         * Waits for an AdminAck naming refTemplateId and correlationId; returns its result code and its reason (RC2 S17 W12
+         * Waits for an AdminAck naming refTemplateId and correlationId; returns its result code and its reason (
          * C6: a refused OPEN names why, e.g. 40 FEED_HALTED, 41 ME_LANE_INACTIVE, 45 HALT_HOLDER_PENDING).
          */
         Ack awaitAck(final int refTemplateId, final long correlationId) {
@@ -243,8 +243,8 @@ public final class T1CoreDriver {
                     }
                 }
                 if (!opened) {
-                    // RC2 S17 W12 C6 (review V6): the last refusal's reason by name; the early tries are 41 ME_LANE_INACTIVE
-                    // (unbound), a latched core answers 40 FEED_HALTED (the X-7 refusal)
+                    // C6: the last refusal's reason by name; the early tries are 41 ME_LANE_INACTIVE
+                    // (unbound), a latched core answers 40 FEED_HALTED (the refusal)
                     throw new IllegalStateException("ADMIN OPEN GLOBAL never accepted: last reason " + last.reason() + " "
                             + adminReasonName(last.reason()));
                 }
@@ -474,15 +474,15 @@ public final class T1CoreDriver {
         }
     }
 
-    // Review F9 (2026-11-01): the SBE-generated get() maps only the null value to NULL_VAL and THROWS
+    // The SBE-generated get() maps only the null value to NULL_VAL and THROWS
     // IllegalArgumentException for any other value the schema does not name; both print UNKNOWN_<raw>, the recorder lives.
-    /** An AdminAck's result and reason byte (RC2 S17 W12 C6). */
+    /** An AdminAck's result and reason byte (C6). */
     record Ack(int result, int reason) {
     }
 
     /**
-     * RC2 S17 W12 (review V7): an AdminAck reason by name. The domain vocabulary first (it carries the AdminAck-only codes,
-     * 44 DUPLICATE_IDENTITY and, from the S17 assets jar on, 45 HALT_HOLDER_PENDING), then the money-schema enum,
+     * An AdminAck reason by name. The domain vocabulary first (it carries the AdminAck-only codes,
+     * 44 DUPLICATE_IDENTITY and, from the assets jar on, 45 HALT_HOLDER_PENDING), then the money-schema enum,
      * else UNKNOWN_<raw>.
      */
     static String adminReasonName(final int raw) {

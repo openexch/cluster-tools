@@ -1,41 +1,41 @@
-# The RED column of RC2 S12 contract 11.3 (light method: re-proved on every run). Each line: test case | rule |
+# The RED column of ct_forwarder_app_tests (light method: re-proved on every run). Each line: test case | rule |
 # why | expected text; run by archive/tests/run-negative-controls.sh against ct_forwarder_app_tests (linked with
 # ct_forwarder_domain_seamed): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass
 # without it.
-# Not listed (no RED at this level, recorded in the S12 README): RING_GROUP_CAP_48 (the agent caps a release frame
+# Not listed (no RED at this level, recorded in the README): RING_GROUP_CAP_48 (the agent caps a release frame
 # at 48 again when it encodes, a second guard) and ADMISSION_ORIGIN_BASELINE (the ORIGIN reply is processed in the
 # poll that precedes the C3 transition, so the machine is still D0 and ignores the T3; the domain test proves the
 # watcher rule).
-ForwarderAgentTest.staleTermFrameAfterNewLeaderIsDropped|AGENT_STALE_TERM_FILTER|without rule S the old-term entry is framed into the reply and 101 is never sent (FIX-1)|CHECK( ids == std::vector<std::int64_t>{ 101, 103 } )
+ForwarderAgentTest.staleTermFrameAfterNewLeaderIsDropped|AGENT_STALE_TERM_FILTER|without rule S the old-term entry is framed into the reply and 101 is never sent|CHECK( ids == std::vector<std::int64_t>{ 101, 103 } )
 ForwarderAgentTest.noRegistrationBeforeMeEpoch|AGENT_EPOCH_BEFORE_REGISTER|RegisterSession sent with sourceEpoch 0 before the bind (D8a row 1 exemption)|CHECK( r.coreOffers(80).empty() )
-ForwarderAgentTest.invalidDispatchReachesTheMe|AGENT_SEND_INVALID|classes I and C discarded (the pre-review rule): two orders never reach the ME|REQUIRE( commands.size() == 4 )
+ForwarderAgentTest.invalidDispatchReachesTheMe|AGENT_SEND_INVALID|classes I and C discarded (the earlier rule): two orders never reach the ME|REQUIRE( commands.size() == 4 )
 ForwarderAgentTest.invalidDispatchReachesTheMe|CARRIER|class C sent verbatim: the ME decode-drops it unjournaled|CHECK( commands[2].payload == JAVA_DURABLE_ORDER_COMMAND_V12_CARRIER )
 ForwarderAgentTest.releaseIdValidationPerKind|RING_RX_ISOLATION|the RX entry joins its neighbours' frame (the ME drops all of them)|REQUIRE( frames.size() == 3 )
 ForwarderAgentTest.releaseIdValidationPerKind|AGENT_RELEASE_RELAY|RELEASE_ID entries discarded|REQUIRE( frames.size() == 3 )
 ForwarderAgentTest.meBackPressureNeverRetriesInPlace|AGENT_ONE_ATTEMPT_PER_CYCLE|a back-pressured offer retried in place|CHECK( attempts <= 2 )
-ForwarderAgentTest.sessionLimitErrorRetries|AGENT_CLUSTER_ERROR_RETRY|a session-limit CLUSTER_ERROR exits 78 for good (FIX-7)|CHECK_FALSE( r.agent.stopped() )
-ForwarderAgentTest.preS8CoreProbeExits78|RESYNC_PROBE_COUNT|a pre-S8 core's page answer to the probe is accepted (F15)|CHECK( r.agent.stopped() )
-ForwarderAgentTest.admissionChangeResyncsAndOriginNeverResyncs|ADMISSION_REASON_BITS|ME_CAPACITY cleared under an unchanged SUSPENDED state is missed (W16)|CHECK( r.agent.resync().counters().resyncs[3] == 1 )
+ForwarderAgentTest.sessionLimitErrorRetries|AGENT_CLUSTER_ERROR_RETRY|a session-limit CLUSTER_ERROR exits 78 for good|CHECK_FALSE( r.agent.stopped() )
+ForwarderAgentTest.preS8CoreProbeExits78|RESYNC_PROBE_COUNT|a pre-head-probe core's page answer to the probe is accepted|CHECK( r.agent.stopped() )
+ForwarderAgentTest.admissionChangeResyncsAndOriginNeverResyncs|ADMISSION_REASON_BITS|ME_CAPACITY cleared under an unchanged SUSPENDED state is missed|CHECK( r.agent.resync().counters().resyncs[3] == 1 )
 ForwarderAgentTest.lost108IsReissued|RESYNC_T9|a lost 108 is never re-issued|CHECK( again.correlationId != first.correlationId )
 ForwarderAgentTest.lost108IsReissued|RESYNC_T9_RESTART|a 108 delayed by back-pressure is re-issued|CHECK( r.last65().correlationId == slow.correlationId )
 ForwarderAgentTest.headProbeAtRegistrationAndEveryTenSecondsInLive|RESYNC_HEAD_PROBE|no periodic head probe in LIVE|REQUIRE( r.coreOffers(65).size() == before + 1 )
 ForwarderAgentTest.headBehindCursorResyncs|RESYNC_T7|head above the cursor ignored|CHECK( r.agent.resync().counters().headProbeBehind == 1 )
 ForwarderAgentTest.coreNewLeaderReRegistersAndResyncsFromZero|RESYNC_ZERO_CLEARS_RING|the old term's ring survives the re-registration|CHECK( r.agent.ring().depth() == 0 )
-ForwarderAgentTest.exitSeams|EPOCH_MISMATCH_FATAL|an ME epoch change after the bind is accepted (F8)|CHECK( r.agent.stopReason().exitCode == 78 )
-ForwarderAgentTest.exitSeams|EPOCH_ZERO_FATAL|an ME epoch 0 after the bind is accepted (NOTE-6)|CHECK( r.agent.stopReason().exitCode == 78 )
-ForwarderAgentTest.meEpochWaitReconnects|EPOCH_WAIT|an ME session that never shows its epoch is kept forever (F-ME-1)|CHECK( r.agent.counters().meEpochReconnects == 1 )
-ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds|AGENT_ME_SESSION_BEFORE_POLL|the ME session starts after the poll: the same-batch hello is discarded (review FIX-1)|CHECK( r.agent.meLink() == MeLink::BOUND )
-# RC2 S10' 8.3 (the app seams of AppSeams.h, ct_forwarder_pure_seamed): the identity on both clusters
-MainTest.identityIsTheConfiguredIdOnBothClusters|IDENTITY_RANDOM|a random identity per start (the S12 shape): RegisterSession.identity is not FWD_INSTANCE_ID|CHECK( id == 4242 )
-# RC2 S10' Q1 (coordinator decision 2026-11-01): 30 s of storage-refused ingress publications end the process 70
+ForwarderAgentTest.exitSeams|EPOCH_MISMATCH_FATAL|an ME epoch change after the bind is accepted|CHECK( r.agent.stopReason().exitCode == 78 )
+ForwarderAgentTest.exitSeams|EPOCH_ZERO_FATAL|an ME epoch 0 after the bind is accepted|CHECK( r.agent.stopReason().exitCode == 78 )
+ForwarderAgentTest.meEpochWaitReconnects|EPOCH_WAIT|an ME session that never shows its epoch is kept forever|CHECK( r.agent.counters().meEpochReconnects == 1 )
+ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds|AGENT_ME_SESSION_BEFORE_POLL|the ME session starts after the poll: the same-batch hello is discarded|CHECK( r.agent.meLink() == MeLink::BOUND )
+# (the app seams of AppSeams.h, ct_forwarder_pure_seamed): the identity on both clusters
+MainTest.identityIsTheConfiguredIdOnBothClusters|IDENTITY_RANDOM|a random identity per start (the earlier shape): RegisterSession.identity is not FWD_INSTANCE_ID|CHECK( id == 4242 )
+# Storage starvation: 30 s of storage-refused ingress publications end the process 70
 ForwarderAgentTest.storageStarvedIngressExits70|STORAGE_STARVED_EXIT_OFF|a publication starved of storage space never ends the process: alive and not ready forever (the 2026-07-25 shape)|alive after 30 s of storage starvation
-# RC2 S13 contract 11.7 (app): the K4 MarketTick producer in the agent (domain seams of TestSeams.h, the seamed domain
+# The app layer: the MarketTick producer in the agent (domain seams of TestSeams.h, the seamed domain
 # library this binary links)
-ForwarderAgentTest.noTickBeforeTheMeEpochIsBound|AGENT_TICK_GATE|ticks offered without the section 3 gate: a tick with meEpoch 0 before the bind|CHECK( tickOffers == 0 )
-ForwarderAgentTest.aBurstInOnePollIsDecidedAfterThePoll|AGENT_TICK_AFTER_POLL|the emitter decides inside the ME poll callback: the burst's first (old) state leads and the newest is coalesced away (F-S13-4)|CHECK( firstTick.bid == burstNewestBid )
-ForwarderAgentTest.knownMeTemplatesAreNotUnknown|AGENT_KNOWN_TEMPLATES|23 / 24 / 27 counted as unknown ME templates (F-S13-5)|CHECK( unknownMe == 1 )
+ForwarderAgentTest.noTickBeforeTheMeEpochIsBound|AGENT_TICK_GATE|ticks offered without the gate: a tick with meEpoch 0 before the bind|CHECK( tickOffers == 0 )
+ForwarderAgentTest.aBurstInOnePollIsDecidedAfterThePoll|AGENT_TICK_AFTER_POLL|the emitter decides inside the ME poll callback: the burst's first (old) state leads and the newest is coalesced away|CHECK( firstTick.bid == burstNewestBid )
+ForwarderAgentTest.knownMeTemplatesAreNotUnknown|AGENT_KNOWN_TEMPLATES|23 / 24 / 27 counted as unknown ME templates|CHECK( unknownMe == 1 )
 ForwarderAgentTest.bookStaleClearsTicksReadyNotDispatchReady|AGENT_BOOK_STALE|no BOOK_STALE condition: a stuck emitter or a dead resnapshot rhythm reads ticks-ready|CHECK( snap.ticksReady == 0 )
-ForwarderAgentTest.unversionedMarketsStayEmptyAndTicksReady|STITCH_UNVERSIONED_EMPTY|a version-0 empty snapshot is malformed: never-versioned markets turn BROKEN and clear tick readiness (rule U, CL-B-1)|CHECK( snap.ticksReady == 1 )
-ForwarderAgentTest.resyncRequestPrecedesTicksOnTheCorePublication|AGENT_TICK_BEFORE_REQUEST|step 5a before step 5: the ticks take the core publication ahead of the 65 (CL-F-3)|CHECK( r.coreOffers(65).size() == 1 )
-ForwarderAgentTest.oldTermBookFrameAfterMeNewLeaderIsDropped|AGENT_ME_STALE_TERM_FILTER|an ended ME term's late snapshot reaches the ladder and rolls it back (RC-F1, F-S13-8)|CHECK( ladderVersion(1) == newTermVersion )
-ForwarderAgentTest.coreRejectOfATickReRegisters|AGENT_TICK_REJECT_HANDLED|a core reject naming 60 is an unknown core template: the lost registration is never repaired (F-S13-9)|CHECK( registerOffers == 2 )
+ForwarderAgentTest.unversionedMarketsStayEmptyAndTicksReady|STITCH_UNVERSIONED_EMPTY|a version-0 empty snapshot is malformed: never-versioned markets turn BROKEN and clear tick readiness (rule U)|CHECK( snap.ticksReady == 1 )
+ForwarderAgentTest.resyncRequestPrecedesTicksOnTheCorePublication|AGENT_TICK_BEFORE_REQUEST|step 5a before step 5: the ticks take the core publication ahead of the 65|CHECK( r.coreOffers(65).size() == 1 )
+ForwarderAgentTest.oldTermBookFrameAfterMeNewLeaderIsDropped|AGENT_ME_STALE_TERM_FILTER|an ended ME term's late snapshot reaches the ladder and rolls it back|CHECK( ladderVersion(1) == newTermVersion )
+ForwarderAgentTest.coreRejectOfATickReRegisters|AGENT_TICK_REJECT_HANDLED|a core reject naming 60 is an unknown core template: the lost registration is never repaired|CHECK( registerOffers == 2 )

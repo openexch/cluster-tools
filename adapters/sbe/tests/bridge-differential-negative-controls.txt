@@ -1,3 +1,3 @@
-# The RED column of RC2 S9b 13.12 (20 000 records per negative-control run).
+# The RED column of the translator differential test (20 000 records per negative-control run).
 TranslatorDifferentialTest.theCppTranslateEqualsTheJavaReferenceOnSeededRandomJournals|CODEC_SWAP_TAKER_MAKER_ORDER|taker and maker order ids swapped|CHECK( diff.empty() )
 TranslatorDifferentialTest.theCppTranslateEqualsTheJavaReferenceOnSeededRandomJournals|CODEC_ENUM_GET|an E::get path clamps raw 2..254|CHECK( diff.empty() )

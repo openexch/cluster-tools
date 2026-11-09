@@ -1,9 +1,9 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_BRIDGE_METRICS_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_BRIDGE_METRICS_H
 
-// The counters and gauges the bridge domain owns (RC2 S9b section 12): relaxed atomics, single writer (the duty
-// thread B), fixed label sets, so the HTTP thread (S9c) reads them without a lock. Rendering, the latency
-// histograms, /ready and /health are S9c's (from BridgeView and these series).
+// The counters and gauges the bridge domain owns: relaxed atomics, single writer (the duty
+// thread B), fixed label sets, so the HTTP thread reads them without a lock. Rendering, the latency
+// histograms, /ready and /health are (from BridgeView and these series).
 
 #include "cluster_tools/archive/ArchiveMetrics.h"
 #include "cluster_tools/domain/bridge/Types.h"
@@ -75,14 +75,14 @@ struct BridgeMetrics
     Counters<SETTLE_REASON_LABELS> settleRejected{};                          // bridge_settle_rejected_total{reason}
     Counters<static_cast<std::size_t>(DeferReason::COUNT)> framesDeferred{}; // bridge_frames_deferred_total{why}
     Counters<BRIDGE_HALT_LABELS> haltRecovered{};                             // bridge_halt_recovered_total{reason}
-    // RC2 S10' 5.4: a halted re-scan walked past a holed / bad recording of the source into later ones
+    // A halted re-scan walked past a holed / bad recording of the source into later ones
     Counters<archive::MAX_SOURCES> haltRelists{};                             // bridge_halt_relists_total{source}
 
     // plain counters
     std::atomic<std::uint64_t> sourceFailovers{ 0 };
     std::atomic<std::uint64_t> stagedDropped{ 0 };
     std::atomic<std::uint64_t> holeVerifications{ 0 };
-    std::atomic<std::uint64_t> refusalVerifications{ 0 }; // a refusal on a memo read re-read memo-free (2026-10-31)
+    std::atomic<std::uint64_t> refusalVerifications{ 0 }; // a refusal on a memo read re-read memo-free
     std::atomic<std::uint64_t> stormRotations{ 0 };
     std::atomic<std::uint64_t> coreRefused{ 0 };
     std::atomic<std::uint64_t> reportQueries{ 0 };
@@ -96,9 +96,9 @@ struct BridgeMetrics
     std::atomic<std::uint64_t> feedHaltRejected{ 0 };    // bridge_feed_halt_rejected_total (alert)
     std::atomic<std::uint64_t> recordingsEnded{ 0 };
     std::atomic<std::uint64_t> sourceParks{ 0 };         // switches by 8.3 rows 1-3 (a park, not a failover)
-    std::atomic<std::uint64_t> verdictLogDropped{ 0 };   // verdict events S9c did not drain in time
-    std::atomic<std::uint64_t> haltSuccessorAttaches{ 0 }; // S10' 5.4: a re-scan forwarded e from a later recording
-    std::atomic<std::uint64_t> haltStepbacks{ 0 };         // S10' 5.4: R2, one memo-free re-read from the chain start
+    std::atomic<std::uint64_t> verdictLogDropped{ 0 };   // verdict events did not drain in time
+    std::atomic<std::uint64_t> haltSuccessorAttaches{ 0 }; // A re-scan forwarded e from a later recording
+    std::atomic<std::uint64_t> haltStepbacks{ 0 };         // R2, one memo-free re-read from the chain start
 
     static void add(std::atomic<std::uint64_t> &c, std::uint64_t n = 1) noexcept
     {

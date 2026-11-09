@@ -1,4 +1,4 @@
-// The per-source resume memo (RC2 S9a contract section 5, 9.1): every row of the 5.3 table, the
+// The per-source resume memo: every row of the 5.3 table, the
 // 5.2 rules, and the ChainResumeMemoTest cases carried or retired (archive/tests/PARITY.md).
 #include "doctest/doctest.h"
 
@@ -337,7 +337,7 @@ TEST_CASE("ResumeMemoTest.cursorRegressionInvalidatesEverySource")
     CHECK(memo.proofCount(A) == 1);
 }
 
-// ---- 5.2 rules 2 and the per-source memo (F9, M3)
+// ---- 5.2 rules 2 and the per-source memo (M3)
 
 TEST_CASE("ResumeMemoTest.ringProofLandsOnItsOwnSourceOnly")
 {
@@ -538,9 +538,9 @@ TEST_CASE("ResumeMemoTest.purgeRaceOnInvalidPositionTrimsNotInvalidates")
     CHECK_FALSE(h.observer.sawFault(FaultKind::POSITION_REJECTED));
 }
 
-// ---- review fixes (S9a review.md, 2026-10-27)
+// ---- review fixes
 
-TEST_CASE("ResumeMemoTest.secondPurgeRaceAfterAFaultStillTrims") // F-2, probe P2
+TEST_CASE("ResumeMemoTest.secondPurgeRaceAfterAFaultStillTrims") // Probe P2
 {
     Harness h;
     h.memo->onReport(9, 6);
@@ -586,7 +586,7 @@ TEST_CASE("ResumeMemoTest.secondPurgeRaceAfterAFaultStillTrims") // F-2, probe P
     CHECK(ArchiveMetrics::get(h.metrics.memoTrims) == 2);
 }
 
-TEST_CASE("ResumeMemoTest.believedHoleIsVerifiedAndStopsForcingColdWalks") // F-3, probe P3; amended 5.2 rule 5
+TEST_CASE("ResumeMemoTest.believedHoleIsVerifiedAndStopsForcingColdWalks") // Probe P3; amended 5.2 rule 5
 {
     ArchiveMetrics metrics;
     ResumeMemo memo(2, &metrics);
@@ -618,7 +618,7 @@ TEST_CASE("ResumeMemoTest.believedHoleIsVerifiedAndStopsForcingColdWalks") // F-
     CHECK_FALSE(memo.holeVerified(0, 11));
 }
 
-TEST_CASE("ResumeMemoTest.wipedToAnEmptyChainIsHistoryChange") // N-5
+TEST_CASE("ResumeMemoTest.wipedToAnEmptyChainIsHistoryChange")
 {
     ArchiveMetrics metrics;
     ResumeMemo memo(1, &metrics);

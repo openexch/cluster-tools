@@ -1,10 +1,10 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_ARCHIVE_METRICS_H
 #define CLUSTER_TOOLS_ARCHIVE_ARCHIVE_METRICS_H
 
-// The counters S9a owns (RC2 S9a contract 8.1). Single writer (the duty thread B), relaxed atomics,
-// labels from a fixed set, so the HTTP thread (S9c) reads without a lock. The three max gauges are
+// The counters owns. Single writer (the duty thread B), relaxed atomics,
+// labels from a fixed set, so the HTTP thread reads without a lock. The three max gauges are
 // written by B with a CAS max and read with exchange(0): "max since the previous scrape" needs no
-// other write from the reader. Rendering (/metrics) is S9c.
+// other write from the reader. Rendering (/metrics) is the app's.
 
 #include "cluster_tools/archive/FramePeek.h"
 

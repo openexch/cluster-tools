@@ -148,7 +148,7 @@ public:
         p.position += static_cast<std::int64_t>(headerLength + bodyLength);
         if (!recordOffers)
         {
-            offersNotRecorded++; // an allocation-free fake for allocation counting (RC2 S12 zeroAllocDutyCycle)
+            offersNotRecorded++; // an allocation-free fake for allocation counting (zeroAllocDutyCycle)
             return p.position;
         }
         std::vector<std::uint8_t> frame(header, header + headerLength);

@@ -1,5 +1,5 @@
 # app/journal-tail (WITH_BRIDGE): ct-journal-tail, the archive side driven end to end without a core
-# session (RC2 S9a section 0 item 4). Reads only; never writes a file.
+# session. Reads only; never writes a file.
 add_executable(ct-journal-tail main.cpp)
 target_link_libraries(ct-journal-tail PRIVATE ct_archive_aeron)
 target_compile_options(ct-journal-tail PRIVATE -Wall -Wextra)

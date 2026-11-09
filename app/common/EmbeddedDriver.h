@@ -10,28 +10,28 @@
 #include "common/StorageStarvation.h"
 
 // EmbeddedDriver - <PROCESS>_DRIVER_MODE=embedded only (dev and demo; the prod mode is the host aeronmd that admin and
-// cloud-console manage, checklist C13): the Aeron C media driver of the verified tree, in this process. One copy for
-// ct-bridge (RC2 S9c 3.1, 3.3 step 4, 3.4, W4) and ct-forwarder (RC2 S10' section 8, rule 4): the process name, the dir
+// cloud-console manage): the Aeron C media driver of the verified tree, in this process. One copy for
+// ct-bridge and ct-forwarder: the process name, the dir
 // prefix and the instance key are constructor inputs (EmbeddedDriverOptions), the rules are the same.
-//   - dir <parent>/<dirPrefix><instance id>: per INSTANCE, not per pid (S9c review FIX-1, D-S9c-17), so a restart reuses
+//   - dir <parent>/<dirPrefix><instance id>: per INSTANCE, not per pid, so a restart reuses
 //     and cleans the same dir and no dead sibling can leak on the tmpfs; a LIVE driver already in it
 //     (aeron_is_driver_active: a second instance with the same id on this host) refuses the start (78);
-//   - the instance lock (coordinator decision Q3, 2026-11-01): flock(LOCK_EX | LOCK_NB) on <dir>.lock, next to the dir,
+//   - the instance lock (decided 2026-11-01): flock(LOCK_EX | LOCK_NB) on <dir>.lock, next to the dir,
 //     taken before the dir is looked at and held for the object's lifetime (the process lifetime in both processes; the
 //     kernel drops it at any exit, kill -9 included; the file is never deleted, so every instance locks the same inode):
 //     a second same-id instance refuses without touching the dir, also when both start in the same instant over a
 //     stale dir. A LIVE driver dir is never deleted;
 //   - SHARED threading (one driver thread), delete the dir on start and on shutdown;
 //   - the termination hook is installed so that a validated TerminateDriver request is LOUD (exit 70); it is NOT a
-//     death detector (S9c review FIX-4): a dead driver thread is seen by the client conductor's CnC driver timeout;
-//   - any driver context / init / start error refuses the start (78, S9c review FIX-12: host configuration a restart
+//     death detector: a dead driver thread is seen by the client conductor's CnC driver timeout;
+//   - any driver context / init / start error refuses the start (78: host configuration a restart
 //     cannot fix: socket buffer limits), EXCEPT an init / start that failed for storage space (ENOSPC or Aeron's
-//     STORAGE_SPACE: the CnC cannot be allocated on a full tmpfs; RC2 S10' review C13-6): startFailedForStorage() says
-//     so; ct-forwarder retries it under the Q1 rule (StorageStarvation.h: 70 after 30 s, never 78, which would keep it
+//     STORAGE_SPACE: the CnC cannot be allocated on a full tmpfs): startFailedForStorage() says
+//     so; ct-forwarder retries it under the storage-starvation rule (StorageStarvation.h: 70 after 30 s, never 78, which would keep it
 //     down for good after a passing tmpfs squeeze); ct-bridge's main still maps every start failure to 78;
 //   - close() runs on a helper thread with a timed wait (the stop must not hang on it).
 // manualMainLoop (the *_tc_driverstall test builds only): the driver's duty cycle runs on a thread this class owns, and
-// stopDriving() stops it (the driver thread dead, the client alive: the 2026-08-12 shape, R-K13 (b)).
+// stopDriving() stops it (the driver thread dead, the client alive: the 2026-08-12 shape, the driver-stall drill).
 
 struct aeron_driver_context_stct;
 struct aeron_driver_stct;
@@ -95,7 +95,7 @@ private:
     std::atomic<bool> m_stopLoop{ false };
     std::thread m_loop;
     int m_lockFd = -1;
-    int m_failureErrcode = 0; // aeron_errcode() of a failed aeron_driver_init / aeron_driver_start (C13-6)
+    int m_failureErrcode = 0; // aeron_errcode() of a failed aeron_driver_init / aeron_driver_start
 };
 
 }}}

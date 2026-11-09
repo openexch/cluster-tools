@@ -1,4 +1,4 @@
-// Strict archive settings (RC2 S9a contract 4.1, 9.1): every error reported, never a default.
+// Strict archive settings: every error reported, never a default.
 #include "doctest/doctest.h"
 
 #include "cluster_tools/archive/ArchiveSettings.h"
@@ -120,7 +120,7 @@ TEST_CASE("ArchiveSettingsTest.loopbackLocalHostWithRemoteArchiveRefuses")
     env["BRIDGE_LOCAL_HOST"] = "127.0.0.5";
     CHECK(mentions(parse(env), "is loopback"));
     CHECK(isLoopbackHost("127.255.0.1"));
-    // every 127/8 form (review N-12)
+    // every 127/8 form
     CHECK(isLoopbackHost("127.1"));
     CHECK(isLoopbackHost("127.0.0"));
     CHECK(isLoopbackHost("0x7f.1"));
@@ -168,7 +168,7 @@ TEST_CASE("ArchiveSettingsTest.archiveListIsStrict")
     {
         seventeen += (i ? "," : "") + std::string("10.0.0.1:") + std::to_string(9000 + i);
     }
-    // duplicates compared in normalised form (review N-12)
+    // duplicates compared in normalised form
     for (const char *dup : { "localhost:9010,127.0.0.1:9010", "127.1:9010,127.0.0.1:9010", "H1:9010,h1:9010",
              "[::1]:9010,[0:0:0:0:0:0:0:1]:9010" })
     {
@@ -208,7 +208,7 @@ TEST_CASE("ArchiveSettingsTest.streamsAndChannel")
     CHECK(mentions(parse(env), "absolute"));
 }
 
-// RC2 S9c W0 (2026-10-31): the external-driver scope needs no BRIDGE_DRIVER_DIR and refuses one that is set.
+// The external-driver scope needs no BRIDGE_DRIVER_DIR and refuses one that is set.
 TEST_CASE("ArchiveSettingsTest.externalScopeNeedsNoDriverDir")
 {
     auto env = good();

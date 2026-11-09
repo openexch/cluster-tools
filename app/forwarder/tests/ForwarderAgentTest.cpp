@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.3: ForwarderAgent<ClusterClient<FakeTransport>, ClusterClient<FakeTransport>> with a
+// ForwarderAgent<ClusterClient<FakeTransport>, ClusterClient<FakeTransport>> with a
 // manual clock. Every frame the agent sees is a real money-schema v7 / order-schema v12 encoding; every frame
 // it offers is decoded back.
 #include "doctest/doctest.h"
@@ -114,7 +114,7 @@ TEST_CASE("ForwarderAgentTest.noRegistrationBeforeMeEpoch")
     const auto requests = r.coreOffers(65);
     REQUIRE(requests.size() == 1);
     const Request65 probe = decode65(requests[0].payload);
-    CHECK(probe.max == 0); // the head probe first (F15)
+    CHECK(probe.max == 0); // the head probe first
     r.core_(pendingEnd(probe.correlationId, 0, 0));
     r.cycles(3);
     const Request65 page = r.last65();
@@ -130,7 +130,7 @@ TEST_CASE("ForwarderAgentTest.keepaliveBothClustersEverySecond")
     const std::uint64_t core0 = r.core.counters().keepAlivesSent;
     const std::uint64_t me0 = r.me.counters().keepAlivesSent;
     const std::uint64_t opened0 = r.core.counters().sessionsOpened + r.me.counters().sessionsOpened;
-    // scripted back-pressure on both ingress publications: retried 10 ms later (S11 N8), none missed
+    // scripted back-pressure on both ingress publications: retried 10 ms later, none missed
     corePublication(r).p->scriptedResults = { -2, -2, -2 };
     mePublication(r).p->scriptedResults = { -2, -2 };
     r.runFor(30 * SECOND);
@@ -192,7 +192,7 @@ TEST_CASE("ForwarderAgentTest.staleTermFrameAfterNewLeaderIsDropped")
     r.core_(pendingEnd(probe.correlationId, 0, 3));
     r.cycles(3);
     const Request65 page = r.last65();
-    // the new leader's reply [1, 3] with a deposed leader's (term 3) live entry 2 between its entries (FIX-1)
+    // the new leader's reply [1, 3] with a deposed leader's (term 3) live entry 2 between its entries
     r.core_(dispatchFrame(create(1, 101)), 4);
     r.core_(dispatchFrame(create(2, 102)), 3);
     r.core_(dispatchFrame(create(3, 103)), 4);
@@ -436,7 +436,7 @@ TEST_CASE("ForwarderAgentTest.preS8CoreProbeExits78")
     r.acceptRegistration();
     const Request65 probe = r.last65();
     r.core_(batchFrame({ create(1, 101), create(2, 102), create(3, 103) }));
-    r.core_(pendingEnd(probe.correlationId, 3, 3)); // a pre-S8 core answers maxEntries 0 with a page
+    r.core_(pendingEnd(probe.correlationId, 3, 3)); // a core without the head probe answers maxEntries 0 with a page
     r.cycles(3);
     CHECK(r.agent.stopped());
     CHECK(r.agent.stopReason().exitCode == 78);
@@ -622,7 +622,7 @@ TEST_CASE("ForwarderAgentTest.meEpochWaitReconnects")
     r.cycles(50);
     REQUIRE(r.me.isConnected());
     const std::uint64_t opened = r.me.counters().sessionsOpened;
-    r.runFor(5 * SECOND + 10 * MS); // no heartbeat: a busy pre-W9 ME (F-ME-1)
+    r.runFor(5 * SECOND + 10 * MS); // no heartbeat: a busy ME without the epoch hello
     r.cycles(20);
     CHECK(r.agent.counters().meEpochReconnects == 1);
     CHECK(r.me.counters().sessionsOpened == opened + 1);
@@ -646,7 +646,7 @@ TEST_CASE("ForwarderAgentTest.sigtermClosesBothSessionsPolitely")
 
 TEST_CASE("ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds")
 {
-    // Review FIX-1 (the reviewer's probe, inverted): the W9 hello is already in the image behind the ME SessionEvent
+    // (the reviewer's probe, inverted): the hello is already in the image behind the ME SessionEvent
     // OK, so the poll of the iteration that applies the OK delivers it. The session starts before that poll: it binds,
     // no epoch-wait reconnect, RegisterSession goes out.
     Rig r;
@@ -667,7 +667,7 @@ TEST_CASE("ForwarderAgentTest.helloInTheSameBatchAsTheOkBinds")
 
 TEST_CASE("ForwarderAgentTest.dispatchSeqBelowOneRefusesTheWholeFrame")
 {
-    // Review NOTE-2: a 105 with one entry of dispatchSeq 0 between valid ones is a malformed frame: nothing of it is
+    // A 105 with one entry of dispatchSeq 0 between valid ones is a malformed frame: nothing of it is
     // sent (no partial send, no carrier), it is counted, and T6 re-asks the core; a 104 with seq -1 likewise.
     Rig r;
     r.bringUp();
@@ -691,7 +691,7 @@ TEST_CASE("ForwarderAgentTest.dispatchSeqBelowOneRefusesTheWholeFrame")
 
 TEST_CASE("ForwarderAgentTest.readyIsZeroWhileTheRingHeadWaits30s")
 {
-    // Review NOTE-3: the ME refuses every offer while its egress keeps flowing: ready drops once the head waited 30 s.
+    // The ME refuses every offer while its egress keeps flowing: ready drops once the head waited 30 s.
     Rig r;
     r.bringUp();
     mePublication(r).p->scriptedResults.assign(1'000'000, -2);
@@ -733,7 +733,7 @@ TEST_CASE("ForwarderAgentTest.readyIsZeroWhileTheCoreClientHasNoLeader")
 }
 
 // ======================================================================================================================
-// RC2 S13 contract 11.4: the K4 MarketTick producer in the agent (duty steps 4 and 5a, the gate, the ladder resets, E7,
+// The MarketTick producer in the agent (duty steps 4 and 5a, the gate, the ladder resets, E7,
 // the 60 reject, known-ignored templates, tick readiness). Timing rule C1: every ME frame is polled at the earliest in
 // the iteration after it was produced; every core answer is pushed after the offer it answers was observed.
 
@@ -878,7 +878,7 @@ TEST_CASE("ForwarderAgentTest.aBurstInOnePollIsDecidedAfterThePoll")
     r.cycles(2);
     REQUIRE(r.coreOffers(60).size() == 1);
     r.runFor(200 * MS); // the T_cap window is over: the next change is a leading edge
-    // one ME flush burst: 12 deltas, each moving the best bid, all in one poll (F-S13-4)
+    // one ME flush burst: 12 deltas, each moving the best bid, all in one poll
     for (int i = 0; i < 12; i++)
     {
         r.me_(moveBestBid(1, 100 + i, 101 + i, 1000 + i, 1001 + i));
@@ -998,16 +998,16 @@ TEST_CASE("ForwarderAgentTest.meNewLeaderKeepsLaddersAndTheNextSnapshotRepairs")
         r.meT.pushNewLeader(r.meSession, 8, 1, ME_ENDPOINTS, 951);
         r.meTerm = 8;
         r.cycle();
-        CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK); // D-S13-3: kept across a term change
+        CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK); // Kept across a term change
         CHECK(r.agent.stitcher().ladder(1).version() == 100);
-        // the promoted follower's own chain (F-S13-2), one iteration later
+        // the promoted follower's own chain, one iteration later
         r.meT.pushAppMessage(r.meSession, moveBestBid(1, 90, 130, 1000, 1004), 951, 8);
         r.cycle();
         CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::BROKEN);
         CHECK(r.agent.stitcher().ladder(1).breakCause() == fd::BreakCause::FROM_MISMATCH);
         r.cycles(lateBy - 1);
         const std::size_t before = r.coreOffers(60).size();
-        r.meT.pushAppMessage(r.meSession, oneLevel(1, 140, 1005), 951, 8); // W-ME1's snapshot
+        r.meT.pushAppMessage(r.meSession, oneLevel(1, 140, 1005), 951, 8); // Snapshot
         r.cycle();
         CHECK(r.agent.stitcher().ladder(1).state() == fd::LadderState::OK);
         const auto ticks = ticksOf(r);
@@ -1087,7 +1087,7 @@ TEST_CASE("ForwarderAgentTest.bookStaleClearsTicksReadyNotDispatchReady")
         CHECK( snap.ticksReady == 0 );
         CHECK(snap.ticksNotReadyMarket == 1);
         CHECK(snap.ticksNotReadyCondition == ticks_not_ready::PENDING_5S);
-        CHECK(snap.notReady == 0); // the dispatch /ready mask is untouched (PO-1)
+        CHECK(snap.notReady == 0); // the dispatch /ready mask is untouched
         CHECK(snap.ready);
     }
     corePublication(r).p->scriptedResults.clear();
@@ -1243,7 +1243,7 @@ TEST_CASE("ForwarderAgentTest.coreRejectOfATickReRegisters")
 
 TEST_CASE("ForwarderAgentTest.resyncRequestPrecedesTicksOnTheCorePublication")
 {
-    // CL-F-3: the core publication accepts exactly one offer per iteration; at the registration the T1 head probe (65)
+    // The core publication accepts exactly one offer per iteration; at the registration the T1 head probe (65)
     // and five held ticks are due in the same iteration: the 65 goes first, the ticks one per iteration after it.
     Rig r;
     r.connectBoth();

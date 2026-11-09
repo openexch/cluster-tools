@@ -1,16 +1,16 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_FORWARDER_TESTS_ME_PUBLISHER_MODEL_H
 #define CLUSTER_TOOLS_DOMAIN_FORWARDER_TESTS_ME_PUBLISHER_MODEL_H
 
-// RC2 S13 contract 11.2 (W4): the test-side models the StitcherPropertyTest drives the real BookStitcher and
+// The test-side models the StitcherPropertyTest drives the real BookStitcher and
 // TickEmitter with. Test only, never linked into a production target.
 //
 //  - MarketBook      the ME's book of one market under ARRAY semantics (AME:381-400, 431-462, ENG:861-883): a
 //                    command mutates the live book, bumps the touched side's version and bookVersion =
 //                    max(current + 1, logPosition), then publishes the top-20 with its versions atomically (the
 //                    seqlock top). The publisher reads only that published top, so every frame's levels and version
-//                    belong together. That is the ARRAY exactness K2 claims (F-S13-10: DIRECT lacks it, carry X8).
+//                    belong together. That is the ARRAY exactness claims (DIRECT lacks it).
 //  - MePublisher     a C++ port of MarketPublisher's book chain: the generation reset (MP:540-550), encodeBookSnapshot
-//                    with the W-ME2 rules of contract 8.2 switchable back to the ed98477 shape (MP:705-708), the
+//                    with the empty-book rules switchable back to the ed98477 shape (MP:705-708), the
 //                    snapshot / delta decision and the match#115 chain advance (MP:698-772), the diff (MP:902-952:
 //                    per side every NEW / UPDATE before every DELETE, bids before asks).
 //  - LossyCoreModel  the core's tick apply rule (OE:973-1007) plus the loss of RC-F7: at a core leader change the
@@ -213,7 +213,7 @@ private:
 class MePublisher
 {
 public:
-    bool emptyBookFrames = true;       // W-ME2 (8.2) on; false = the ed98477 early return MP:705-708
+    bool emptyBookFrames = true;       // empty-book frames on; false = the ed98477 early return MP:705-708
     bool emptyBookVersionGuard = true; // the 8.2 guard; false = a never-touched market sends a version-0 empty 22 (rule U)
 
     bool flush(std::int64_t generation, int market, const PublishedTop &top, BookFrame &out)
@@ -243,7 +243,7 @@ private:
         {
             if (!emptyBookFrames)
             {
-                return false; // MP:705-708 before W-ME2: an emptied book is invisible (F-S13-1)
+                return false; // MP:705-708: an emptied book is invisible
             }
             const bool known = !emptyBookVersionGuard || top.bookVersion > 0;
             const bool shows = !m_sentInitialSnapshot || m_lastBids.size() + m_lastAsks.size() > 0;

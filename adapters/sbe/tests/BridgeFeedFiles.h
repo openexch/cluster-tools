@@ -1,10 +1,10 @@
 #ifndef CLUSTER_TOOLS_ADAPTERS_SBE_TESTS_BRIDGE_FEED_FILES_H
 #define CLUSTER_TOOLS_ADAPTERS_SBE_TESTS_BRIDGE_FEED_FILES_H
 
-// The S9h harness file formats (S9h 3.4, all little-endian, every reader strict) and the C++ `translate` of S9b 5.3:
+// The harness file formats (all little-endian, every reader strict) and the C++ `translate`:
 // NOT a second implementation: it drives the domain's own Stager (domain/bridge, the staging the live bridge runs)
 // with BridgeCodec as its encoder and a collecting FrameOutput: RECORD -> Stager::forward, FLUSH -> Stager::flush,
-// end -> flush. The expected bytes these are compared with come only from the S9h Java harness.
+// end -> flush. The expected bytes these are compared with come only from the Java harness.
 
 #include "cluster_tools/adapters/sbe/BridgeCodec.h"
 #include "cluster_tools/archive/FramePeek.h"
@@ -162,7 +162,7 @@ struct Collect final : cluster_tools::domain::bridge::FrameOutput
     }
 };
 
-// S9b 5.3: the live staging (Stager) + the generated-codec translation (BridgeCodec).
+// The live staging (Stager) + the generated-codec translation (BridgeCodec).
 inline std::vector<Bytes> translate(const std::vector<FjrEntry> &input)
 {
     using namespace cluster_tools::domain::bridge;

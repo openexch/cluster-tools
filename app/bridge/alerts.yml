@@ -1,4 +1,4 @@
-# Prometheus alert rules for ct-bridge (RC2 S9c contract 9.4). Scrape: GET /metrics on BRIDGE_HTTP_BIND. Every series
+# Prometheus alert rules for ct-bridge. Scrape: GET /metrics on BRIDGE_HTTP_BIND. Every series
 # named here is exported (MetricsRenderTest.everyAlertedSeriesIsExported). Runbook: README "ct-bridge" (9.5).
 groups:
   - name: bridge
@@ -70,9 +70,9 @@ groups:
         expr: increase(bridge_core_future_term_total[1m]) > 0 and increase(bridge_client_new_leader_events_total[1m]) == 0
         labels: { severity: warning }
         annotations:
-          summary: "core frames of a later term without a NewLeaderEvent (contract 5.3 row 0)"
+          summary: "core frames of a later term without a NewLeaderEvent"
       - alert: BridgeStorageStarved
-        # RC2 S10' Q1: the core ingress publication or every replay image refused for storage space; exit 70 after 30 s
+        # The core ingress publication or every replay image refused for storage space; exit 70 after 30 s
         # (restartable, loud): the media driver dir's tmpfs is too small or full
         expr: increase(bridge_storage_starved_seconds_total[1m]) > 0
         labels: { severity: page }

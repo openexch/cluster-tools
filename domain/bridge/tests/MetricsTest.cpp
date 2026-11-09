@@ -1,4 +1,4 @@
-// MetricsTest (RC2 S9b 13.9, section 12, S9a 11a.13).
+// MetricsTest (11a.13).
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -9,7 +9,7 @@ using namespace ct_bridge_test;
 
 TEST_CASE("MetricsTest.recordingStartStepBackIsCounted")
 {
-    // S9a 11a.13: a later recording of a source whose first seq is below an earlier recording's first seq
+    // 11a.13: a later recording of a source whose first seq is below an earlier recording's first seq
     Rig rig(1);
     rig.core.bound = EPOCH;
     rig.core.cursor = 2;
@@ -44,7 +44,7 @@ TEST_CASE("MetricsTest.everySeriesHasItsFixedLabels")
     {
         CHECK(std::strcmp(badReasonLabel(static_cast<BadReason>(i)), "?") != 0);
     }
-    // RC2 S17 W12 B1 (review V8): the BadReason table grew by one (COUNT-indexed metric arrays and labels resize)
+    // The BadReason table grew by one (COUNT-indexed metric arrays and labels resize)
     CHECK(static_cast<unsigned>(BadReason::COUNT) == 13);
     CHECK(std::strcmp(badReasonLabel(BadReason::FOREIGN_JOURNAL_HEAD), "foreign_journal_head") == 0);
     CHECK(std::strcmp(badReasonLabel(BadReason::STALE_EPOCH_PREFIX), "stale_epoch_prefix") == 0);
@@ -65,7 +65,7 @@ TEST_CASE("MetricsTest.everySeriesHasItsFixedLabels")
     CHECK(m.fences.size() == 9);
     CHECK(m.settleRejected.size() == 10);
     CHECK(m.sourceVerdicts.size() == MAX_SOURCES);
-    CHECK(m.sourceBad.size() == 13); // RC2 S17 W12: + foreign_journal_head
+    CHECK(m.sourceBad.size() == 13); // + foreign_journal_head
     CHECK(frameKindOf(61) == FrameKind::K61);
     CHECK(frameKindOf(68) == FrameKind::K68);
     CHECK(frameKindOf(66) == FrameKind::COUNT);
@@ -85,7 +85,7 @@ TEST_CASE("MetricsTest.everySeriesHasItsFixedLabels")
     CHECK(BridgeMetrics::value(rig.metrics.halted) == 0);
 }
 
-// RC2 S9c W2a (2026-10-31): BridgeView carries the domain's time of its last accepted report and the follower's
+// BridgeView carries the domain's time of its last accepted report and the follower's
 // consumed position as the domain last saw it; a skip walk moves the position without a forward; a session loss
 // resets the report time.
 TEST_CASE("MetricsTest.viewCarriesReportTimeAndConsumedPosition")

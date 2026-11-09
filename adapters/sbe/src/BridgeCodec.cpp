@@ -34,7 +34,7 @@ namespace bridge = domain::bridge;
 using bridge::test_seams::Rule;
 using bridge::test_seams::disabled;
 
-// ------------------------------------------------------------------ the pins (S9a 6.2, the static-assert unit)
+// ------------------------------------------------------------------ the pins (the static-assert unit)
 
 static_assert(money::MessageHeader::sbeSchemaId() == MONEY_SCHEMA_ID);
 static_assert(money::MessageHeader::sbeSchemaVersion() == MONEY_VERSION);
@@ -74,7 +74,7 @@ static_assert(money::MeEngineConfig::sbeBlockLength() == 39 && jr::EngineConfig:
 static_assert(money::FeedHalt::sbeBlockLength() == 41);
 static_assert(money::QueryFeedPosition::sbeBlockLength() == 8);
 static_assert(money::FeedPositionReport::sbeBlockLength() == 43);
-// the frame bound (S9a 6.3, cpp A5): the largest feed frame + the cluster session header fits the 8192 MTU
+// the frame bound: the largest feed frame + the cluster session header fits the 8192 MTU
 static_assert(MESSAGE_HEADER_LENGTH + 4 + 109 * 64 == bridge::MAX_BATCH_FRAME);
 static_assert(bridge::MAX_BATCH_FRAME + 32 <= 8192 - 32);
 
@@ -100,7 +100,7 @@ CT_PAIR(MeJournalTrade, Trade, makerOmsOrderId, makerOmsOrderId, 85, 101);
 CT_PAIR(MeJournalTrade, Trade, meEpoch, meEpoch, 93, 8);
 CT_PAIR(MeJournalTrade, Trade, journalSeq, journalSeq, 101, 0);
 
-// review NOTE-5: every one of the 15 entry fields of the 62 against the journal Trade (width and offset)
+// Every one of the 15 entry fields of the 62 against the journal Trade (width and offset)
 CT_PAIR(MeJournalTradeBatch::Trades, Trade, egressSeq, egressSeq, 0, 16);
 CT_PAIR(MeJournalTradeBatch::Trades, Trade, tradeId, tradeId, 8, 24);
 CT_PAIR(MeJournalTradeBatch::Trades, Trade, marketId, marketId, 16, 32);
@@ -196,7 +196,7 @@ std::uint16_t le16(const std::uint8_t *p) noexcept
     return static_cast<std::uint16_t>(p[0] | (p[1] << 8));
 }
 
-// S9a 6.1: an enum field written raw (C++ setters take E::Value; every generated enum here spans 0..255 because it
+// An enum field written raw (C++ setters take E::Value; every generated enum here spans 0..255 because it
 // lists NULL_VALUE 255, so every raw byte is a representable value); E::get is never called. The RED shape
 // CODEC_ENUM_GET goes through E::get and clamps an unknown byte (a throw inside noexcept would only crash).
 template<typename E>
@@ -321,7 +321,7 @@ std::size_t BridgeCodec::encodeRecord(const std::uint8_t *record, std::size_t le
                 .omsOrderId(d.omsOrderId())
                 .meEpoch(d.meEpoch())
                 .journalSeq(head ? d.egressSeq() : d.journalSeq())
-                .rejectReason(d.rejectReason()); // a plain uint8 on both schemas (review FIX-14): no null check
+                .rejectReason(d.rejectReason()); // a plain uint8 on both schemas: no null check
             return MESSAGE_HEADER_LENGTH + e.encodedLength();
         }
         case archive::TEMPLATE_OUTCOME:
@@ -551,14 +551,14 @@ EgressKind BridgeCodec::decodeEgress(const std::uint8_t *frame, std::size_t leng
     }
 }
 
-// ------------------------------------------------------------------ RC2 S9c: the app's egress reads and the O3/O4 getter
+// ------------------------------------------------------------------ the app's egress reads and the O3/O4 getter
 
 static_assert(money::OrderReject::sbeTemplateId() == T_ORDER_REJECT);
 static_assert(money::SettlementApplied::sbeTemplateId() == T_SETTLEMENT_APPLIED);
 static_assert(static_cast<std::uint8_t>(money::CoreRejectReason::INVALID) == CORE_REJECT_INVALID);
 static_assert(static_cast<std::uint8_t>(money::CoreRejectReason::UNAUTHORIZED_CLASS) == CORE_REJECT_UNAUTHORIZED_CLASS);
 static_assert(static_cast<std::uint8_t>(money::CoreRejectReason::UNREGISTERED_SESSION) == CORE_REJECT_UNREGISTERED_SESSION);
-// the 61 root block and the 62 entry carry tradeId and meTimestamp at the same offsets (S9b NOTE-5 pins every field)
+// the 61 root block and the 62 entry carry tradeId and meTimestamp at the same offsets (pins every field)
 static_assert(money::MeJournalTrade::tradeIdEncodingOffset() == money::MeJournalTradeBatch::Trades::tradeIdEncodingOffset());
 static_assert(money::MeJournalTrade::meTimestampEncodingOffset() ==
     money::MeJournalTradeBatch::Trades::meTimestampEncodingOffset());

@@ -47,7 +47,7 @@ public final class GoldenMatch {
         print("JAVA_DURABLE_ORDER_COMMAND", buf, header.encodedLength() + command.encodedLength());
 
         // ClusterHeartbeat v12: root block 9 -> 17 (meEpoch appended). Consumers decode with the
-        // frame's own blockLength + version (RC2 S1 review-match row 10).
+        // frame's own blockLength + version.
         final var heartbeat = new com.match.infrastructure.generated.ClusterHeartbeatEncoder()
                 .wrapAndApplyHeader(buf, 0, header)
                 .nodeId((short) 2)
@@ -98,7 +98,7 @@ public final class GoldenMatch {
         print("JAVA_ENGINE_CONFIG_V12", buf, header.encodedLength() + config.encodedLength());
     }
 
-    // ---- RC2 S12 (contract 11.2): what the forwarder must put on the ME wire ----
+    // ---- what the forwarder must put on the ME wire ----
 
     /** The 14 DurableOrderCommand fields: high, low, user, oms, old, price, qty, budget, market, kind, type, side, tif, eor. */
     private static int command(final UnsafeBuffer buf, final long[] c) {
@@ -127,7 +127,7 @@ public final class GoldenMatch {
     }
 
     /**
-     * The S12 INVALID carrier (contract 5.5), written here independently of the C++ code: a pure function of
+     * The INVALID carrier, written here independently of the C++ code: a pure function of
      * the dispatch's 14 command fields (kind raw). Returned in the command() field order.
      */
     private static long[] carrier(final long high, final long low, final long user, final long oms, final long old,
@@ -188,7 +188,7 @@ public final class GoldenMatch {
         print("JAVA_CLUSTER_HEARTBEAT_V12", buf, header.encodedLength() + heartbeat.encodedLength());
     }
 
-    // ---- RC2 S13 (contract 11.3): the book egress the K4 stitcher decodes ----
+    // ---- the book egress the stitcher decodes ----
     private static final com.match.infrastructure.generated.MessageHeaderEncoder BOOK_HEADER =
             new com.match.infrastructure.generated.MessageHeaderEncoder();
 
@@ -214,7 +214,7 @@ public final class GoldenMatch {
         }
         print("JAVA_BOOK_SNAPSHOT_20x20", buf, BOOK_HEADER.encodedLength() + full.encodedLength());
 
-        // W-ME2: a versioned book that emptied (both groups empty, bookVersion > 0)
+        // A versioned book that emptied (both groups empty, bookVersion > 0)
         final var empty = snapshot(buf, 3, 777L);
         empty.bidsCount(0);
         empty.asksCount(0);
@@ -277,7 +277,7 @@ public final class GoldenMatch {
         }
         print("JAVA_TRADE_EXECUTION_BATCH_3", buf, BOOK_HEADER.encodedLength() + tb.encodedLength());
 
-        // CL-F-9: the same batch whose group header states blockLength 88 (one byte below the 89 entry): the group
+        // The same batch whose group header states blockLength 88 (one byte below the 89 entry): the group
         // header sits right after the root block, its blockLength is the first uint16
         buf.putShort(BOOK_HEADER.encodedLength() + com.match.infrastructure.generated.TradeExecutionBatchEncoder.BLOCK_LENGTH,
                 (short) 88, java.nio.ByteOrder.LITTLE_ENDIAN);

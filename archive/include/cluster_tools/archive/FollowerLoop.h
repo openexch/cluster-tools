@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_FOLLOWER_LOOP_H
 #define CLUSTER_TOOLS_ARCHIVE_FOLLOWER_LOOP_H
 
-// One bounded duty step of one source follower (RC2 S9a contract 3.2 step 3): the driver both the
+// One bounded duty step of one source follower: the driver both the
 // Aeron adapter (archive/aeron ChainFollower = FollowerLoop<ArchiveSource>) and the simulated
 // archive of the property test use, so the walk under test is the walk that ships.
 //
@@ -81,7 +81,7 @@ public:
         }
         if (paused && disabled(Rule::FOLLOW_PAUSE_SUPPRESSES_CONTROL))
         {
-            return work; // RED shape (review F1): a paused follower that never probes
+            return work; // RED shape: a paused follower that never probes
         }
         for (int guard = 0; guard < 6; ++guard)
         {
@@ -163,7 +163,7 @@ private:
             const bool advanceEarly = disabled(Rule::FOLLOW_ADVANCE_BEFORE_SINK);
             if (advanceEarly)
             {
-                m_policy.onAccepted(admission.peek, endPosition); // RED shape (F19)
+                m_policy.onAccepted(admission.peek, endPosition); // RED shape
             }
             JournalFrame frame;
             frame.sourceIndex = source;
@@ -196,7 +196,7 @@ private:
         const int fragments = m_port.poll(handler, fragmentLimit);
         if (sinkAborted && Phase::FOLLOWING == m_policy.phase())
         {
-            m_policy.onSinkBackPressure(); // review F-4: counts as paused for rows 11, 12, 12b
+            m_policy.onSinkBackPressure(); // Counts as paused for rows 11, 12, 12b
         }
         return fragments;
     }

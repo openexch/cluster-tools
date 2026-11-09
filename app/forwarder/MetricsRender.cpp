@@ -63,7 +63,7 @@ const char *kindLabel(unsigned bucket)
     return bucket < 5 ? labels[bucket] : "?";
 }
 
-// RC2 S13 10.1 label values. Local tables (not the domain's nameOf) so this pure translation unit needs no domain
+// Label values. Local tables (not the domain's nameOf) so this pure translation unit needs no domain
 // library symbol; MetricsRenderTest pins them against the enums' order.
 const char *breakCauseLabel(unsigned cause)
 {
@@ -109,7 +109,7 @@ void perMarketCounter(std::string &out, const char *name, const ForwarderSnapsho
     }
 }
 
-// RC2 S13 10.1: every series is a fixed-size family over markets 1..5 (render on fwd-http from the snapshot)
+// Every series is a fixed-size family over markets 1..5 (render on fwd-http from the snapshot)
 void renderBooks(std::string &out, const ForwarderSnapshot &s)
 {
     perMarketGauge(out, "forwarder_book_state", s, [](const BookView &b) { return static_cast<std::int64_t>(b.state); });
@@ -203,10 +203,10 @@ std::string renderPrometheus(const ForwarderSnapshot &s)
     line(out, "forwarder_info{identity=\"%" PRId64 "\",version=\"%s\",me_epoch=\"%" PRId64 "\"} 1", s.identity, s.version,
         s.meEpoch);
     gauge(out, "forwarder_ready", s.ready ? 1 : 0);
-    type(out, "forwarder_driver_mode", "gauge"); // RC2 S10' 8.2 rule 6: the mode in force
+    type(out, "forwarder_driver_mode", "gauge"); // The mode in force
     line(out, "forwarder_driver_mode{mode=\"%s\"} 1", driverModeLabel(s.driverMode));
     counter(out, "forwarder_driver_dir_reclaimed_total", s.driverDirReclaimed);
-    counter(out, "forwarder_storage_starved_seconds_total", s.storageStarvedSeconds); // S10' Q1: exit 70 after 30 s of it
+    counter(out, "forwarder_storage_starved_seconds_total", s.storageStarvedSeconds); // Exit 70 after 30 s of it
     perCluster(out, "forwarder_session_state", "gauge", s.core.clientState, s.me.clientState);
     perCluster(out, "forwarder_session_new_leader_total", "counter", s.core.newLeaderEvents, s.me.newLeaderEvents);
     perCluster(out, "forwarder_session_reconnect_total", "counter", s.core.sessionsOpened > 0 ? s.core.sessionsOpened - 1 : 0,
@@ -314,9 +314,9 @@ std::string renderHealthJson(const ForwarderSnapshot &s, bool stalled)
         s.meLink >= static_cast<std::uint8_t>(MeLink::UNVERIFIED) ? "true" : "false", s.registered ? "true" : "false",
         s.meEpoch, modeName(s.mode), s.cursor, s.lastSentSeq, s.coreHead, resyncs, s.lastResyncEndSeq, s.ringDepth,
         s.counters.invalid.total(), s.identity, driverModeLabel(s.driverMode), s.ready ? "true" : "false",
-        s.build); // RC2 S16 W4: the binary's source_sha, additive
-    // RC2 S13 10.2: the five books and the tick readiness (BOOK_STALE is not a /ready conjunct, PO-1), appended inside
-    // the object so the S12 fields keep their order
+        s.build); // The binary's source_sha, additive
+    // The five books and the tick readiness (BOOK_STALE is not a /ready conjunct), appended inside
+    // the object so the earlier fields keep their order
     out.pop_back(); // the newline line() added
     out.pop_back(); // the closing brace
     out += ",\"books\":[";

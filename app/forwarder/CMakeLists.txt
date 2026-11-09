@@ -1,23 +1,23 @@
-# app/forwarder - ct-forwarder, the RC2 S12 production forwarder.
+# app/forwarder - ct-forwarder, the production forwarder.
 #
 # Every configuration (the WITH_AERON=OFF fast job included):
-#   ct_forwarder_pure / _seamed  ForwarderConfig (strict env, the RC2 S10' driver keys), MetricsRender, the app seams
-#                              (S10' 8.3); links ct_app_common (HttpServer, Supervisor, LogRing, StatusBoardT: moved to
-#                              app/common by RC2 S9c W1)
-#   ct_forwarder_config_tests  ForwarderConfigTest + MetricsRenderTest + TcCaptureTest + DriverStartTest (+ the S10' pure
-#                              REDs, negative-controls-pure.txt; the repo README's ct-forwarder example is parsed, C13-2)
-#   ct_forwarder_main_tests    the watchdog, the 2 s join bound and the stop path against duty stubs (FIX-8)
-# WITH_AERON (CT_BUILD_MEDIA_DRIVER: the embedded mode links aeron_driver_static, S10' section 8):
+#   ct_forwarder_pure / _seamed  ForwarderConfig (strict env, the driver keys), MetricsRender, the app seams
+#                              Links ct_app_common (HttpServer, Supervisor, LogRing, StatusBoardT: moved to
+#                              app/common)
+#   ct_forwarder_config_tests  ForwarderConfigTest + MetricsRenderTest + TcCaptureTest + DriverStartTest (+ the pure
+#                              REDs, negative-controls-pure.txt; the repo README's ct-forwarder example is parsed)
+#   ct_forwarder_main_tests    the watchdog, the 2 s join bound and the stop path against duty stubs
+# WITH_AERON (CT_BUILD_MEDIA_DRIVER: the embedded mode links aeron_driver_static):
 #   ct-forwarder               the published binary (publish.yml FILES + manifest)
-#   ct_forwarder_app_tests     ForwarderAgent over two FakeTransports (contract 11.3) + the S10' identity test
-#   ct_forwarder_main_aeron_tests  S10' 8.3: startSequenceBothModes, the live-driver refusal, conductorStallExits70 (real
+#   ct_forwarder_app_tests     ForwarderAgent over two FakeTransports + the identity test
+#   ct_forwarder_main_aeron_tests: startSequenceBothModes, the live-driver refusal, conductorStallExits70 (real
 #                              drivers, the real binaries)
 # CT_FORWARDER_TEST_BUILDS (never published; publish.yml refuses them):
 #   ct_forwarder_nc_noresync / _nc_norelease / _nc_refuse  negative-control presets of 11.4
 #   ct_forwarder_tc_corrupt                                 T1-G: a core defect simulated after decode
-#   ct_forwarder_tc_conductorstall                          S10' 8.3: SIGUSR2 parks the Aeron client conductor
-#   ct_forwarder_tc_capture                                 S10' 7.1 item 2: every ME frame offered -> FWD_CAPTURE_DIR
-#   ct_forwarder_tc_bookdrop                                RC2 S13 TK-D: every 40th market-1 BookDelta dropped before the ladder
+#   ct_forwarder_tc_conductorstall: SIGUSR2 parks the Aeron client conductor
+#   ct_forwarder_tc_capture: every ME frame offered -> FWD_CAPTURE_DIR
+#   ct_forwarder_tc_bookdrop: every 40th market-1 BookDelta dropped before the ladder
 #
 # The domain and app seam flavours are chosen by each final target (production or seamed), never by a library, so a
 # binary holds exactly one copy of each.
@@ -30,7 +30,7 @@ target_include_directories(ct_forwarder_pure PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(ct_forwarder_pure PUBLIC ct_app_common ct_client_core Threads::Threads)
 target_compile_options(ct_forwarder_pure PRIVATE -Wall -Wextra)
 
-# the seamed flavour (RC2 S10' 8.3): the test targets and the nc / tc builds only
+# the seamed flavour: the test targets and the nc / tc builds only
 add_library(ct_forwarder_pure_seamed STATIC ${CT_FORWARDER_PURE_SOURCES})
 target_include_directories(ct_forwarder_pure_seamed PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/domain/forwarder/include")
@@ -68,9 +68,9 @@ endif()
 
 if(WITH_AERON)
     if(NOT CT_BUILD_MEDIA_DRIVER)
-        message(FATAL_ERROR "ct-forwarder (WITH_AERON) needs CT_BUILD_MEDIA_DRIVER=ON: the embedded driver mode links aeron_driver_static (RC2 S10' section 8)")
+        message(FATAL_ERROR "ct-forwarder (WITH_AERON) needs CT_BUILD_MEDIA_DRIVER=ON: the embedded driver mode links aeron_driver_static")
     endif()
-    # RC2 S10' 8.2 rule 4: the embedded driver is app/common's (the bridge's, moved): aeron_driver_static is linked first,
+    # The embedded driver is app/common's (the bridge's, moved): aeron_driver_static is linked first,
     # as in ct-bridge, so the client symbols resolve from it and nothing of aeron_static is pulled twice. The seam flavour
     # follows the domain flavour: a seamed domain means a test build, which takes the seamed app layer too.
     function(ct_forwarder_binary name domain)
@@ -105,7 +105,7 @@ if(WITH_AERON)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls.txt")
         set_tests_properties(forwarder.app_negative_controls PROPERTIES TIMEOUT 900)
 
-        # RC2 S10' 8.3: the start sequence in both driver modes and the conductor stall, against the real binaries
+        # The start sequence in both driver modes and the conductor stall, against the real binaries
         add_executable(ct_forwarder_main_aeron_tests tests/MainAeronTest.cpp ${CT_EMBEDDED_DRIVER_SOURCE})
         target_link_libraries(ct_forwarder_main_aeron_tests PRIVATE aeron_driver_static ct_forwarder_pure_seamed
             ct_app_common_aeron ct_client_aeron)
@@ -140,9 +140,9 @@ if(WITH_AERON)
         set_tests_properties(forwarder.main_aeron_negative_controls PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
     endif()
 
-    # T1 (contract 11.4): 3 AE + 3 ME + 2 forwarders on this host, serial. Needs the match jar with the S12 W9 epoch
+    # The integration run: 3 AE + 3 ME + 2 forwarders on this host, serial. Needs the match jar with the epoch
     # hello (a busy ME otherwise never shows a new session its epoch) and the negative-control binaries.
-    set(CT_IT_FORWARDER_MATCH_JAR "" CACHE FILEPATH "match-cluster.jar at the S6 merge + RC2 S12 W9 (the T1 forwarder run)")
+    set(CT_IT_FORWARDER_MATCH_JAR "" CACHE FILEPATH "match-cluster.jar with the ME epoch hello (the forwarder integration run)")
     if(CT_INTEGRATION_TESTS AND CT_FORWARDER_TEST_BUILDS AND EXISTS "${CT_IT_FORWARDER_MATCH_JAR}")
         add_test(NAME forwarder.integration
             COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/run-forwarder-it.sh" "${CMAKE_BINARY_DIR}" "${CT_IT_ASSETS_JAR}"
@@ -159,22 +159,22 @@ if(WITH_AERON)
         target_compile_definitions(ct_forwarder_nc_refuse PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_NC_PRESET="AGENT_SEND_INVALID")
         ct_forwarder_binary(ct_forwarder_tc_corrupt ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_tc_corrupt PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_CORRUPT=1)
-        # RC2 S10' 7.1 item 2 (T1-F re-sends): fwdA writes every template 9 / 10 frame it offers to the ME to
-        # FWD_CAPTURE_DIR/<n>.bin plus a sidecar line with its SHA-256 (TcCapture.h; review N-11)
+        # The test capture for the T1-F re-send drill: fwdA writes every template 9 / 10 frame it offers to the ME to
+        # FWD_CAPTURE_DIR/<n>.bin plus a sidecar line with its SHA-256 (TcCapture.h)
         ct_forwarder_binary(ct_forwarder_tc_capture ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_tc_capture PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_CAPTURE=1)
-        # RC2 S9c 12.5 (T1-G negative control): nc_refuse needs corrupted input to refuse, so the T1-G RED runs the
+        # The T1-G negative control: nc_refuse needs corrupted input to refuse, so the T1-G RED runs the
         # refusal preset over the test corruption (never published: the publish guard refuses _nc_ and _tc_ names)
         ct_forwarder_binary(ct_forwarder_nc_refuse_tc ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_nc_refuse_tc PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_NC_PRESET="AGENT_SEND_INVALID"
             CT_FORWARDER_TC_CORRUPT=1)
-        # RC2 S10' 8.3 MainAeronTest.conductorStallExits70 (and its CONDUCTOR_WATCH_OFF RED through the env seam)
+        # MainAeronTest.conductorStallExits70 (and its CONDUCTOR_WATCH_OFF RED through the env seam)
         ct_forwarder_binary(ct_forwarder_tc_conductorstall ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_tc_conductorstall PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_CONDUCTORSTALL=1)
-        # RC2 S13 T1 row TK-D (contract 12): every 40th BookDelta of market 1 is dropped before the ladder (case B)
+        # Integration row TK-D: every 40th BookDelta of market 1 is dropped before the ladder (case B)
         ct_forwarder_binary(ct_forwarder_tc_bookdrop ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_tc_bookdrop PRIVATE CT_TEST_SEAMS=1 CT_FORWARDER_TC_BOOKDROP=1)
-        # RC2 S10' Q1: the storage-starved-nc RED of run-forwarder-it.sh (storage starvation never ends the process)
+        # The storage-starved-nc RED of run-forwarder-it.sh (storage starvation never ends the process)
         ct_forwarder_binary(ct_forwarder_nc_storagekeep ct_forwarder_domain_seamed)
         target_compile_definitions(ct_forwarder_nc_storagekeep PRIVATE CT_TEST_SEAMS=1
             CT_FORWARDER_NC_PRESET="STORAGE_STARVED_EXIT_OFF")

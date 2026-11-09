@@ -1,11 +1,11 @@
-# Prometheus alert rules for ct-forwarder (RC2 S12 contract section 10). Scrape: GET /metrics on FWD_HTTP_BIND.
+# Prometheus alert rules for ct-forwarder. Scrape: GET /metrics on FWD_HTTP_BIND.
 # The pending-oldest signal lives at the core, where the pending set is (assets grafana/alerts.yml DispatchStuck,
-# S8 / S12 13.1 A-3): a forwarder cannot see a dispatch it never received.
+# A-3): a forwarder cannot see a dispatch it never received.
 groups:
   - name: forwarder
     rules:
       - alert: ForwarderInvalidDispatch
-        # a correct core yields no anomalous dispatch: every one is a core defect (5.4, F13)
+        # a correct core yields no anomalous dispatch: every one is a core defect
         expr: increase(forwarder_invalid_dispatch_total[5m]) > 0
         labels: { severity: page }
         annotations:
@@ -22,7 +22,7 @@ groups:
         annotations:
           summary: "forwarder not ready (GET /ready names the failing conjuncts)"
       - alert: ForwarderBehindCoreHead
-        # review NOTE-4: gated on pending work. last_sent vs core_head stood high on an idle market, after a restart and
+        # Gated on pending work. last_sent vs core_head stood high on an idle market, after a restart and
         # at N = 2 (a dispatch resolved without this forwarder sending it); a non-empty ring whose head has waited 5 s
         # is work that is not moving, whatever the other forwarder did.
         expr: forwarder_ring_depth > 0 and forwarder_ring_head_age_ms > 5000
@@ -36,13 +36,13 @@ groups:
         annotations:
           summary: "RequestPendingDispatch unanswered more than twice in a minute (T9)"
       - alert: ForwarderResyncShapeViolation
-        # the reply-block rule of 6.1 rests on core properties (D-S12-5): a violation is a core defect
+        # the reply-block rule of 6.1 rests on core properties: a violation is a core defect
         expr: increase(forwarder_resync_shape_violation_total[5m]) > 0
         labels: { severity: page }
         annotations:
           summary: "resync reply shape check {{ $labels.check }} failed (RESYNC(0) ran)"
       - alert: ForwarderConnectClusterError
-        # the session limit of 50 or a transient refusal: retried with backoff, but someone must look (FIX-7)
+        # the session limit of 50 or a transient refusal: retried with backoff, but someone must look
         expr: increase(forwarder_connect_cluster_error_total[5m]) > 0
         labels: { severity: warning }
         annotations:
@@ -60,20 +60,20 @@ groups:
         annotations:
           summary: "no ME egress frame for more than 5 s"
       - alert: ForwarderEmbeddedDriver
-        # RC2 S10' 8.2 rule 6 / checklist C13: the embedded media driver is for dev and demo only; the prod profile runs
+        # Checklist C13: the embedded media driver is for dev and demo only; the prod profile runs
         # FWD_DRIVER_MODE=external on the host aeronmd that admin / cloud-console manage
         expr: forwarder_driver_mode{mode="embedded"} == 1
         labels: { severity: info }
         annotations:
           summary: "ct-forwarder runs its own embedded media driver (dev/demo only; prod is FWD_DRIVER_MODE=external)"
       - alert: ForwarderStorageStarved
-        # RC2 S10' Q1: an ingress publication refused for storage space; exit 70 after 30 s (restartable, loud)
+        # An ingress publication refused for storage space; exit 70 after 30 s (restartable, loud)
         expr: increase(forwarder_storage_starved_seconds_total[1m]) > 0
         labels: { severity: page }
         annotations:
           summary: "ct-forwarder starved of storage in the media driver dir (it exits 70 after 30 s): grow or clean the tmpfs"
-      # RC2 S13 (K4 MarketTick) contract 10.3. BOOK_STALE drives forwarder_ticks_ready only, never the dispatch /ready
-      # (PO-1): one ME market-data defect must not take dispatch readiness from every forwarder at once.
+      # (MarketTick). BOOK_STALE drives forwarder_ticks_ready only, never the dispatch /ready
+      # One ME market-data defect must not take dispatch readiness from every forwarder at once.
       - alert: ForwarderBookBroken
         expr: forwarder_book_broken_age_ms > 15000
         labels: { severity: warning }
@@ -126,7 +126,7 @@ groups:
         annotations:
           summary: "ME book frames for a market outside 1..5 (deployment mismatch with the core's market count)"
       - alert: ForwarderMeUnknownTemplate
-        # 22 / 25 / 26 are stitched and 23 / 24 / 27 known-ignored since S13 (F-S13-5): anything else is a schema drift
+        # 22 / 25 / 26 are stitched and 23 / 24 / 27 known-ignored: anything else is a schema drift
         expr: increase(forwarder_unknown_template_total{cluster="me"}[5m]) > 0
         labels: { severity: warning }
         annotations:

@@ -82,7 +82,7 @@ public final class GoldenMoney {
         print("JAVA_PENDING_DISPATCH_END", buf, header.encodedLength() + end.encodedLength());
     }
 
-    // ---- RC2 S12 (contract 11.2): the forwarder's core-side frames ----
+    // ---- the forwarder's core-side frames ----
 
     /** One MeDispatch entry's 16 fields in schema order (dispatchSeq first). */
     private static final long[][] E2E = {
@@ -198,7 +198,7 @@ public final class GoldenMoney {
         print("JAVA_REGISTER_SESSION_EPOCH", buf, header.encodedLength() + register.encodedLength());
     }
 
-    /** RC2 S9b 13.16: the bridge's egress decode (17 v7, 110, 114) and control encodes (7, 66). */
+    /** The bridge's egress decode (17 v7, 110, 114) and control encodes (7, 66). */
     private static void bridge() {
         final UnsafeBuffer buf = new UnsafeBuffer(new byte[1024]);
         final com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder header =
@@ -250,8 +250,8 @@ public final class GoldenMoney {
         print("JAVA_QUERY_FEED_POSITION", buf, header.encodedLength() + query.encodedLength());
     }
 
-    // RC2 S9c 12.2 / 12.3: the bridge's RegisterSession (BRIDGE, acks|settlements, resumable, identity, sourceEpoch 0),
-    // the two OrderRejects the bridge acts on (6.2 UNREGISTERED_SESSION naming 61; F6 INVALID naming 7) and the
+    // The bridge's RegisterSession (BRIDGE, acks|settlements, resumable, identity, sourceEpoch 0),
+    // the two OrderRejects the bridge acts on (6.2 UNREGISTERED_SESSION naming 61; INVALID naming 7) and the
     // SettlementApplied 13 the ack-latency map reads (O4).
     private static void bridgeApp() {
         final UnsafeBuffer buf = new UnsafeBuffer(new byte[1024]);
@@ -299,7 +299,7 @@ public final class GoldenMoney {
         print("JAVA_SETTLEMENT_APPLIED", buf, header.encodedLength() + applied.encodedLength());
     }
 
-    // ---- RC2 S13 (contract 11.3): the K4 MarketTick the forwarder must put on the core wire ----
+    // ---- the MarketTick the forwarder must put on the core wire ----
     private static void marketTick() {
         final UnsafeBuffer buf = new UnsafeBuffer(new byte[256]);
         final com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder header =

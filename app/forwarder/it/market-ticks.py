@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# RC2 S13 W8: the T1 tick helpers of run-forwarder-it.sh (contract section 12). Run with python3 -I.
+# The T1 tick helpers of run-forwarder-it.sh. Run with python3 -I.
 #
 #   sample <out> <interval_s> <name=url>...
 #       the 100 ms sampler (tick_sample): one thread per target, each request with a 0.3 s timeout, so a stopped
-#       node delays only its own thread and never the forwarder series (W0 answer 3: the dry-run sampler stretched to
+#       node delays only its own thread and never the forwarder series (the dry-run sampler stretched to
 #       1.1 s while an ME node was SIGSTOPped). Lines: "<t0_mono_ms> <t1_mono_ms> <name> <series> <value>", t0/t1 the
 #       request start and end on CLOCK_MONOTONIC (the forwarder's log stamps are steady_clock ms, the same clock).
 #       Kept series: forwarder_book_{state,version,frames_total,chain_breaks_total,recoveries_total,broken_age_ms,
@@ -29,7 +29,7 @@
 #   logline <log> <regex> <afterMonoMs>
 #       the steady_clock ms stamp of the first forwarder log line matching <regex> after afterMonoMs ("none" if absent).
 #   nooffer <sampler> <name> <market>
-#       RC2 S13 W9 D-9 (TK-D line 5): "no MarketTick offered for the market while its ladder is BROKEN". Over consecutive
+#       (TK-D line 5): "no MarketTick offered for the market while its ladder is BROKEN". Over consecutive
 #       samples of one target where forwarder_book_state{market} is BROKEN (2) at both ends of the window, the sum of
 #       forwarder_tick_offered_total{market=...} (every edge) must not rise. Windows that start or end in another state
 #       (a break or a recovery inside the window) are not judged. Prints "NOOFFER PASS|FAIL ..." (windows judged, BROKEN
@@ -167,11 +167,11 @@ def oracle(spec_path):
     lines.append("INFO book: " + ", ".join("%d=%s" % (k, "none" if v is None else "v%d bid %d ask %d" % v)
                                           for k, v in sorted(book.items())))
     if not book:
-        check(False, "T1MeDriver book printed no BOOK line")
+        check(False, "ItMeDriver book printed no BOOK line")
     leader = prom(spec["ae_leader_end"])
     mstart, mend = prom(spec["ae_member_start"]), prom(spec["ae_member_end"])
     # row_s: row start (or the forwarder's start, if later) to the oracle; fresh: started after the row start, so its
-    # counters count from 0 (review-w8 FIX-2: the E10 line is judged on the row, not on the forwarder's lifetime)
+    # counters count from 0 (the E10 line is judged on the row, not on the forwarder's lifetime)
     fwd = {p: ({} if f["fresh"] else prom(f["start"]), prom(f["end"]), f["row_s"]) for p, f in spec["forwarders"].items()}
     for m, v in sorted(book.items()):
         if v is None:
@@ -224,7 +224,7 @@ def oracle(spec_path):
         oos = e.get('forwarder_unknown_template_total{cluster="core",template="22"}')
         if oos:
             lines.append("INFO fwd %s forwarder_unknown_template_total{cluster=\"core\",template=\"22\"} %d (a core frame the "
-                         "S12 forwarder does not know after a core (re-)registration; out of S13 scope, not an ME series)"
+                         "forwarder does not know after a core (re-)registration; out of scope, not an ME series)"
                          % (p, oos))
     for line in lines:
         print(line)

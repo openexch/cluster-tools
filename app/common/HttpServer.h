@@ -6,12 +6,12 @@
 #include <functional>
 #include <string>
 
-// HttpServer - the HTTP thread of ct-forwarder (fwd-http) and ct-bridge (bridge-http) (RC2 S12 contract section 3,
-// FIX-8; moved to app/common by RC2 S9c W1, no behaviour change): a minimal blocking HTTP/1.0 server for GET
+// HttpServer - the HTTP thread of ct-forwarder (fwd-http) and ct-bridge (bridge-http)
+// (one copy in app/common): a minimal blocking HTTP/1.0 server for GET
 // /health, /ready, /metrics (and the forwarder's POST /resync). It owns no liveness decision and never touches a session, the
 // ring or the domain: the handler reads the StatusBoard and at most sets the resync atomic. Every accepted
 // socket gets SO_RCVTIMEO / SO_SNDTIMEO of 2 s, so a client that connects and sends nothing cannot hold the
-// thread; shutdown() shuts the listening socket down so a blocked accept() returns (the stop path, F14).
+// thread; shutdown() shuts the listening socket down so a blocked accept() returns (the stop path).
 
 namespace cluster_tools { namespace app { namespace common {
 
@@ -50,12 +50,12 @@ public:
     std::uint16_t boundPort() const noexcept { return m_port; }
 
     // The accept loop (the fwd-http thread); returns after shutdown(). An exception from the handler propagates to the
-    // caller (the Supervisor maps it to exit 70, review NOTE-5).
+    // caller (the Supervisor maps it to exit 70).
     void run();
     void shutdown() noexcept;
     bool finished() const noexcept { return m_finished.load(std::memory_order_acquire); }
     std::uint64_t served() const noexcept { return m_served.load(std::memory_order_relaxed); }
-    // Requests abandoned at the whole-request deadline (review FIX-2).
+    // Requests abandoned at the whole-request deadline.
     std::uint64_t timedOut() const noexcept { return m_timedOut.load(std::memory_order_relaxed); }
 
 private:

@@ -1,10 +1,10 @@
-// RC2 S12 contract 11.1 ForwarderConfigTest: strict env (section 9, F5): every variable required
-// (FWD_INGRESS_CHANNEL included, NOTE-9), both credentials FORWARDER, distinct response channels unless both
-// use port 0, 0.0.0.0 refused (S11 validate).
-// RC2 S10' 8.3: driverModeIsStrict (RED DRIVER_MODE_DEFAULT_EXTERNAL), driverTimeoutUsesTheSharedParser (RED
+// ForwarderConfigTest: strict env: every variable required
+// (FWD_INGRESS_CHANNEL included), both credentials FORWARDER, distinct response channels unless both
+// use port 0, 0.0.0.0 refused (validate).
+// driverModeIsStrict (RED DRIVER_MODE_DEFAULT_EXTERNAL), driverTimeoutUsesTheSharedParser (RED
 // TIMEOUT_CONSTANT), instanceIdRange (table-driven), identityIsTheInstanceIdInBothClientNames.
-// RC2 S10' review C13-3: driverDirsAreCheckedAtTheParse (table-driven, ct-bridge's rule and texts: AERON_DIR an existing
-// directory, FWD_DRIVER_DIR an existing writable one; the timeout's raw value, no trimming). Review C13-2:
+// driverDirsAreCheckedAtTheParse (table-driven, ct-bridge's rule and texts: AERON_DIR an existing
+// directory, FWD_DRIVER_DIR an existing writable one; the timeout's raw value, no trimming).
 // readmeExampleParses (the repo README's ct-forwarder example and env table against this parser).
 #include "doctest/doctest.h"
 
@@ -411,7 +411,7 @@ TEST_CASE("ForwarderConfigTest.readmeExampleParses")
     }
     CHECK(r.ok());
     CHECK(r.config.driverMode == DriverMode::EXTERNAL);
-    // the env table names every driver key of S10' 8.2 rule 6 and the embedded tmpfs minimum
+    // the env table names every driver key and the embedded tmpfs minimum
     for (const char *key : { "FWD_DRIVER_MODE", "AERON_DIR", "FWD_DRIVER_DIR", "FWD_DRIVER_TIMEOUT_MS", "FWD_INSTANCE_ID" })
     {
         CAPTURE(key);

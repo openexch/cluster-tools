@@ -9,9 +9,9 @@
 #include "AppSeams.h"
 #include "BridgeSnapshot.h"
 
-// ObserverTap - the FollowObserver given to the SourceSet (RC2 S9c section 2, review FIX-11): it counts every onFault
+// ObserverTap - the FollowObserver given to the SourceSet: it counts every onFault
 // by FaultKind (bridge_source_faults_total{kind}) and forwards EVERY call to the domain unchanged and in order. It
-// also remembers each source's last fault (the stop path detaches a dead source without stopReplay, 3.4 FIX-7). It is
+// also remembers each source's last fault (the stop path detaches a dead source without stopReplay). It is
 // built before the SourceSet (which needs the observer at construction) and bound to the domain by the agent; no call
 // reaches it before the first sources.start().
 
@@ -89,7 +89,7 @@ public:
     {
         return source < m_lastFault.size() ? m_lastFault[source] : archive::FaultKind::NONE;
     }
-    // 3.4 FIX-7: nothing to stop on a source whose archive is gone or never answered.
+    // Nothing to stop on a source whose archive is gone or never answered.
     bool sourceIsDead(std::size_t source) const noexcept
     {
         const archive::FaultKind k = lastFault(source);

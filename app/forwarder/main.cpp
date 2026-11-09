@@ -1,9 +1,9 @@
-// ct-forwarder - the RC2 S12 production forwarder (contract sections 3, 8, 9): a stateless C++20 process with
+// ct-forwarder - the production forwarder: a stateless C++20 process with
 // one resumable FORWARDER session on the core and one FORWARDER session on the ME. Every pending core
 // MeDispatch becomes the ME's DurableOrderCommand 9 or ReleaseCommandIds 10; releases are relayed; the
-// forwarder resyncs from the core after anything that may have lost a frame. Nothing is written to disk (G1).
+// forwarder resyncs from the core after anything that may have lost a frame. Nothing is written to disk.
 //
-// The media driver is configurable (RC2 S10' section 8, checklist C13, one rule with ct-bridge): FWD_DRIVER_MODE=external
+// The media driver is configurable (one rule with ct-bridge): FWD_DRIVER_MODE=external
 // (prod: the host aeronmd at AERON_DIR that admin / cloud-console manage) or embedded (dev and demo: the C media driver
 // in this process at <FWD_DRIVER_DIR>/ct-forwarder-<FWD_INSTANCE_ID>, lock ct-forwarder-<id>.lock). No default.
 // FWD_DRIVER_TIMEOUT_MS is the connect wait, the CnC liveness check and the conductor heartbeat threshold.
@@ -54,7 +54,7 @@
 #include "Supervisor.h"
 
 #ifndef CT_BUILD_SOURCE_SHA
-#define CT_BUILD_SOURCE_SHA "unknown" // RC2 S16 W4: -DCT_BUILD_SOURCE_SHA (CMake) names the commit
+#define CT_BUILD_SOURCE_SHA "unknown" // -DCT_BUILD_SOURCE_SHA (CMake) names the commit
 #endif
 
 #ifndef CT_FORWARDER_VERSION
@@ -68,7 +68,7 @@ namespace at = cluster_tools::client::aeron_transport;
 
 namespace {
 
-fwd::NonBlockingLogWriter g_stderr(2); // review NOTE-5: main's log drain never blocks on stderr
+fwd::NonBlockingLogWriter g_stderr(2); // Main's log drain never blocks on stderr
 
 void writeRecord(const fwd::LogRecord &r)
 {
@@ -118,7 +118,7 @@ int main()
         return 78;
     }
     const fwd::ForwarderConfig &c = config.config;
-    const std::int64_t identity = fwd::forwarderIdentity(c); // FWD_INSTANCE_ID on both cluster sessions (S10' 8.2 rule 3)
+    const std::int64_t identity = fwd::forwarderIdentity(c); // FWD_INSTANCE_ID on both cluster sessions
     std::fprintf(stderr,
         "ct-forwarder %s identity %" PRId64 " money v%d (%s) order v%d (%s) aeron %s; driver %s (%s, timeout %" PRId64
         " ms); core %s, ME %s, http %s:%u\n",
@@ -145,8 +145,8 @@ int main()
     }
     std::fprintf(stderr, "ct-forwarder: http listening on %s:%u\n", c.httpHost.c_str(), static_cast<unsigned>(http.boundPort()));
 
-    // S10' 8.2 rule 5: the driver per mode (embedded: its own C media driver; a start failure is host configuration, 78,
-    // except a start starved of storage space: retried for 30 s, then 70 F_STORAGE_STARVED; review C13-6)
+    // The driver per mode (embedded: its own C media driver; a start failure is host configuration, 78,
+    // except a start starved of storage space: retried for 30 s, then 70 F_STORAGE_STARVED)
     std::unique_ptr<common::EmbeddedDriver> driver;
     std::string aeronDir = c.aeronDir;
     if (fwd::DriverMode::EMBEDDED == c.driverMode)
@@ -202,15 +202,15 @@ int main()
     }
 
     // connectAeron with the driver timeout (70: no driver answered, both modes); from then on a dead or stale driver is
-    // a fatal conductor error after the same timeout (F1, both modes)
-    auto monitor = std::make_shared<at::AeronFatalMonitor>(); // fatal conductor errors: _Exit(70) (F1)
+    // a fatal conductor error after the same timeout (both modes)
+    auto monitor = std::make_shared<at::AeronFatalMonitor>(); // fatal conductor errors: _Exit(70)
     std::shared_ptr<aeron::Aeron> aeron;
     try
     {
         at::AeronClientOptions options;
         options.aeronDir = aeronDir;
         options.clientName = "ct-forwarder";
-        options.driverTimeoutMs = c.driverTimeoutMs; // FWD_DRIVER_TIMEOUT_MS (S10' 8.2 rule 2)
+        options.driverTimeoutMs = c.driverTimeoutMs; // FWD_DRIVER_TIMEOUT_MS
         aeron = at::connectAeron(options, monitor);
     }
     catch (const std::exception &e)
@@ -221,7 +221,7 @@ int main()
     }
 
 #if defined(CT_FORWARDER_TC_CONDUCTORSTALL)
-    // the bridge's R-K13 (d) shape: a handler on the conductor thread that parks it once SIGUSR2 arrived and a counter
+    // the bridge's (d) shape: a handler on the conductor thread that parks it once SIGUSR2 arrived and a counter
     // became available
     aeron->addAvailableCounterHandler([](aeron::concurrent::CountersReader &, std::int64_t, std::int32_t) {
         while (g_parkConductor.load(std::memory_order_acquire))
@@ -246,7 +246,7 @@ int main()
     fwd::ForwarderAgent<cl::ClusterClient<at::AeronTransport>, cl::ClusterClient<at::AeronTransport>> agent(core, me,
         agentSettings, &log);
 
-    // S10' 8.2 rule 2 / S9c 19.5 FIX-1: the client-conductor heartbeat check, re-validated on every check (a reclaimed or
+    // The client-conductor heartbeat check, re-validated on every check (a reclaimed or
     // re-used counter slot is a 70, never a healthy read), threshold FWD_DRIVER_TIMEOUT_MS; main runs it at every wake
     common::ConductorWatch watch(aeron, c.driverTimeoutMs);
     if (!fwd::app_seams::disabled(fwd::app_seams::Rule::CONDUCTOR_WATCH_OFF))
@@ -296,5 +296,5 @@ int main()
         g_stderr.write(slow, sizeof(slow) - 1);
         exitCode = 70;
     }
-    std::_Exit(exitCode); // no destructor may hold a half-alive process (G6)
+    std::_Exit(exitCode); // no destructor may hold a half-alive process
 }

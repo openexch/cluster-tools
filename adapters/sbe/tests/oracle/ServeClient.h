@@ -1,9 +1,9 @@
 #ifndef CLUSTER_TOOLS_ADAPTERS_SBE_TESTS_ORACLE_SERVE_CLIENT_H
 #define CLUSTER_TOOLS_ADAPTERS_SBE_TESTS_ORACLE_SERVE_CLIENT_H
 
-// The client side of the S9h harness `serve` (S9h 6.3): the real behaviour-3 core over stdio, `u32 length, u8 op,
+// The client side of the harness `serve`: the real behaviour-3 core over stdio, `u32 length, u8 op,
 // payload` both ways, little-endian. Entries apply strictly in request order; a QUERY is answered after everything
-// before it (the S9a 5.5 ordering the bridge's report rule depends on).
+// before it (the ordering the bridge's report rule depends on).
 
 #include <cstdint>
 #include <cstdio>

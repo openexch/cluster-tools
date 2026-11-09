@@ -1,4 +1,4 @@
-# archive.fixture_guard (RC2 S9a contract 9.2 FixtureGuard and 9.5): the real fixtures verify; a
+# archive.fixture_guard (FixtureGuard and 9.5): the real fixtures verify; a
 # scratch copy with one byte edited, a regenerated SUMS without a lock bump, a placeholder source
 # commit and an extra file are each refused for the named reason.
 #   cmake -DCT_SOURCE_DIR=<repo> -DCT_WORK_DIR=<scratch> -P fixture_guard_test.cmake

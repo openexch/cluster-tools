@@ -6,12 +6,12 @@
 #include "cluster_tools/domain/forwarder/MarketData.h"
 
 // BookLadder - the per-market top-20 ladder the forwarder stitches from the ME's BookSnapshot 22 / BookDelta 25
-// egress (RC2 S13 contract section 4), the per-market TradeMark from TradeExecutionBatch 26 (section 5), and the
+// egress, the per-market TradeMark from TradeExecutionBatch 26, and the
 // BookStitcher that routes decoded frames to the market's ladder (4.2 market range, malformed without a market) and
 // resets everything on an ME session end (4.1 rule 6). Pure: no Aeron, no SBE, no allocation after construction, no
 // wall clock (every `nowNs` is handed in by the duty cycle).
 //
-// K1: heap only, a restart starts EMPTY. K2: an OK ladder equals the ME's visible top-20 at `version`; a ladder that
+// Heap only, a restart starts EMPTY. An OK ladder equals the ME's visible top-20 at `version`; a ladder that
 // cannot prove that is BROKEN and emits nothing. 4.2: the frame validation rule (validateBookFrame /
 // validateTradeFrame, MarketData.cpp) is applied in every state before any state rule. 4.1 rule 5: BROKEN is never a
 // latch, the next well-formed snapshot of the market clears it.

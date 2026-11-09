@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 MappingTest: 5.2 and 5.3 field by field with distinct values, so a swapped or
+// MappingTest: 5.2 and 5.3 field by field with distinct values, so a swapped or
 // shifted field cannot pass; dispatchSeq and releaseScope never reach the template 9 command.
 #include "doctest/doctest.h"
 

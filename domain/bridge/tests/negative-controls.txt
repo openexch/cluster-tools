@@ -1,4 +1,4 @@
-# The RED column of RC2 S9b contract section 13 (light method: nothing is committed, so each rule's RED is a
+# The RED column of the bridge domain tests (light method: nothing is committed, so each rule's RED is a
 # negative control re-proved on every run). Each line: test case | rule | why | expected text. The runner
 # (archive/tests/run-negative-controls.sh) runs the test with CT_TEST_DISABLE_<rule>=1 (a seam that exists only in
 # ct_bridge_domain_seamed) and requires an ASSERTION failure carrying the expected text, then runs it once more
@@ -32,7 +32,7 @@ RingTest.keyTableSurvivesStagingAcrossAPop|KEYTABLE_CLEAR_WITH_STAGING|staged tr
 RingTest.ringFullMeansNoRoomForACappedFlush|RING_FULL_AT_ZERO|63 free slots keep reading|CHECK( limit == 0 )
 # 13.4 ReportRuleTest
 ReportRuleTest.lossBelowTheQueryFences|LOSS_RULE_OFF|an offer lost before the query is never re-sent|CHECK( losses == 1 )
-ReportRuleTest.cursorAboveLastDoesNotMoveLast|LAST_FOLLOWS_REPORT|a report above last moves last (a G1 violation)|CHECK( last == 10 )
+ReportRuleTest.cursorAboveLastDoesNotMoveLast|LAST_FOLLOWS_REPORT|a report above last moves last (a forward-rule violation)|CHECK( last == 10 )
 # 13.5 RotationTest
 RotationTest.holeOnOneSourceFailsOver|ROTATION_OFF|a hole on one source halts GAP at once|CHECK( noHalt )
 RotationTest.holeOnEverySourceHaltsGap|GAP_SEEN_MAX|GAP names the largest seen, not the earliest reach point|CHECK( fh.seen == 12 )
@@ -81,19 +81,19 @@ BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|HOLE_VERIFY_OFF|(c): a memo-read hole believed: a false GAP|although a memo-free read delivers it
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|FENCE_OFF|(b): offers continue after a lost tail|above cursor + 1
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|STORM_GUARD_OFF|(i): an unbounded re-offer loop|the refused seq was offered
-# S10' W4: (j) judges the journal at the v1/v2 halt (an R1 walk can now recover a seq-1 hole filled later), so this RED
+# (j) judges the journal at the v1/v2 halt (an R1 walk can now recover a seq-1 hole filled later), so this RED
 # meets (d) first: the genesis race parks the bridge CORE_REFUSED with a clean source
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|UNBOUND_COUNTS_AS_STORM|(j)/(d): the genesis race ends in a CORE_REFUSED park|a clean source exists but the core stopped at 0
 # the 2026-10-31 review fixes
 LaggedEgressTest.holeOnEverySourceHaltsGapUnderEgressLag|CONFIRM_REQUERY|BLOCKER-1: with an egress lag the bridge re-queries on every redelivery and never halts|CHECK( halted )
 LaggedEgressTest.gapRescanUnderALongLagIssuesABoundedNumberOfQueries|CONFIRM_REQUERY|BLOCKER-1: a GAP re-scan floods the core log with queries|CHECK( queries < 300 )
-StormGuardTest.stormRetriesAnUntriedSourceOnceItsCopyArrives|STORM_TRIED_AT_SWITCH|FIX-2: a behind source counts as tried, CORE_REFUSED parks for good|CHECK( cursor == 20 )
-StormGuardTest.stormRotationNeverTargetsTheCurrentSource|STORM_TARGETS_CURRENT|NOTE-1: a SWITCH to the current source drops the rewind|CHECK( rotations == 0 )
-CursorTableTest.staleOldEpochPrefixOnEveryNodeNeverLatchesGenesisOnly|STALE_PREFIX_FOREIGN|NOTE-8: a stale prefix on every node latches the core genesis-only|CHECK( latch != static_cast<std::uint8_t>(HaltReason::EPOCH_MISMATCH) )
+StormGuardTest.stormRetriesAnUntriedSourceOnceItsCopyArrives|STORM_TRIED_AT_SWITCH|A behind source counts as tried, CORE_REFUSED parks for good|CHECK( cursor == 20 )
+StormGuardTest.stormRotationNeverTargetsTheCurrentSource|STORM_TARGETS_CURRENT|A SWITCH to the current source drops the rewind|CHECK( rotations == 0 )
+CursorTableTest.staleOldEpochPrefixOnEveryNodeNeverLatchesGenesisOnly|STALE_PREFIX_FOREIGN|A stale prefix on every node latches the core genesis-only|CHECK( latch != static_cast<std::uint8_t>(HaltReason::EPOCH_MISMATCH) )
 RotationTest.refusalFromAMemoReadIsVerifiedFirst|REFUSAL_VERIFY_OFF|a refusal on a memo read is believed: a false SOURCE_SCHEMA|CHECK_FALSE( falseSchemaAtFifteen )
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|STALE_PREFIX_FOREIGN|(c): a stale prefix halts EPOCH_MISMATCH|without every source foreign
-# RC2 S10' section 5 (F-1: re-list while halted), 4.1 rule 8 (the genesis exit is counted)
-HaltMachineTest.rescanWalksTheSuccessorThatHoldsE|SUCCESSOR_WALK_OFF|R1 off: the halted re-scan never reaches the in-place successor (F-1)|still HALTED at N
+# (re-list while halted), 4.1 rule 8 (the genesis exit is counted)
+HaltMachineTest.rescanWalksTheSuccessorThatHoldsE|SUCCESSOR_WALK_OFF|R1 off: the halted re-scan never reaches the in-place successor|still HALTED at N
 HaltMachineTest.fillOnlyESuccessorStepsBack|STEP_BACK_OFF|R2 off: e + 1 in the earlier recording is never re-read|halted again at e + 1
 HaltMachineTest.schemaHaltRescansAndAttachesValidCopies|SCHEMA_RESCAN_OFF|R0 off: HALTED(SOURCE_SCHEMA) never re-scans|halted SOURCE_SCHEMA never attaches the valid copies
 HaltMachineTest.successorAboveEKeepsTheHaltWithMinSeen|SEEN_FROM_FIRST_RECORDING_ONLY|the FeedHalt seen is the first recording's, larger than the truth|seen > truth
@@ -106,13 +106,13 @@ BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|
 # STEP_BACK_OFF at the property level is a non-vacuity line (stepBacks > 0) that needs >= 1000 runs; the 400-run RED is
 # HaltMachineTest.fillOnlyESuccessorStepsBack above
 BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRandomScenarios|SCHEMA_RESCAN_OFF|(d): SOURCE_SCHEMA never re-scans|SOURCE_SCHEMA halt never recovered with valid copies present
-HaltMachineTest.rescanTakesExitAAtAQuietHead|RESCAN_EXIT_A_OFF|lane C W2b finding: a re-scan's reports never take exit (a) at a quiet head|stuck GAP halt at a quiet head
+HaltMachineTest.rescanTakesExitAAtAQuietHead|RESCAN_EXIT_A_OFF|A re-scan's reports never take exit (a) at a quiet head|stuck GAP halt at a quiet head
 StormGuardTest.mixedLatchReportsHigherClass|MIRROR_FIRST_HALT_REASON|4R rule 6: the mirror keeps the first halted report's class|coreMirror GAP with a SOURCE_SCHEMA slot
-BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan|SCHEMA_RESCAN_OFF|S10' lane A carry: the stale-BEHIND SOURCE_SCHEMA halt of seed 31441 is permanent without the R0 re-scan|a clean source exists but the core stopped
-# the S10' review fixes (2026-11-01): the taint rule (5.1, C9) and its reset path (C4); 4R.1 rule 2 "a premature 76 is self-healing"
+BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan|SCHEMA_RESCAN_OFF|Carry: the stale-BEHIND SOURCE_SCHEMA halt of seed 31441 is permanent without the R0 re-scan|a clean source exists but the core stopped
+# the fixes: the taint rule (5.1, C9) and its reset path (C4); 4R.1 rule 2 "a premature 76 is self-healing"
 HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict|TAINT_VERIFY_OFF|the taint rule off: a FOREIGN on the walk's read past a bad recording is believed|a walked bad recording let a non-linear read latch genesis-only
-HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch|TAINT_HALTED_EXEMPT|the pre-review halt exemption: a GAP re-scan's memo resume of a tainted source is believed|a tainted source's memo resume latched genesis-only during a GAP re-scan
+HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch|TAINT_HALTED_EXEMPT|the earlier halt exemption: a GAP re-scan's memo resume of a tainted source is believed|a tainted source's memo resume latched genesis-only during a GAP re-scan
 HaltMachineTest.taintClearsAfterALinearVerification|TAINT_NEVER_CLEARS|no reset path: the taint survives a linear read past the bad recording|the taint survived a linear read past the bad recording
 HaltMachineTest.prematureGapClearReLatches|GAP_RELATCH_OFF|an acked GAP FeedHalt is never re-offered after a premature 76 {GAP, 0} and open|a premature 76 {GAP, 0} left the open hole unlatched
-# RC2 S17 W12 B1 (X-7): a SCHEMA refusal of the first frame of a read is a foreign journal head, never a bad copy to walk past
+# A SCHEMA refusal of the first frame of a read is a foreign journal head, never a bad copy to walk past
 HaltMachineTest.foreignHeadNeverWalksToASuccessor|FOREIGN_HEAD_WALKS|RED shape: the foreign head is walked like a bad copy (1..12 forwarded, then a re-halt at 13)|walked like a bad copy: cursor 12

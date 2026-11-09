@@ -1,6 +1,6 @@
-// LaggedEgressTest (the 2026-10-31 review, BLOCKER-1 and FIX-1): the halt path under a realistic egress latency.
+// LaggedEgressTest (the 2026-10-31 review): the halt path under a realistic egress latency.
 // A real core answers a QueryFeedPosition only after a Raft commit and the egress hop, i.e. after the duty loop has
-// polled the sources again. "Confirm before halting" (8.3, contract-review FIX-4) must then send ONE query per
+// polled the sources again. "Confirm before halting" must then send ONE query per
 // (row, e) and wait for it with the source paused; re-querying on every redelivery of the aborted frame turned every
 // answer stale, so the bridge never halted and committed a QueryFeedPosition per duty iteration (the review probe:
 // 29,995 queries in 30 s, no FeedHalt). The Rig delivers egress `lag` iterations late (1 ms iterations).

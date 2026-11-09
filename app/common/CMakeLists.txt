@@ -1,8 +1,8 @@
-# app/common - the process machinery ct-forwarder and ct-bridge share (RC2 S9c W1, G7: moved out of app/forwarder,
+# app/common - the process machinery ct-forwarder and ct-bridge share (moved out of app/forwarder,
 # one copy): Supervisor (main's sigtimedwait loop, watchdog, stop path, exit seam, NonBlockingLogWriter), HttpServer,
 # LogRing, StatusBoardT, IdleStrategy, DriverTimeout. Pure POSIX: every configuration (the WITH_AERON=OFF job too).
-# WITH_AERON: ConductorWatch (the client-conductor heartbeat check, 3.4 FIX-5) in ct_app_common_aeron, and
-# EmbeddedDriver.cpp (RC2 S10' 8.2 rule 4: the embedded media driver of ct-bridge AND ct-forwarder), which each final
+# WITH_AERON: ConductorWatch (the client-conductor heartbeat check) in ct_app_common_aeron, and
+# EmbeddedDriver.cpp (the embedded media driver of ct-bridge AND ct-forwarder), which each final
 # target compiles itself (CT_EMBEDDED_DRIVER_SOURCE) and links with aeron_driver_static FIRST: a library here would let
 # CMake order aeron_static's client objects ahead of the driver's.
 

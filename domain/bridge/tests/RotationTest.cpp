@@ -1,5 +1,5 @@
-// RotationTest (RC2 S9b 13.5): per-source verdicts, the rotation of 8.2 and the decision table of 8.3, driven
-// through S9a's real follower (FollowPolicy + FollowerLoop + ResumeMemo over SimArchive sources).
+// RotationTest: per-source verdicts, the rotation of 8.2 and the decision table of 8.3, driven
+// through real follower (FollowPolicy + FollowerLoop + ResumeMemo over SimArchive sources).
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -63,7 +63,7 @@ TEST_CASE("RotationTest.holeOnEverySourceHaltsGap")
 
 TEST_CASE("RotationTest.holeFromAMemoReadIsVerifiedFirst")
 {
-    // the K8 shape: a long run, a short re-journal that crashed, a restart above it. A memo read resumed after the
+    // the crash shape: a long run, a short re-journal that crashed, a restart above it. A memo read resumed after the
     // short run's proof sees a hole at 11 that a memo-free read does not have (R0 holds 11 and 12).
     Rig rig(1);
     rig.core.bound = EPOCH;
@@ -89,7 +89,7 @@ TEST_CASE("RotationTest.holeFromAMemoReadIsVerifiedFirst")
 
 TEST_CASE("RotationTest.badFrameFailsOverFirst")
 {
-    // D-1, H3: a refused frame on one source is a verdict for that source; another source feeds
+    // H3: a refused frame on one source is a verdict for that source; another source feeds
     Rig rig(2);
     SimRecording &a = rig.archive(0).record();
     appendJournal(rig.archive(0), a, 1, 5);
@@ -142,7 +142,7 @@ TEST_CASE("RotationTest.fragmentedFrameHalts")
 
 TEST_CASE("RotationTest.schema3RecordHaltsSourceSchema")
 {
-    // R-B4-3, H4: a schema 3 record on every source halts SOURCE_SCHEMA at e (never skipped like Java's T5)
+    // H4: a schema 3 record on every source halts SOURCE_SCHEMA at e (never skipped like Java's T5)
     Rig rig(2);
     for (std::size_t i = 0; i < 2; ++i)
     {
@@ -164,7 +164,7 @@ TEST_CASE("RotationTest.schema3RecordHaltsSourceSchema")
 
 TEST_CASE("RotationTest.mixedRotationHaltsSourceSchema")
 {
-    // Q2 (S9a/README): one source holed at e, the other bad at e: SOURCE_SCHEMA, each verdict logged
+    // One source holed at e, the other bad at e: SOURCE_SCHEMA, each verdict logged
     Rig rig(2);
     run(rig.archive(0), 1, 10, true);
     run(rig.archive(0), 13, 20, false);
@@ -194,7 +194,7 @@ TEST_CASE("RotationTest.mixedRotationHaltsSourceSchema")
 
 TEST_CASE("RotationTest.secondMemoFreeSeqRegressionIsBad")
 {
-    // S9a 7 S6: a recording whose seqs regress inside it; the second memo-free regression makes it BAD
+    // 7 S6: a recording whose seqs regress inside it; the second memo-free regression makes it BAD
     Rig rig(2);
     SimRecording &a = rig.archive(0).record();
     appendJournal(rig.archive(0), a, 1, 8);
@@ -304,7 +304,7 @@ TEST_CASE("RotationTest.foreignPlusUnreachableHaltsSchemaNotEpoch")
 
 TEST_CASE("RotationTest.laneAheadPastEPreventsGapHalt")
 {
-    // FIX-4: every source holed at e, but the confirming report shows another lane delivered e: no FeedHalt
+    // Every source holed at e, but the confirming report shows another lane delivered e: no FeedHalt
     Rig rig(1);
     run(rig.archive(0), 1, 10, true);
     run(rig.archive(0), 13, 20, false);
@@ -330,7 +330,7 @@ TEST_CASE("RotationTest.malformedExtentEverywhereHaltsSchema")
         run(rig.archive(i), 1, 10, true);
         SimRecording &bad = rig.archive(i).record();
         appendJournal(rig.archive(i), bad, 11, 12);
-        bad.rec.key.termBufferLength = 0; // a malformed extent the walk cannot pass (S9a 7 S8)
+        bad.rec.key.termBufferLength = 0; // a malformed extent the walk cannot pass (7 S8)
     }
     rig.up();
     const bool stopped = rig.runUntil([&] { return halted(rig); }, 120'000ms);
@@ -361,7 +361,7 @@ TEST_CASE("RotationTest.positionRejectedIsNotAStrike")
 
 TEST_CASE("RotationTest.rotationWithLaneAheadFencesInsteadOfRotating")
 {
-    // FIX-16: with C' > last a rotation would resume the next source past e; a sync from C' instead
+    // With C' > last a rotation would resume the next source past e; a sync from C' instead
     Direct d(2);
     d.core.bound = EPOCH;
     d.core.cursor = 10;
@@ -381,7 +381,7 @@ TEST_CASE("RotationTest.rotationWithLaneAheadFencesInsteadOfRotating")
 
 TEST_CASE("RotationTest.headRefusalOnEverySourceHaltsSourceSchema")
 {
-    // review NOTE-6: S9a 4.4 row 7 (HEAD: journalSeq 0 or meEpoch 0) through the domain: a refusal like any other row,
+    // row 7 (HEAD: journalSeq 0 or meEpoch 0) through the domain: a refusal like any other row,
     // BAD at e on each source, SOURCE_SCHEMA {e, e} when every source is BAD
     Rig rig(2);
     for (std::size_t i = 0; i < 2; ++i)
@@ -444,7 +444,7 @@ TEST_CASE("RotationTest.refusalFromAMemoReadIsVerifiedFirst")
 
 TEST_CASE("RotationTest.streamingHoleStillRotatesFirst")
 {
-    // RC2 S10' 5.1: while STREAMING nothing changes: a hole on source 0 rotates to source 1 (which has e) at once; no
+    // While STREAMING nothing changes: a hole on source 0 rotates to source 1 (which has e) at once; no
     // successor walk although source 0 has a later recording
     Rig rig(2);
     SimRecording &a0 = rig.archive(0).record();

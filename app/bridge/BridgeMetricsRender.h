@@ -9,7 +9,7 @@
 
 #include "BridgeSnapshot.h"
 
-// The bridge-http bodies (RC2 S9c 9.1-9.3), pure: the 100 ms BridgeSnapshot plus the relaxed atomics of the domain
+// The bridge-http bodies, pure: the 100 ms BridgeSnapshot plus the relaxed atomics of the domain
 // (BridgeMetrics) and of the archive (ArchiveMetrics, the three max gauges read with takeMax), plus what main and the
 // HTTP thread know (HttpExtras).
 

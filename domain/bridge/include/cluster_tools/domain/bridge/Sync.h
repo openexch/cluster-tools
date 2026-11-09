@@ -1,9 +1,9 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_SYNC_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_SYNC_H
 
-// Cursor and sync (RC2 S9b section 7): the report validity rules of 7.2, the one outstanding QueryFeedPosition
-// with the ring tail it covers (the exact report-loss rule, D-S9b-6), and the periodic report rules of a
-// streaming sync as a pure function. The forward rule itself (G1, 7.3) is in BridgeDomain::onFrame.
+// Cursor and sync: the report validity rules of 7.2, the one outstanding QueryFeedPosition
+// with the ring tail it covers (the exact report-loss rule), and the periodic report rules of a
+// streaming sync as a pure function. The forward rule itself is in BridgeDomain::onFrame.
 
 #include "cluster_tools/domain/bridge/Types.h"
 

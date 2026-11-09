@@ -1,4 +1,4 @@
-# The RED column of RC2 S9c contract 12.2 for ct_bridge_main_tests (pure). Each line: test case | rule | why | expected
+# The RED column for ct_bridge_main_tests (pure). Each line: test case | rule | why | expected
 # text (run-negative-controls.sh: FAIL with CT_TEST_DISABLE_<rule>=1 for the stated reason, PASS without it).
 MainTest.healthStalledAndWatchdog|WATCHDOG_OFF|the duty watchdog never fires: a wedged duty thread stays alive|CHECK( watchdogFired )
 ConductorWatchTest.reclaimedAndReusedSlotExits70|CONDUCTOR_REVALIDATE_OFF|the heartbeat record is not re-validated: a reclaimed client whose slot was re-used reads healthy|CHECK( reclaimDetected )

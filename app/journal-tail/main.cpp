@@ -1,5 +1,5 @@
 // ct-journal-tail: reads the ME journal (schema 4) from the configured archives through archive/
-// end to end, without a core session (RC2 S9a contract section 0 item 4). It is the integration
+// end to end, without a core session. It is the integration
 // test driver of the archive side and the "bridge tooling" the S7 5.6 runbook needs to read journal
 // entry s. It reads only: no file is written, no core is contacted.
 //
@@ -245,7 +245,7 @@ public:
                 frame.length, hex(frame.bytes, frame.length).c_str());
             std::fflush(stdout);
         }
-        return RefusalAction::SKIP_AND_CONTINUE; // the tail prints and goes on (section 0 item 4)
+        return RefusalAction::SKIP_AND_CONTINUE; // the tail prints and goes on
     }
 
     bool done() const noexcept { return m_done; }
@@ -393,7 +393,7 @@ int main(int argc, char **argv)
 {
     if (!cluster_tools::archive::test_seams::disabled(cluster_tools::archive::test_seams::Rule::TAIL_TERMINATE_HANDLER))
     {
-        std::set_terminate(&onTerminate); // first: nothing ends the process with SIGABRT (contract 3.1)
+        std::set_terminate(&onTerminate); // first: nothing ends the process with SIGABRT
     }
     try
     {

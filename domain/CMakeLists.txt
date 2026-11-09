@@ -22,7 +22,7 @@ if(BUILD_TESTING)
     target_compile_options(ct_domain_engine_config_tests PRIVATE -Wall -Wextra)
     add_test(NAME domain.engine_config COMMAND ct_domain_engine_config_tests)
 
-    # A7 negative control: the same tests over a seamed copy of the library (CT_TEST_DISABLE_GENESIS_ID_POSITIVE reverts
+    # Negative control: the same tests over a seamed copy of the library (CT_TEST_DISABLE_GENESIS_ID_POSITIVE reverts
     # the genesisId rule to "== 0 only"); never linked into a tool
     add_library(ct_domain_seamed STATIC src/SwitchDecision.cpp src/EngineConfig.cpp)
     target_include_directories(ct_domain_seamed PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")

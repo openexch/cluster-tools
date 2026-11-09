@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 CarrierTest (5.5, BLOCKER-1 Fix A): for every R-rule failure, V12 and V1 the
+// CarrierTest (5.5, BLOCKER-1 Fix A): for every R-rule failure, V12 and V1 the
 // carrier is reader-valid (passes the ME's isValid and decode ranges) and fails behaviourTwoCause, so the
 // ME journals INVALID 8 for the core's own command id; it keeps both ids, is a pure function and carries
 // the signature orderType 2 (LIMIT_MAKER), timeInForce 1 (IOC).

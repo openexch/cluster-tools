@@ -27,7 +27,7 @@ namespace {
 // single check against a shorter age is a coin toss (a 500 ms check read a live driver as stale about half the time:
 // the second instance then deleted the live dir, MainAeronTest embedded). The rule:
 //   - wait LIVE_DRIVER_AGE_MS + a margin from the first look: a driver that was already dead then (its last beat is
-//     before the first look) is older than LIVE_DRIVER_AGE_MS from that point on, whatever its age was (R-K13 (d): a
+//     before the first look) is older than LIVE_DRIVER_AGE_MS from that point on, whatever its age was (a
 //     driver that died a moment ago is not read as live);
 //   - then sample for LIVE_DRIVER_SAMPLE_MS (longer than one timer interval): LIVE when any sample is fresher than
 //     LIVE_DRIVER_AGE_MS (a live driver beats inside every timer interval).
@@ -65,7 +65,7 @@ std::string EmbeddedDriver::dirFor(const std::string &parent, std::int64_t insta
     }
     if (options.dirPerPid)
     {
-        return base + "/" + options.dirPrefix + std::to_string(static_cast<long long>(::getpid())); // RED shape (pre FIX-1)
+        return base + "/" + options.dirPrefix + std::to_string(static_cast<long long>(::getpid())); // RED shape (the per-pid dir)
     }
     return base + "/" + options.dirPrefix + std::to_string(instanceId);
 }
@@ -175,7 +175,7 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
     }
     if (aeron_driver_init(&m_driver, m_context) < 0)
     {
-        m_failureErrcode = aeron_errcode(); // before any close: ENOSPC = the CnC cannot be allocated (C13-6)
+        m_failureErrcode = aeron_errcode(); // before any close: ENOSPC = the CnC cannot be allocated
         error = lastAeronError("aeron_driver_init");
         m_driver = nullptr;
         aeron_driver_context_close(m_context);

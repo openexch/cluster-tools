@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Test harness only (RC2 S9a contract 9.3): an ME-journal-shaped archive for the C++ archive
+// Test harness only: an ME-journal-shaped archive for the C++ archive
 // integration run. A MediaDriver and an Archive on control stream 4010 (local 4011), 1 MiB segment
 // files, and a stdin control protocol, one command per line, one answer line per command:
 //   RECORD [channel]         recorded exclusive publication on stream 4001 (default aeron:ipc?term-length=64k)

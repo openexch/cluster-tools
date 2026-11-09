@@ -3,14 +3,14 @@
 
 #include <cstdint>
 
-// EpochBinder - the ME epoch the forwarder learns and then insists on (RC2 S12 contract 4.2).
+// EpochBinder - the ME epoch the forwarder learns and then insists on.
 //
 // The process epoch E is set ONCE, by the first ClusterHeartbeat with meEpoch != 0 on any ME session,
 // and never changes (it is the sourceEpoch of every RegisterSession). Each ME session starts UNVERIFIED
 // (M2: nothing may be offered to it) and becomes VERIFIED (M3) on a heartbeat whose meEpoch equals E.
 //   M2: meEpoch 0 ignored (the ME is not FRESH yet); first non-zero binds; equal verifies; different = fatal 78
 //   M3: a heartbeat with meEpoch != E, 0 included (the ME lost its identity), = fatal 78
-//   M2 for EPOCH_WAIT_NS while connected without a verifying heartbeat = reconnect (the W9 hello of the next
+//   M2 for EPOCH_WAIT_NS while connected without a verifying heartbeat = reconnect (the hello of the next
 //   session delivers the epoch).
 
 namespace cluster_tools { namespace domain { namespace forwarder {
@@ -20,8 +20,8 @@ enum class EpochVerdict : std::uint8_t
     NONE,
     BOUND,          // E was bound by this heartbeat (and the session verified)
     VERIFIED,       // the session reached M3
-    FATAL_MISMATCH, // meEpoch != E (exit 78, F8)
-    FATAL_ZERO,     // meEpoch 0 after the session was verified (exit 78, F8)
+    FATAL_MISMATCH, // meEpoch != E (exit 78)
+    FATAL_ZERO,     // meEpoch 0 after the session was verified (exit 78)
     RECONNECT,      // no verifying heartbeat within EPOCH_WAIT_NS
 };
 

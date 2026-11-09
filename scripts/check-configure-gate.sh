@@ -5,7 +5,7 @@
 # build.configure_gate in the WITH_AERON build; runnable by hand too.
 #
 # Usage: scripts/check-configure-gate.sh <cmake> <aeron-tarball> <sbe-classpath> <money-schema> <match-schema> <me-journal-schema> [<aeron-all.jar>]
-# The RC2 S9a WITH_BRIDGE cases (contract 9.5) run in the same pass; the optional aeron-all jar adds
+# The WITH_BRIDGE cases run in the same pass; the optional aeron-all jar adds
 # the integration-fixture jar case.
 set -euo pipefail
 
@@ -67,8 +67,8 @@ printf 'x' >> "$WORK/agrona-other.jar"
 expect_refused unpinned-jar "is not a jar dependencies.lock pins" -DAERON_TARBALL="$TARBALL" \
     -DSBE_CLASSPATH="$SBE_JAR:$WORK/agrona-other.jar" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 
-# 5-7. Schemas: missing, below the floor, required template removed. The negatives the RC2 S1
-# contract (8.5) names: the v11 order schema, a money-schema v6, an ME journal whose hash differs,
+# 5-7. Schemas: missing, below the floor, required template removed. The negatives the
+# pin rules name: the v11 order schema, a money-schema v6, an ME journal whose hash differs,
 # a v12 order schema whose template 9 lost timeInForce.
 SCHEMAS=(-DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP")
 expect_refused no-money-schema "is required" "${SCHEMAS[@]}" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
@@ -97,8 +97,8 @@ expect_refused journal-hash-differs "dependencies.lock pins" "${SCHEMAS[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$WORK/journal-edited.xml"
 expect_refused no-journal-schema "is required" "${SCHEMAS[@]}" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 
-# 7b. WITH_BRIDGE (RC2 S9a contract 2.2, 9.5): money and journal pinned by EXACT sha256 and version.
-# RC2 S9b W1: WITH_BRIDGE also requires the pinned S9h harness jar (CT_GATE_FEED_HARNESS_JAR from the ctest
+# 7b. WITH_BRIDGE: money and journal pinned by EXACT sha256 and version.
+# WITH_BRIDGE also requires the pinned harness jar (CT_GATE_FEED_HARNESS_JAR from the ctest
 # registration); without one the bridge cases cannot reach the schema checks, so they are reported as skipped.
 HARNESS=${CT_GATE_FEED_HARNESS_JAR:-}
 BRIDGE=(-DWITH_BRIDGE=ON)
@@ -130,7 +130,7 @@ if [ -n "$AERON_ALL" ]; then
     expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" "${BRIDGE[@]}" -DCT_INTEGRATION_TESTS=ON \
         -DCT_IT_ASSETS_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
 fi
-# RC2 S9c W1: ct-bridge links aeron_driver_static (the embedded driver mode), so WITH_BRIDGE needs the driver built
+# ct-bridge links aeron_driver_static (the embedded driver mode), so WITH_BRIDGE needs the driver built
 expect_refused bridge-without-driver "needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}" "${BRIDGE[@]}"
 if "$CMAKE" -S "$HERE" -B "$WORK/build-bridge" -DWITH_AERON=ON "${BRIDGE[@]}" -DCT_BUILD_MEDIA_DRIVER=ON "${GOOD[@]}" \
     > "$WORK/bridge.log" 2>&1; then
@@ -141,7 +141,7 @@ else
 fi
 rm -rf "$WORK/build-bridge"
 
-# RC2 S10' section 8: ct-forwarder links aeron_driver_static too (its embedded driver mode), so WITH_AERON needs the driver
+# ct-forwarder links aeron_driver_static too (its embedded driver mode), so WITH_AERON needs the driver
 expect_refused forwarder-without-driver "ct-forwarder (WITH_AERON) needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}"
 
 # 8. Positive control: the pinned inputs configure.

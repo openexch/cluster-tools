@@ -1,8 +1,8 @@
-# The RED column of RC2 S10' contract 8.3 for ct_forwarder_config_tests (linked with ct_forwarder_pure_seamed). Each
+# The RED column for ct_forwarder_config_tests (linked with ct_forwarder_pure_seamed). Each
 # line: test case | rule | why | expected text; run by archive/tests/run-negative-controls.sh: the test must FAIL with
 # CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass without it.
 # ForwarderConfigTest.instanceIdRange has no RED (table-driven, 8.3).
-ForwarderConfigTest.driverModeIsStrict|DRIVER_MODE_DEFAULT_EXTERNAL|a missing FWD_DRIVER_MODE becomes external (the S12 shape)|missing mode parsed
-ForwarderConfigTest.driverTimeoutUsesTheSharedParser|TIMEOUT_CONSTANT|a missing FWD_DRIVER_TIMEOUT_MS falls back to the S12 constant 5000|5000 used while the key is missing
-ForwarderConfigTest.identityIsTheInstanceIdInBothClientNames|IDENTITY_RANDOM|a random identity per start (the S12 shape) instead of FWD_INSTANCE_ID|CHECK( forwarderIdentity(r.config) == 7 )
-DriverStartTest.storageStarvedStartIsRetriedThen70|DRIVER_START_STORAGE_78|a storage-starved embedded driver start exits 78 at once (the S9c FIX-12 shape): RestartPreventExitStatus=78 keeps it down after a passing tmpfs squeeze|a storage-starved start refused 78 at once
+ForwarderConfigTest.driverModeIsStrict|DRIVER_MODE_DEFAULT_EXTERNAL|a missing FWD_DRIVER_MODE becomes external (the earlier shape)|missing mode parsed
+ForwarderConfigTest.driverTimeoutUsesTheSharedParser|TIMEOUT_CONSTANT|a missing FWD_DRIVER_TIMEOUT_MS falls back to the former constant 5000|5000 used while the key is missing
+ForwarderConfigTest.identityIsTheInstanceIdInBothClientNames|IDENTITY_RANDOM|a random identity per start (the earlier shape) instead of FWD_INSTANCE_ID|CHECK( forwarderIdentity(r.config) == 7 )
+DriverStartTest.storageStarvedStartIsRetriedThen70|DRIVER_START_STORAGE_78|a storage-starved embedded driver start exits 78 at once (the bridge's shape): RestartPreventExitStatus=78 keeps it down after a passing tmpfs squeeze|a storage-starved start refused 78 at once

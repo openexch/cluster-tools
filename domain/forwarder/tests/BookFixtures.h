@@ -6,8 +6,8 @@
 
 #include "cluster_tools/domain/forwarder/MarketData.h"
 
-// Decoded-frame builders for the S13 domain tests (BookLadderTest, TickEmitterTest): the shapes the codec (W1)
-// produces for well-formed 22 / 25 / 26 frames, with every "malformed" knob of contract 4.2 reachable by editing the
+// Decoded-frame builders for the domain tests (BookLadderTest, TickEmitterTest): the shapes the codec
+// produces for well-formed 22 / 25 / 26 frames, with every "malformed" knob of reachable by editing the
 // returned struct. No bytes: the ladder is tested on the decoded view, the codec on the goldens.
 
 namespace cluster_tools { namespace domain { namespace forwarder { namespace book_fixtures {

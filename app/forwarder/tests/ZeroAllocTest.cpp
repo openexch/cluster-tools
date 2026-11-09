@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.3 zeroAllocDutyCycle: after warm-up, 100,000 dispatches through decode, classification,
+// zeroAllocDutyCycle: after warm-up, 100,000 dispatches through decode, classification,
 // the resync machine, the ring, the encoder and the ME offer with a counting operator new armed around every
 // agent iteration: 0 allocations. The harness's own frame injection happens with the counter disarmed; the
 // fake transport records no offered frame while counting (recordOffers = false), so what is counted is the
@@ -74,7 +74,7 @@ TEST_CASE("ZeroAllocTest.zeroAllocDutyCycle")
 
 TEST_CASE("ZeroAllocTest.resyncHeadProbeTimeoutAndSnapshotPathsAllocateNothing")
 {
-    // Review NOTE-6: the cold-but-recurring paths, each in a counted window: a T5 gap with its held entry, the page
+    // The cold-but-recurring paths, each in a counted window: a T5 gap with its held entry, the page
     // request, finishPage and the pushes; the 10 s head probe and its answer; a T9 timeout and the re-issued request;
     // fillSnapshot. Frames are injected with the counter disarmed (harness work).
     Rig r;
@@ -126,7 +126,7 @@ TEST_CASE("ZeroAllocTest.resyncHeadProbeTimeoutAndSnapshotPathsAllocateNothing")
 
 TEST_CASE("ZeroAllocTest.stitchAndEmitAllocateNothing")
 {
-    // RC2 S13 contract 11.4: 10^5 ME book frames (deltas on five markets, a periodic snapshot, trade batches and a
+    // 10^5 ME book frames (deltas on five markets, a periodic snapshot, trade batches and a
     // known-ignored 23) through decode, the stitcher, the emitter, the 60 encoder and the core offer, plus fillSnapshot,
     // with the counter armed around every agent iteration: 0 allocations. Frames are built and pushed disarmed.
     Rig r;

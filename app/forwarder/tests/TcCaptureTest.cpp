@@ -1,5 +1,5 @@
-// RC2 S10' contract 7.1 item 2: the frame capture of ct_forwarder_tc_capture (TcCapture.h). The SHA-256 that pins a
-// captured frame for the T1-F re-send (review N-11) against the FIPS 180-4 vectors and padding boundaries, and the
+// The frame capture of ct_forwarder_tc_capture (TcCapture.h). The SHA-256 that pins a
+// captured frame for the T1-F re-send against the FIPS 180-4 vectors and padding boundaries, and the
 // capture files: <n>.bin byte-identical to the offered frame, one sidecar line per frame, a restart continues the
 // numbering, FWD_CAPTURE_DIR strict (no default).
 #include "doctest/doctest.h"

@@ -1,4 +1,4 @@
-// RC2 S10' Q1 (coordinator decision 2026-11-01): an ingress publication refused for storage space on every attempt for
+// Storage starvation: an ingress publication refused for storage space on every attempt for
 // 30 s ends ct-forwarder 70; until then /ready names storage_starved and forwarder_storage_starved_seconds_total grows.
 //   StorageStarvationTest.*            the shared common::StorageStarvation rule (pure)
 //   ForwarderAgentTest.storageStarvedIngressExits70  the agent over FakeTransport: the ME's ingress publications are
@@ -20,7 +20,7 @@ namespace common = cluster_tools::app::common;
 
 namespace {
 
-// observed on the build box (S10' lane C tmpfs-min, 48 MB): the forwarder's ME connect cycle on a full tmpfs
+// observed on the build box (tmpfs-min, 48 MB): the forwarder's ME connect cycle on a full tmpfs
 const char *const OBSERVED_STORAGE =
     "ingress publication: (-12) insufficient storage space [aeron_client_conductor_async_resource_poll, "
     "aeron_client_conductor.c:3717] async_add_publication registration error";

@@ -6,7 +6,7 @@
 #include "cluster_tools/domain/forwarder/DispatchRules.h"
 
 // Plain counters the forwarder agent owns (duty thread only) and exports through the StatusBoard
-// snapshot (RC2 S12 contract section 10). Fixed-size, trivially copyable: no allocation, no locks.
+// snapshot. Fixed-size, trivially copyable: no allocation, no locks.
 
 namespace cluster_tools { namespace domain { namespace forwarder {
 
@@ -63,9 +63,9 @@ struct ForwarderCounters
     std::uint64_t coreStaleTerm = 0;
     std::uint64_t coreFutureTerm = 0;
     std::uint64_t coreMalformed = 0;
-    std::uint64_t dispatchSeqBelowOne = 0; // review NOTE-2: 104/105 frames refused for an entry with dispatchSeq < 1
+    std::uint64_t dispatchSeqBelowOne = 0; // 104/105 frames refused for an entry with dispatchSeq < 1
     std::uint64_t unknownTemplate[2][TEMPLATE_BUCKETS] = {};
-    std::uint64_t coreControlFrames = 0; // OrderFault / ConfigApplied on CH_CONTROL: counted, dropped (Q9)
+    std::uint64_t coreControlFrames = 0; // OrderFault / ConfigApplied on CH_CONTROL: counted, dropped
 
     std::uint64_t connectClusterErrors[2] = {};
     std::uint64_t meEpochReconnects = 0;
@@ -75,9 +75,9 @@ struct ForwarderCounters
     std::uint64_t admissionBroadcast = 0;
     std::uint64_t pendingEnds = 0;
 
-    // RC2 S13 (K4): the agent's own book / tick counters (the ladders and the emitter keep theirs)
-    std::uint64_t meStaleTerm = 0;          // forwarder_me_stale_term_total: 22 / 25 / 26 of an ended ME term (F-S13-8)
-    std::uint64_t meKnownIgnored[3] = {};   // forwarder_me_frames_total{template="23|24|27"} (F-S13-5)
+    // The agent's own book / tick counters (the ladders and the emitter keep theirs)
+    std::uint64_t meStaleTerm = 0;          // forwarder_me_stale_term_total: 22 / 25 / 26 of an ended ME term
+    std::uint64_t meKnownIgnored[3] = {};   // forwarder_me_frames_total{template="23|24|27"}
     std::uint64_t tickRejected[3] = {};     // forwarder_tick_rejected_total{reason="unregistered|unauthorized|other"} (7.3)
 
     void unknown(unsigned cluster, std::uint16_t templateId) noexcept

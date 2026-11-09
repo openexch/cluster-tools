@@ -1,8 +1,8 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_PORTS_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_PORTS_H
 
-// The two ports of the bridge domain (RC2 S9b contract section 4): the frame encoder (implemented by
-// adapters/sbe BridgeCodec with the generated codecs; a fake one in the pure tests) and the core port (S9c:
+// The two ports of the bridge domain: the frame encoder (implemented by
+// adapters/sbe BridgeCodec with the generated codecs; a fake one in the pure tests) and the core port
 // ClusterClient::tryOffer with its OfferStatus mapped onto OfferOutcome).
 
 #include "cluster_tools/domain/bridge/Types.h"
@@ -63,14 +63,14 @@ constexpr std::uint16_t frameTemplateFor(std::uint16_t journalTemplate) noexcept
     }
 }
 
-// The ingress frame bound (S9a 6.3, cpp A5): the largest feed frame plus the 32-byte cluster session header fits
+// The ingress frame bound: the largest feed frame plus the 32-byte cluster session header fits
 // the core session's 8192-byte MTU with its own 32-byte frame header.
 inline constexpr std::size_t MAX_BATCH_FRAME = 12 + 109 * 64; // 6988
 inline constexpr std::size_t MAX_RELEASE_FRAME = 56 + 22 * 48; // 1112
 inline constexpr std::size_t MAX_FEED_FRAME = MAX_BATCH_FRAME;
 static_assert(MAX_BATCH_FRAME >= MAX_RELEASE_FRAME && MAX_BATCH_FRAME >= 161 && MAX_BATCH_FRAME >= 117);
 static_assert(MAX_FEED_FRAME + 32 <= 8192 - 32, "a feed frame must fit the core session's ingress MTU");
-inline constexpr std::size_t OUTPUT_BUFFER = 8192; // the one 8 KiB output buffer (section 4)
+inline constexpr std::size_t OUTPUT_BUFFER = 8192; // the one 8 KiB output buffer
 
 }}}
 

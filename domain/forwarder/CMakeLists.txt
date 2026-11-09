@@ -1,4 +1,4 @@
-# domain/forwarder - the forwarder's pure core (RC2 S12 contract section 2): classification and the
+# domain/forwarder - the forwarder's pure core: classification and the
 # INVALID carrier, the send ring, the resync machine, the epoch binder, the admission watcher. No Aeron,
 # no SBE, no I/O: builds and tests in every configuration, the WITH_AERON=OFF job included.
 #

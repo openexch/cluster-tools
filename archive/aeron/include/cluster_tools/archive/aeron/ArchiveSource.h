@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_AERON_ARCHIVE_SOURCE_H
 #define CLUSTER_TOOLS_ARCHIVE_AERON_ARCHIVE_SOURCE_H
 
-// One archive endpoint over the Aeron C archive client's cpp_wrapper (RC2 S9a contract 3.3, 4.3):
+// One archive endpoint over the Aeron C archive client's cpp_wrapper:
 // the FollowerLoop Port of archive/FollowerLoop.h. Async connect polled one step per iteration
 // (the archive Context kept alive with the client), listRecordingsForUri, the 4.3 replay open
 // (storage precheck on the driver dir of the aeron::Context in use, the port-0 subscription, its
@@ -51,7 +51,7 @@ struct ArchiveSourceConfig
 };
 
 // Test seams of the 9.3 integration run. In a production build (no CT_TEST_SEAMS) the struct is
-// empty, so nothing can reroute the replay or replace statvfs (review N-7).
+// empty, so nothing can reroute the replay or replace statvfs.
 struct ArchiveSourceSeams
 {
 #ifdef CT_TEST_SEAMS
@@ -107,7 +107,7 @@ public:
                 switch (action)
                 {
                     case SinkAction::CONTINUE:
-                    case SinkAction::CONSUME: // FollowerLoop maps it to CONTINUE first (S10' 5.1 R1)
+                    case SinkAction::CONSUME: // FollowerLoop maps it to CONTINUE first (R1)
                         return ::aeron::ControlledPollAction::CONTINUE;
                     case SinkAction::BREAK: return ::aeron::ControlledPollAction::BREAK;
                     case SinkAction::ABORT: return ::aeron::ControlledPollAction::ABORT;
@@ -137,7 +137,7 @@ public:
     std::int64_t archiveId();
 
 #ifdef CT_TEST_SEAMS
-    // Test seam (W3 ArchiveSourceTest.reentryFromInvokerExits70): run `body` as if inside an archive
+    // Test seam (ArchiveSourceTest.reentryFromInvokerExits70): run `body` as if inside an archive
     // call, so an archive call made from it hits the re-entrancy guard.
     void runAsArchiveCallForTest(const std::function<void()> &body);
     // Test seam: the invoker exactly as the archive wait loop calls it.

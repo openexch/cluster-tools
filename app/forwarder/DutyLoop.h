@@ -14,11 +14,11 @@
 #include "StatusBoard.h"
 #include "Supervisor.h"
 
-// The fwd-duty thread body (RC2 S12 contract section 3) and the fwd-http routes.
+// The fwd-duty thread body and the fwd-http routes.
 //
 // Duty: one agent iteration, then the idle strategy when the iteration did no work (common::FORWARDER_IDLE: spin
 // 100, yield 100, then nanosleep 100 us: the only sleep, between iterations, never inside a step); the heartbeat counter is
-// bumped every iteration (main's watchdog, F3) and the StatusBoard snapshot is published every 100 ms. The
+// bumped every iteration (main's watchdog) and the StatusBoard snapshot is published every 100 ms. The
 // stop and resync flags are main's (signals) and fwd-http's (POST /resync).
 
 namespace cluster_tools { namespace app { namespace forwarder {
@@ -78,7 +78,7 @@ int runDuty(Agent &agent, Supervisor &supervisor, StatusBoard &board, const std:
     return agent.stopReason().exitCode;
 }
 
-// fwd-http: GET /health /ready /metrics, POST /resync; nothing else (contract section 10).
+// fwd-http: GET /health /ready /metrics, POST /resync; nothing else.
 inline HttpResponse route(const HttpRequest &request, const StatusBoard &board, Supervisor &supervisor)
 {
     HttpResponse response;

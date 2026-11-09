@@ -59,7 +59,7 @@ target_link_libraries(ct_adapter_sbe
     PRIVATE ct_sbe_codecs)
 target_compile_options(ct_adapter_sbe PRIVATE -Wall -Wextra)
 
-# RC2 S12 W5: the forwarder's wire (money 104/105/108/109/101 decode, 65 encode; order 9/10 encode, 21 decode).
+# The forwarder's wire (money 104/105/108/109/101 decode, 65 encode; order 9/10 encode, 21 decode).
 # The domain value types come from domain/forwarder (headers only): consumers link the domain flavour they
 # want (production or seamed), so the codec never pulls a second copy in.
 add_library(ct_forwarder_codec STATIC src/ForwarderCodec.cpp)
@@ -70,7 +70,7 @@ target_include_directories(ct_forwarder_codec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(ct_forwarder_codec PRIVATE ct_sbe_codecs)
 target_compile_options(ct_forwarder_codec PRIVATE -Wall -Wextra)
 
-# RC2 S9b section 5: the bridge's wire (schema 4 records -> money v7 feed 61-64, 67, 68; FeedHalt 66, Query 7; the
+# The bridge's wire (schema 4 records -> money v7 feed 61-64, 67, 68; FeedHalt 66, Query 7; the
 # egress 17 v7, 110, 114). The domain's value types and ports come from domain/bridge (headers), the frame shapes
 # from archive (FramePeek, header-only constants); consumers link the domain flavour they want.
 add_library(ct_bridge_codec STATIC src/BridgeCodec.cpp)
@@ -141,11 +141,11 @@ if(BUILD_TESTING)
         set_tests_properties(bridge.e3_real_core_oracle_negative_controls PROPERTIES TIMEOUT 1800
             ENVIRONMENT "CT_ORACLE_RUNS=3")
     else()
-        message(STATUS "RC2 S9b: no CT_FEED_HARNESS_JAR: the E2 differential and the real-core oracle are not built")
+        message(STATUS "no CT_FEED_HARNESS_JAR: the E2 differential and the real-core oracle are not built")
     endif()
 
     add_executable(ct_forwarder_codec_tests tests/ForwarderCodecTest.cpp)
-    # RC2 S13 W1: the seamed domain flavour, so the 4.2 frame-validation rules (MarketData.cpp) can be switched off
+    # The seamed domain flavour, so the 4.2 frame-validation rules (MarketData.cpp) can be switched off
     target_link_libraries(ct_forwarder_codec_tests PRIVATE ct_forwarder_codec ct_forwarder_domain_seamed ct_sbe_codecs)
     target_include_directories(ct_forwarder_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_compile_options(ct_forwarder_codec_tests PRIVATE -Wall -Wextra)

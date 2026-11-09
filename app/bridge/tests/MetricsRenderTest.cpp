@@ -1,4 +1,4 @@
-// RC2 S9c 12.1 MetricsRenderTest: the /health JSON (keys and order of 9.1, `halted` from the halt record while the
+// MetricsRenderTest: the /health JSON (keys and order of 9.1, `halted` from the halt record while the
 // state is DOWN), the /ready text per bit (4.3), the Prometheus text against goldens (tests/golden/*;
 // CT_BRIDGE_REGEN_GOLDEN=1 rewrites them for review) and every series the alerts name.
 #include "doctest/doctest.h"
@@ -101,7 +101,7 @@ TEST_CASE("MetricsRenderTest.healthGolden")
     CHECK(up == golden("health.json", up));
     CHECK(up.rfind("{\"halted\":false,\"aeConnected\":true,\"haltReason\":\"NONE\",\"meEpoch\":169552957,\"cursor\":900,", 0) == 0);
     CHECK(up.find("\"status\":\"UP\"") != std::string::npos);
-    // RC2 S16 W4: /health.build is the binary's source_sha, additive and last (the 9.1 key order above is a prefix)
+    // /health.build is the binary's source_sha, additive and last (the 9.1 key order above is a prefix)
     CHECK(up.find(",\"build\":\"0123456789abcdef0123456789abcdef01234567\"}") != std::string::npos);
     CHECK(healthStatus(s, extras()) == 200);
     HttpExtras stalled = extras();
@@ -124,7 +124,7 @@ TEST_CASE("MetricsRenderTest.healthGolden")
 
 TEST_CASE("MetricsRenderTest.haltedFollowsTheHaltRecord")
 {
-    // OQ-4 / NOTE-3 / D-S9c-2: a halt kept across a session loss reads halted while the state is DOWN
+    // A halt kept across a session loss reads halted while the state is DOWN
     BridgeSnapshot s = fixed();
     s.view.state = db::State::DOWN;
     s.view.halt = db::BridgeHalt::GAP;
@@ -143,7 +143,7 @@ TEST_CASE("MetricsRenderTest.haltedFollowsTheHaltRecord")
 
 TEST_CASE("MetricsRenderTest.foreignHeadHaltDetail")
 {
-    // RC2 S17 W12 B1: /health names a foreign journal head next to the halt reason (additive key, before "build")
+    // /health names a foreign journal head next to the halt reason (additive key, before "build")
     BridgeSnapshot s = fixed();
     s.view.state = db::State::HALTED;
     s.view.halt = db::BridgeHalt::SOURCE_SCHEMA;

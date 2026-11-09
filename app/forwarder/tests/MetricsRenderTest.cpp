@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 MetricsRenderTest: Prometheus text, the /health JSON and the /ready body for a fixed
+// MetricsRenderTest: Prometheus text, the /health JSON and the /ready body for a fixed
 // snapshot, against goldens (tests/golden/*; CT_FORWARDER_REGEN_GOLDEN=1 rewrites them for review).
 #include "doctest/doctest.h"
 
@@ -72,8 +72,8 @@ ForwarderSnapshot fixed()
     s.counters.meBackPressure = 4;
     s.aeronErrors = 0;
     s.dutyMaxCycleUs = 85;
-    s.driverMode = 2; // RC2 S10' 8.2 rule 6: external
-    // RC2 S13: market 1 OK and ticking, 2 BROKEN, 3 EMPTY (rule U), 4 / 5 never seen
+    s.driverMode = 2; // External
+    // Market 1 OK and ticking, 2 BROKEN, 3 EMPTY (rule U), 4 / 5 never seen
     BookView &b1 = s.books[0];
     b1.state = 1;
     b1.version = 4242;
@@ -149,7 +149,7 @@ TEST_CASE("MetricsRenderTest.healthAndReadyGolden")
     const std::string up = renderHealthJson(s, false);
     CHECK(up == golden("health.json", up));
     CHECK(up.find("\"status\":\"UP\"") != std::string::npos);
-    // RC2 S16 W4: /health.build is the binary's source_sha, additive (after ready, before the books)
+    // /health.build is the binary's source_sha, additive (after ready, before the books)
     CHECK(up.find(",\"ready\":false,\"build\":\"0123456789abcdef0123456789abcdef01234567\",\"books\":[") != std::string::npos);
     CHECK(up.find("\"lastDispatchSeq\":9000") != std::string::npos);
     CHECK(up.find("\"resyncs\":7") != std::string::npos);
@@ -188,7 +188,7 @@ TEST_CASE("MetricsRenderTest.everyMetricTheAlertsNameIsExported")
 
 TEST_CASE("MetricsRenderTest.bookAndTickSeries")
 {
-    // RC2 S13 10.1 / 10.2: the per-market families, BOOK_STALE in /health only (never a /ready conjunct, PO-1)
+    // The per-market families, BOOK_STALE in /health only (never a /ready conjunct)
     const ForwarderSnapshot s = fixed();
     const std::string text = renderPrometheus(s);
     CHECK(text.find("forwarder_book_state{market=\"2\"} 2\n") != std::string::npos);
@@ -209,6 +209,6 @@ TEST_CASE("MetricsRenderTest.bookAndTickSeries")
         std::string::npos);
     CHECK(health.back() == '\n');
     CHECK(renderReady(s).find("book_stale") == std::string::npos);
-    // the dispatch /ready mask keeps its 10 conjuncts (S12 / S10'): BOOK_STALE is not one of them
+    // the dispatch /ready mask keeps its 10 conjuncts: BOOK_STALE is not one of them
     CHECK(not_ready::COUNT == 10);
 }

@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <mutex>
 
-// StatusBoardT - the duty thread's published snapshot (RC2 S12 contract section 3; lifted to a template over the
-// snapshot type by RC2 S9c W1 so ct-forwarder and ct-bridge share one copy). The writer never blocks: it publishes
+// StatusBoardT - the duty thread's published snapshot (lifted to a template over the
+// snapshot type by so ct-forwarder and ct-bridge share one copy). The writer never blocks: it publishes
 // with try_lock and simply publishes on its next 100 ms tick if a reader holds the lock; readers (the HTTP thread,
 // main) copy under the lock. The duty heartbeat is a separate atomic (DutyHeartbeat), bumped every iteration, so the
 // watchdog never depends on a publish. Snapshot must have a `std::uint64_t sequence` member.

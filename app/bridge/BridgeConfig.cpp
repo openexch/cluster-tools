@@ -255,7 +255,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
         problems.add("BRIDGE_DRIVER_MODE", "BRIDGE_DRIVER_MODE must be exactly embedded or external, got '" + mode + "'");
     }
 
-    // ---- the S9a 4.1 archive keys (BRIDGE_HALT_ON_GAP present is refused there), scoped by the mode (W0)
+    // ---- the archive keys (BRIDGE_HALT_ON_GAP present is refused there), scoped by the mode
     const archive::SettingsScope scope = DriverMode::EMBEDDED == c.driverMode ? archive::SettingsScope::BRIDGE_EMBEDDED :
         DriverMode::EXTERNAL == c.driverMode ? archive::SettingsScope::BRIDGE_EXTERNAL : archive::SettingsScope::TOOL;
     const archive::ArchiveSettingsResult archive = archive::parseArchiveSettings(

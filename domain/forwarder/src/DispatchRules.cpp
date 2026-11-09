@@ -195,8 +195,8 @@ ReleaseEntry releaseEntry(const Dispatch &d) noexcept
 bool toRingSlot(const Dispatch &d, const Classification &c, RingSlot &slot) noexcept
 {
     slot.seq = d.dispatchSeq;
-    // Negative-control binaries only (contract 11.4): ct_forwarder_nc_refuse discards classes I and C (the
-    // pre-review rule), ct_forwarder_nc_norelease discards every RELEASE_ID entry.
+    // Negative-control binaries only: ct_forwarder_nc_refuse discards classes I and C (the
+    // earlier rule), ct_forwarder_nc_norelease discards every RELEASE_ID entry.
     if (disabled(test_seams::Rule::AGENT_SEND_INVALID) &&
         (DispatchClass::ME_INVALID == c.cls || DispatchClass::CARRIER == c.cls))
     {
