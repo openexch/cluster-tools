@@ -37,7 +37,7 @@
   "aeron_all_url": "https://repo1.maven.org/maven2/io/aeron/aeron-all/1.53.1/aeron-all-1.53.1.jar",
   "aeron_all_sha256": "504ac8bc74ca63783a921da8e7ee96985b8422dd7cae003b9f629e75e97ae333",
   "feed_harness_assets_ref": "eb559a7f9070296bae9c73a3087e49a01efb5852",
-  "feed_harness_url": "releases/download/harness-eb559a7f9070296bae9c73a3087e49a01efb5852/assets-feed-harness.jar",
+  "feed_harness_url": "releases/download/feed-harness/assets-feed-harness-eb559a7f9070296bae9c73a3087e49a01efb5852.jar",
   "feed_harness_sha256": "85f2c1d78d2dd76b06c2a3f8553cf097c31a9946d974a7545fdb4203dc156be0",
   "feed_harness_main_diff_empty_vs": "0a7c4ee743b4a861c3dd8fad8ebfcf7592616cd0",
   "me_journal_e1_match_ref": "ed984774007ccb7bac49218048749452ee7001dc",
