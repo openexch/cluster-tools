@@ -1,18 +1,18 @@
-// RC2 S13 contract 11.2 StitcherPropertyTest (W4): the real BookStitcher (section 4) and TickEmitter (section 6)
+// StitcherPropertyTest: the real BookStitcher and TickEmitter
 // driven by the ME model of MePublisherModel.h with the faults of 11.2, judged against the model's history and
 // the lossy core model.
 //
 // Model per seed: a 3-node ME whose nodes apply one shared log (each node its own books and MarketPublisher chains:
-// a follower's chain advances while its frames are discarded, F-S13-2); the leader's publishers encode every 20 ms
+// a follower's chain advances while its frames are discarded); the leader's publishers encode every 20 ms
 // (each node's scheduler thread on its own phase), the leader's lossy market-data queue is drained every 250 ms into
 // a burst per ME session that reaches the forwarder's poll 1..8 polls later (the 11 timing rule; polls are 5 ms).
 // Faults: lossy drops (single frames and queue-full bursts, snapshots included), below-top mutations (a 40-level
 // book, 20 visible), periodic 10 s resnapshots (node-local lastPeriodic as ACS:148), session-open resnapshots, ME
-// failover to a follower whose chain was sampled at other moments and that may lag the log (W-ME1 on in most seeds,
-// off in some), a drained book (W-ME2 frames), forwarder ME session loss, core offer back-pressure, core leader
+// failover to a follower whose chain was sampled at other moments and that may lag the log (on in most seeds,
+// off in some), a drained book (frames), forwarder ME session loss, core offer back-pressure, core leader
 // changes that lose the last 1..3 positively offered ticks (RC-F7) followed by a re-registration, never-touched
 // markets (and in some seeds a pre-guard ME that sends them as version-0 empty snapshots: rule U), N = 2 forwarders
-// in half the seeds. Old-term frames are dropped as the agent's step 4 does (F-S13-8), the gate is the section 3
+// in half the seeds. Old-term frames are dropped as the agent's step 4 does, the gate is the
 // gate as the agent evaluates it.
 //
 // Properties: S1 an OK ladder equals the model's top-20 at the ladder's version; S2 every offered tick equals the
@@ -152,7 +152,7 @@ struct Params
     unsigned bpPct = 0;
     std::int64_t phaseNs[NODES] = {};
     bool ingressDrain = false; // ACS:1738-1740: under ingress the leader drains after every session message (RC-N1)
-    bool stopShape = false;    // a failover by SIGSTOP: the old leader's queued egress arrives late (F-S13-8)
+    bool stopShape = false;    // a failover by SIGSTOP: the old leader's queued egress arrives late
 };
 
 bool traceEnabled()
@@ -494,7 +494,7 @@ private:
         if (m_p.stopShape && !(m_omsQueue.empty() && m_mdQueue.empty()))
         {
             // SIGSTOP shape: egress the old leader wrote before the stop reaches the sessions after the new leader's
-            // first frames (F-S13-8); the forwarder's step 4 term filter must drop it
+            // first frames; the forwarder's step 4 term filter must drop it
             auto late = std::make_shared<std::vector<Egress>>();
             late->insert(late->end(), m_omsQueue.begin(), m_omsQueue.end());
             late->insert(late->end(), m_mdQueue.begin(), m_mdQueue.end());
@@ -517,7 +517,7 @@ private:
         m_term++;
         if (m_p.wme1)
         {
-            m_nodes[m_leader].gen++; // W-ME1: requestResnapshot() after isLeader = true
+            m_nodes[m_leader].gen++; // requestResnapshot() after isLeader = true
         }
         else
         {
@@ -668,7 +668,7 @@ private:
                 }
                 if (!leader)
                 {
-                    continue; // ACS:360-367 followerSkipped: the chain advanced, the frame is gone (F-S13-2)
+                    continue; // ACS:360-367 followerSkipped: the chain advanced, the frame is gone
                 }
                 e.term = m_term;
                 if (m_now < m_p.tQuiet && m_p.dropPct > 0 && m_me.chance(m_p.dropPct))
@@ -789,7 +789,7 @@ private:
             {
                 if (e.term < w.knownTerm)
                 {
-                    m_stats[ST_STALE_TERM_DROPS]++; // step 4: forwarder_me_stale_term_total (F-S13-8)
+                    m_stats[ST_STALE_TERM_DROPS]++; // step 4: forwarder_me_stale_term_total
                     continue;
                 }
                 w.knownTerm = e.term;

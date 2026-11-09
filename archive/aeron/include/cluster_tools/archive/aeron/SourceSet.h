@@ -1,8 +1,8 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_AERON_SOURCE_SET_H
 #define CLUSTER_TOOLS_ARCHIVE_AERON_SOURCE_SET_H
 
-// The configured archive sources in failover order, ONE attached at a time (RC2 S9a contract 2.1,
-// 5.1): a ChainFollower per source, one ResumeMemo with a memo per source. The owner (S9b) decides
+// The configured archive sources in failover order, ONE attached at a time:
+// a ChainFollower per source, one ResumeMemo with a memo per source. The owner decides
 // failover; SourceSet executes it (switchTo: the current follower finishes its replay, stopReplay
 // included, and disconnects before the next one attaches). With no owner verdict a faulted source
 // backs off 1 s and re-attaches itself (cpp: P3 parity).

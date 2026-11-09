@@ -140,7 +140,7 @@ TEST_CASE("vocabulary names are stable (they appear in logs and metrics)")
     CHECK(std::string(nameOf(SessionClass::FORWARDER)) == "FORWARDER");
 }
 
-// ---- added by the S11 independent review (notebook .../RC2-me-link/S11/review.md) ----
+// ---- added by an independent review ----
 
 namespace
 {
@@ -157,7 +157,7 @@ std::string hexOf(const std::vector<std::uint8_t> &bytes)
 }
 }
 
-TEST_CASE("review: core credentials equal Java CoreCredentials.fromSpec(spec).encode() byte for byte")
+TEST_CASE("core credentials equal Java CoreCredentials.fromSpec(spec).encode() byte for byte")
 {
     // Goldens produced by assets a9a865d CoreCredentials (assets-cluster.jar of the IT run):
     // java -cp assets-cluster.jar:. CredGolden, one line per spec below. A non-uniform secret and
@@ -187,9 +187,9 @@ TEST_CASE("review: core credentials equal Java CoreCredentials.fromSpec(spec).en
     CHECK(hexOf(maxKey.credentials.encode()) == "0104ffffff7f" + a5);
 }
 
-TEST_CASE("review: a timeout large enough to overflow now + timeout is refused")
+TEST_CASE("a timeout large enough to overflow now + timeout is refused")
 {
-    // Review F2 (was RED): validate() bounds every timeout at MAX_TIMEOUT_NS (1 h).
+    // Was RED: validate() bounds every timeout at MAX_TIMEOUT_NS (1 h).
     ClientSettings s;
     s.ingressEndpoints = "0=10.0.0.1:9302";
     s.responseChannel = "aeron:udp?endpoint=10.0.0.9:0";

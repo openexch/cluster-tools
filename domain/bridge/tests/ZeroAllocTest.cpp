@@ -1,4 +1,4 @@
-// ZeroAllocTest (RC2 S9b section 4 "allocates nothing after construction"; review NOTE-10, the S12 pattern): a
+// ZeroAllocTest ("allocates nothing after construction"; the forwarder's pattern): a
 // counted-allocation window over the domain's steady-state duty calls, driven directly (no follower): staged trades,
 // 61/62 flushes, singles, the empty-poll flush, periodic queries and reports that pop and prove the ring, back-pressure
 // and its retry, ticks. The global operator new counts while the window is open; the first-touch work (the seams' env

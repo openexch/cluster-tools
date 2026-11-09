@@ -1,5 +1,5 @@
 // CoreSessionRegistrar over a ClusterClient on the FakeTransport: RegisterSession wire bytes,
-// AdminAck handling, the W12 re-send of a lost ack, re-declaration on a new leader and on a
+// AdminAck handling, the re-send of a lost ack, re-declaration on a new leader and on a
 // new session, REJECTED as terminal, back-pressure retried.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"
@@ -265,7 +265,7 @@ TEST_CASE("settings: class required, resumable=false refused")
     CHECK_FALSE(CoreSessionRegistrar<Client>(client, notResumable).validateSettings().empty());
 }
 
-// ---- added by the S11 independent review (notebook .../RC2-me-link/S11/review.md) ----
+// ---- added by an independent review ----
 
 namespace
 {
@@ -278,7 +278,7 @@ std::int64_t correlationOf(const std::vector<std::uint8_t> &frame)
 }
 }
 
-TEST_CASE("review: every re-send of one round, including one delayed by back-pressure, keeps the correlation id; the first send's ack resolves it")
+TEST_CASE("every re-send of one round, including one delayed by back-pressure, keeps the correlation id; the first send's ack resolves it")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -307,7 +307,7 @@ TEST_CASE("review: every re-send of one round, including one delayed by back-pre
     CHECK(registrar.isRegistered());
 }
 
-TEST_CASE("review: REJECTED stays terminal across a new leader and a new session; a later ACCEPTED does not revive it")
+TEST_CASE("REJECTED stays terminal across a new leader and a new session; a later ACCEPTED does not revive it")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -337,7 +337,7 @@ TEST_CASE("review: REJECTED stays terminal across a new leader and a new session
     CHECK(registrar.state() == RegistrationState::REJECTED);
 }
 
-TEST_CASE("review: an ack of the previous term's round does not register the new term")
+TEST_CASE("an ack of the previous term's round does not register the new term")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -356,7 +356,7 @@ TEST_CASE("review: an ack of the previous term's round does not register the new
     CHECK(registrar.state() == RegistrationState::PENDING);
 }
 
-// ---- review fixes F3 (lost REJECTED, class mismatch) ----
+// ---- review fixes (lost REJECTED, class mismatch) ----
 
 namespace
 {
@@ -371,7 +371,7 @@ void closeByCluster(FakeTransport &fake, Client &client, std::int64_t sessionId)
 
 }
 
-TEST_CASE("F3: a class that differs from the credential's class is never sent")
+TEST_CASE("a class that differs from the credential's class is never sent")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -385,7 +385,7 @@ TEST_CASE("F3: a class that differs from the credential's class is never sent")
     CHECK(registrar.state() == RegistrationState::UNREGISTERED);
 }
 
-TEST_CASE("F3: a lost REJECTED (session closed while pending) three times in a row is terminal")
+TEST_CASE("a lost REJECTED (session closed while pending) three times in a row is terminal")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -408,7 +408,7 @@ TEST_CASE("F3: a lost REJECTED (session closed while pending) three times in a r
     CHECK(registerFrames(fake).size() == sent); // terminal: no further registration
 }
 
-TEST_CASE("F3: an accepted registration resets the unanswered count; a client close does not count")
+TEST_CASE("an accepted registration resets the unanswered count; a client close does not count")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -436,7 +436,7 @@ TEST_CASE("F3: an accepted registration resets the unanswered count; a client cl
     CHECK_FALSE(registrar.isRejected());
 }
 
-TEST_CASE("RC2 S12: requestReRegistration starts a new round in the same session and term; REJECTED stays terminal")
+TEST_CASE("requestReRegistration starts a new round in the same session and term; REJECTED stays terminal")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -447,7 +447,7 @@ TEST_CASE("RC2 S12: requestReRegistration starts a new round in the same session
     fake.pushAppMessage(77, adminAck(first, money::AdminResult::ACCEPTED), 900);
     pollInto(client, registrar);
     REQUIRE(registrar.isRegistered());
-    // the core said UNREGISTERED_SESSION naming one of our commands (S12 4.1 C3 -> C2)
+    // the core said UNREGISTERED_SESSION naming one of our commands (C3 -> C2)
     registrar.requestReRegistration();
     CHECK_FALSE(registrar.isRegistered());
     CHECK(registrar.correlationId() != first);

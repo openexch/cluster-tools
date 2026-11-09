@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 AdmissionWatcherTest (T3, W16, NOTE-4, D-S12-4).
+// AdmissionWatcherTest (T3).
 #include "doctest/doctest.h"
 
 #include "cluster_tools/domain/forwarder/AdmissionWatcher.h"

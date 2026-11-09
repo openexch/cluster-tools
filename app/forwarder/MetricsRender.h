@@ -5,8 +5,8 @@
 
 #include "Snapshot.h"
 
-// MetricsRender - Prometheus text (GET /metrics), the /health JSON and the /ready body from one snapshot
-// (RC2 S12 contract section 10). Pure functions of the snapshot; tested against a golden in WITH_AERON=OFF.
+// MetricsRender - Prometheus text (GET /metrics), the /health JSON and the /ready body from one snapshot.
+// Pure functions of the snapshot; tested against a golden in WITH_AERON=OFF.
 
 namespace cluster_tools { namespace app { namespace forwarder {
 

@@ -1,9 +1,9 @@
-// ChainWalkPropertyTest (RC2 S9a contract 5.5, 9.1, review F20): seeded random multi-source chains
+// ChainWalkPropertyTest: seeded random multi-source chains
 // (re-journal step-backs, per-source holes at recording boundaries, a whole-box hole, head and
 // active purges, padding that shifts frame boundaries, bad frames on a subset of sources, empty
 // recordings), driven through the REAL FollowPolicy + FollowerLoop + ResumeMemo on simulated
-// archives, with a stub owner (the S9b forward rule seq == last + 1, failover in configured order,
-// hole verification, D-1 bad-frame rotation) and a stub core (applies offers after a delay, a fence
+// archives, with a stub owner (the forward rule seq == last + 1, failover in configured order,
+// hole verification, bad-frame rotation) and a stub core (applies offers after a delay, a fence
 // loses the in-flight tail and starts a new sync from the core cursor).
 //
 // Asserted per run:
@@ -98,7 +98,7 @@ Scenario generate(std::mt19937_64 &rng)
         auto &runs = sc.runs[s];
         if (!sc.wholeBoxHole && sc.n >= 16 && coin(0.35))
         {
-            // The K8 crash shape (S3 contract 9): a long run, a short re-journal that crashed again, then
+            // The crash shape: a long run, a short re-journal that crashed again, then
             // a restart from a snapshot above the short run's end. A memo-free read finds every seq
             // (the long run holds them); a resume at the short run's proof sees a hole that is not real.
             const std::int64_t a = pick(4, sc.n - 8);
@@ -114,7 +114,7 @@ Scenario generate(std::mt19937_64 &rng)
             std::int64_t to = last ? sc.n : pick(from - 1, sc.n);
             if (sc.wholeBoxHole && from <= sc.wholeBoxHole && sc.wholeBoxHole <= to)
             {
-                // the whole-box hole sits at a recording boundary on every source (the K8 shape)
+                // the whole-box hole sits at a recording boundary on every source (the crash shape)
                 runs.push_back({ from, sc.wholeBoxHole - 1 });
                 from = sc.wholeBoxHole + 1;
                 continue;
@@ -137,7 +137,7 @@ Scenario generate(std::mt19937_64 &rng)
             {
                 from = to + 1 + pick(1, 3); // a per-source hole across the boundary
             }
-            from = std::min(from, sc.n); // every source records seq n: a source that never reaches e is S9b's case
+            from = std::min(from, sc.n); // every source records seq n: a source that never reaches e is case
             if (sc.wholeBoxHole && from == sc.wholeBoxHole)
             {
                 from = sc.wholeBoxHole + 1;
@@ -168,7 +168,7 @@ Scenario generate(std::mt19937_64 &rng)
         }
         sc.badFirstCopy[s] = coin(0.4) ? 1 : 0;
         // Mid-run: the active recording stops (the ME writer goes away) and its successor is recorded
-        // 0 to 3 s later (review F-5 b): the successor path (rows 7a, 10) and F-1's late listing.
+        // 0 to 3 s later (b): the successor path (rows 7a, 10) and late listing.
         const Run lastRun = runs.back();
         if (lastRun.to - lastRun.from >= 3 && coin(0.35))
         {
@@ -417,7 +417,7 @@ struct Owner : FrameSink
     {
         if (!block && halt == Halt::NONE)
         {
-            mark(true); // D-1: bad at the owner's e = last + 1, failover first
+            mark(true); // Bad at the owner's e = last + 1, failover first
         }
         return RefusalAction::CLOSE_REPLAY;
     }
@@ -499,7 +499,7 @@ std::string runScenario(std::uint64_t seed)
         {
             break;
         }
-        // the ME writer goes away mid-run, the successor is recorded later (review F-5 b)
+        // the ME writer goes away mid-run, the successor is recorded later (b)
         for (std::size_t s = 0; s < sc.sources; ++s)
         {
             if (sc.deferredRun[s] < 0)
@@ -646,7 +646,7 @@ std::string runScenario(std::uint64_t seed)
     }
     if (owner.halt == Halt::SOURCE_SCHEMA || owner.halt == Halt::MIXED)
     {
-        // review F-5 a: each source's verdict against its archive, read memo-free from e - 1
+        // A: each source's verdict against its archive, read memo-free from e - 1
         for (std::size_t s = 0; s < sc.sources; ++s)
         {
             const Truth t = memoFree(sources[s]->archive, owner.haltSeq);
@@ -674,7 +674,7 @@ std::string runScenario(std::uint64_t seed)
             return fail("a mixed halt without both a bad and a holed source");
         }
         ++(owner.halt == Halt::SOURCE_SCHEMA ? g_stats.schemas : g_stats.mixed);
-        return {}; // every source unusable at e, some holed and some bad: S9b open question (README)
+        return {}; // every source unusable at e, some holed and some bad: open question (README)
     }
     if (core.cursor != sc.n)
     {

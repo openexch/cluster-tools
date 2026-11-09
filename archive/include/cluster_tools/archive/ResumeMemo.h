@@ -1,14 +1,14 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_RESUME_MEMO_H
 #define CLUSTER_TOOLS_ARCHIVE_RESUME_MEMO_H
 
-// The per-source resume memo keyed on journalSeq (RC2 S9a contract section 5). RAM only, never a
+// The per-source resume memo keyed on journalSeq. RAM only, never a
 // checkpoint: the core's lastAppliedJournalSeq is the only cursor. The memo decides only WHERE
-// reading starts; what is offered is decided by the forward rule (5.5, S9b), so a wrong proof can
+// reading starts; what is offered is decided by the forward rule, so a wrong proof can
 // only turn into SKIPs or a visible hole, and a hole is believed only from a memo-free read
 // (5.2 rule 5), so a wrong proof can never become a FeedHalt GAP.
 //
 // One memo per SourceIdentity (index into the configured source list), so failover never forces a
-// rescan on fail-back (rc2-bridge-cpp M3). A byte position is never moved to another source.
+// rescan on fail-back. A byte position is never moved to another source.
 
 #include "cluster_tools/archive/ArchiveMetrics.h"
 #include "cluster_tools/archive/Chain.h"
@@ -79,7 +79,7 @@ public:
     // `source` at frame end position `endPosition`. Returns true when a proof was recorded.
     bool proveFromSkip(std::size_t source, const RecordingKey &key, const Peek &peek, std::int64_t endPosition);
 
-    // 5.2 rule 2: a ring proof (S9b) after a report raised the cursor; applied to `source` only.
+    // 5.2 rule 2: a ring proof after a report raised the cursor; applied to `source` only.
     bool prove(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t meEpoch,
         std::int64_t endPosition);
 

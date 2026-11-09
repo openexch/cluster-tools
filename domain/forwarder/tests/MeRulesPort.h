@@ -5,7 +5,7 @@
 
 #include "cluster_tools/domain/forwarder/Dispatch.h"
 
-// A verbatim C++ port of the ME's own rules, used ONLY as the tests' oracle (RC2 S12 11.1 CarrierTest):
+// A verbatim C++ port of the ME's own rules, used ONLY as the tests' oracle (CarrierTest):
 // match-common com.match.domain.commands.DurableOrderIntent at 68a9375 (S6 merge), isValid (lines 29-38)
 // and behaviourTwoCause (lines 54-99), plus the v12 decode ranges of SbeDemuxer (tif > 2, eor < 0).
 // The production classification (DispatchRules) is written from the contract's table independently;

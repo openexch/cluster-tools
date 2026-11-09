@@ -1,12 +1,12 @@
 #ifndef CLUSTER_TOOLS_ADAPTERS_SBE_BRIDGE_CODEC_H
 #define CLUSTER_TOOLS_ADAPTERS_SBE_BRIDGE_CODEC_H
 
-// The C++ bridge's wire (RC2 S9b section 5, S9a 6): the translation of an admitted ME journal schema 4 record into
+// The C++ bridge's wire: the translation of an admitted ME journal schema 4 record into
 // the core feed (money v7: 61, 62, 63, 64, 67, 68) with the generated codecs on both sides, field by field, every
 // value verbatim (no range check, no default, no conversion; the five enum fields written raw), the two control
 // encodes (QueryFeedPosition 7, FeedHalt 66) and the egress decode the domain needs (FeedPositionReport 17 v7,
 // AdminAck 110, SettleRejected 114). The staging decision is the domain's (domain/bridge Stager); this class only
-// encodes. No business field is validated here: the core is the one judge (cpp 2.3).
+// encodes. No business field is validated here: the core is the one judge.
 
 #include "cluster_tools/domain/bridge/Ports.h"
 #include "cluster_tools/domain/bridge/Types.h"
@@ -48,7 +48,7 @@ struct EgressEvent
     SettleRejected reject;
 };
 
-// RC2 S9c 5.3 rows 6 and 7: the two egress frames the APP reads (never the domain).
+// The two egress frames the APP reads (never the domain).
 struct OrderRejectView
 {
     std::int64_t correlationId = 0;
@@ -61,7 +61,7 @@ inline constexpr std::uint8_t CORE_REJECT_INVALID = 15;
 inline constexpr std::uint8_t CORE_REJECT_UNAUTHORIZED_CLASS = 20;
 inline constexpr std::uint8_t CORE_REJECT_UNREGISTERED_SESSION = 35;
 
-// O3 / O4 (S9c 5.4): one call per trade of a money 61 or 62 frame this codec produced (metrics only, never a
+// O3 / O4: one call per trade of a money 61 or 62 frame this codec produced (metrics only, never a
 // validation): the trade's id and its ME timestamp (epoch ms).
 using TradeVisitor = void (*)(void *context, std::int64_t tradeId, std::int64_t meTimestampMs);
 

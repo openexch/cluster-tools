@@ -1,4 +1,4 @@
-// RC2 S9c review FIX-1 / NOTE-4 / NOTE-10 (2026-11-01): ConductorWatchCore over a fake counters file, as main wires it
+// ConductorWatchCore over a fake counters file, as main wires it
 // (revalidation on unless the seamed build's CONDUCTOR_REVALIDATE_OFF):
 //   reclaimedAndReusedSlotExits70   BRIDGE_DRIVER_TIMEOUT_MS 20000 above the driver's client liveness (10 s): the driver
 //                                   reclaims the wedged client and re-allocates its heartbeat slot to another client

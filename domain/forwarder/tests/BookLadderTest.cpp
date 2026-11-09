@@ -1,6 +1,6 @@
-// RC2 S13 contract 11.1 BookLadderTest (section 4 rules 1-7, 4.2 validation in every state, rule U, the market range,
-// section 5 trade mark, 4.1 rule 6 session end). Decoded frames (BookFixtures.h); the mirror test drives the ladder
-// with a small port of the ME publisher's diff (MP:902-952) until W4's MePublisherModel takes over.
+// BookLadderTest (validation in every state, rule U, the market range,
+// Trade mark, 4.1 rule 6 session end). Decoded frames (BookFixtures.h); the mirror test drives the ladder
+// with a small port of the ME publisher's diff (MP:902-952) until MePublisherModel takes over.
 #include "doctest/doctest.h"
 
 #include <functional>
@@ -696,7 +696,7 @@ TEST_CASE("BookLadderTest.versionRegressingSnapshotIsAppliedAndCounted")
 {
     BookLadder l = okLadder(100);
     REQUIRE(l.apply(delta(1, 100, 150, { bidUpd(100, 9) }), 1) == LadderOutcome::DELTA_APPLIED);
-    // the new ME leader's service trails the old one's (section 9 case V): applied, counted, the chain continues
+    // the new ME leader's service trails the old one's (case V): applied, counted, the chain continues
     CHECK(l.apply(snapshot(1, 140, { { 100, 5 } }, { { 110, 7 } }), 2) == LadderOutcome::SNAPSHOT_APPLIED);
     CHECK(l.state() == LadderState::OK);
     CHECK(l.version() == 140);

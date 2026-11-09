@@ -1,5 +1,5 @@
 #!/bin/bash
-# Real-cluster integration run for the C++ cluster client (RC2 S11). Starts, on this host:
+# Real-cluster integration run for the C++ cluster client. Starts, on this host:
 #   - the C media driver built from the verified Aeron 1.53.1 tree (the client's driver),
 #   - a 3-node assets core cluster (assets-cluster.jar, production Main, real authenticator
 #     with the assets TestAuth key table),
@@ -45,7 +45,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# assets TestAuth.KEYS: one key per class (the FORWARDER key is 6:FORWARDER:66..66). RC2 S6 (A16): every key
+# assets TestAuth.KEYS: one key per class (the FORWARDER key is 6:FORWARDER:66..66). Every key
 # carries the explicit any-user scope ::users=*; a key with no users field makes the AE refuse to boot.
 KEYS="1:ADMIN:$(printf '11%.0s' {1..32})::users=*;2:TOOL:$(printf '22%.0s' {1..32})::users=*;3:BRIDGE:$(printf '33%.0s' {1..32})::users=*;5:GATEWAY:$(printf '55%.0s' {1..32})::users=*;6:FORWARDER:$(printf '66%.0s' {1..32})::users=*"
 # match ME_AUTH_KEYS (S6): the ME has no anonymous mode; one GATEWAY key (market data) for the IT's ME session,

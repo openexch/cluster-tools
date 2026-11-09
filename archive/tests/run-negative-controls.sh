@@ -1,8 +1,8 @@
 #!/bin/bash
-# Negative-control run (RC2 S9a contract 9 preamble): for every line of the table, the named test
+# Negative-control run (preamble): for every line of the table, the named test
 # must FAIL with its rule switched off (CT_TEST_DISABLE_<rule>=1, a seam compiled only into the
 # seamed test build) and PASS with it on. A RED counts only as an assertion failure (doctest exit
-# status 1, never a crash) whose output carries the line's expected text (review N-10).
+# status 1, never a crash) whose output carries the line's expected text.
 #
 # Table line: test | rule | why | expected text in the failure output
 # Usage: run-negative-controls.sh <ct_archive_tests binary> <negative-controls.txt> [<filter regex> [<exclude regex>]]

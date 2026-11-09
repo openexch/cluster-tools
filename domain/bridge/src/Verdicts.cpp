@@ -202,7 +202,7 @@ Decision decide(const VerdictTable &t, bool graceExpired, std::size_t lastForwar
         d.seen = disabled(Rule::GAP_SEEN_MAX) ? maxSeen : minSeen;
         return d;
     }
-    // Row 5: EVERY CONFIGURED source is foreign at e (review FIX-1); the RED shape counts only the sources in R.
+    // Row 5: EVERY CONFIGURED source is foreign at e; the RED shape counts only the sources in R.
     bool everyForeign = true;
     std::size_t firstForeign = NO_SOURCE;
     for (std::size_t i = 0; i < n; ++i)
@@ -236,7 +236,7 @@ Decision decide(const VerdictTable &t, bool graceExpired, std::size_t lastForwar
         d.seen = minSeen;
         return d;
     }
-    d.row = DecisionRow::SCHEMA; // row 6 (Q2 decided: a mixed rotation halts SOURCE_SCHEMA)
+    d.row = DecisionRow::SCHEMA; // row 6 (decided: a mixed rotation halts SOURCE_SCHEMA)
     return d;
 }
 

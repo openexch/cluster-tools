@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_CHAIN_H
 #define CLUSTER_TOOLS_ARCHIVE_CHAIN_H
 
-// The recording chain model (RC2 S9a contract 4.2): source identity, recording key, the chain
+// The recording chain model: source identity, recording key, the chain
 // listing and the recording validity table. Pure.
 
 #include <cstdint>
@@ -63,7 +63,7 @@ struct ChainListing
 ChainListing buildChain(std::vector<Recording> listed, std::int32_t journalStreamId);
 
 // The 4.2 validity table, first match. EMPTY and DRAINED come before the MTU row so a recording
-// that needs no replay can never refuse a source (review N4).
+// that needs no replay can never refuse a source.
 enum class RecordingVerdict : std::uint8_t
 {
     MALFORMED_EXTENT, // 1: source fault, never skipped

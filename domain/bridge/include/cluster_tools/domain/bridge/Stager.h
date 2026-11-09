@@ -1,10 +1,10 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_STAGER_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_STAGER_H
 
-// The staging decision (RC2 S9b 6.1, S9a 6.3, the function S9h 3.3 implements in Java): only consecutive trade
+// The staging decision (the function implements in Java): only consecutive trade
 // records stage, at most 64; a flush of 1 is a 61, of 2..64 a 62. The live domain and the E2 `translate` (5.3)
 // drive this one class, so the differential tests grade the staging the bridge ships. Back-pressure keeps
-// everything (G5): a staged record leaves only by an OK offer or by drop() (a fence).
+// everything: a staged record leaves only by an OK offer or by drop() (a fence).
 
 #include "cluster_tools/domain/bridge/Ports.h"
 #include "cluster_tools/domain/bridge/Types.h"
@@ -71,7 +71,7 @@ public:
     std::size_t size() const noexcept { return m_size; }
     bool empty() const noexcept { return 0 == m_size; }
     // The last flush attempt was back-pressured (RETRY, CLOSED or NO_ROOM) and the trades are still staged:
-    // `tick` retries only such a flush (review FIX-8).
+    // `tick` retries only such a flush.
     bool flushPending() const noexcept { return m_pending && m_size > 0; }
     const StagedTrade *trades() const noexcept { return m_trades; }
 

@@ -1,20 +1,20 @@
-// ct-bridge - the RC2 S9c production C++ settlement bridge (contract sections 3, 7, 8): a stateless C++20 process with
+// ct-bridge - the production C++ settlement bridge: a stateless C++20 process with
 // one resumable BRIDGE session on the core (the Assets Engine cluster) and one ME journal archive source attached at a
-// time. Every journal record is fed to the core exactly once and in order, or the bridge halts loudly; the S9b domain
-// decides, this process wires (G1). Nothing is written to disk (G2).
+// time. Every journal record is fed to the core exactly once and in order, or the bridge halts loudly; the domain
+// decides, this process wires. Nothing is written to disk.
 //
-// The media driver is configurable (checklist C13): BRIDGE_DRIVER_MODE=external (the prod default: the host aeronmd
+// The media driver is configurable: BRIDGE_DRIVER_MODE=external (the prod default: the host aeronmd
 // at AERON_DIR that admin / cloud-console manage) or embedded (dev and demo: the C media driver in this process at
 // <BRIDGE_DRIVER_DIR>/ct-bridge-<BRIDGE_INSTANCE_ID>). No default.
 //
-// Exit codes (section 7): 0 stopped (SIGTERM/SIGINT); 70 EX_SOFTWARE process health (an Aeron fatal from the conductor
+// Exit codes: 0 stopped (SIGTERM/SIGINT); 70 EX_SOFTWARE process health (an Aeron fatal from the conductor
 // thread incl. a dead or stale driver in either mode, the duty watchdog, the conductor heartbeat check, an escaped
 // exception, the stop join bound, a domain fatal, an INVALID reject of our own 7 / 66); 75 EX_TEMPFAIL an inferred
 // registration refusal; 78 EX_CONFIG configuration or an observed refusal (the unit sets RestartPreventExitStatus=78).
 //
 // Test builds only (never published, publish.yml refuses them): CT_BRIDGE_NC_PRESET names the seams the
 // ct_bridge_nc_* / ct_bridge_negctl binaries switch off; CT_BRIDGE_TC_DRIVERSTALL (embedded driver on a manual duty
-// cycle that SIGUSR2 stops) and CT_BRIDGE_TC_CONDUCTORSTALL (SIGUSR2 parks the client conductor) are the R-K13 (b) / (d)
+// cycle that SIGUSR2 stops) and CT_BRIDGE_TC_CONDUCTORSTALL (SIGUSR2 parks the client conductor) are the (b) / (d)
 // test-corruption builds.
 #include <signal.h>
 
@@ -52,7 +52,7 @@
 #include "ObserverTap.h"
 
 #ifndef CT_BUILD_SOURCE_SHA
-#define CT_BUILD_SOURCE_SHA "unknown" // RC2 S16 W4: -DCT_BUILD_SOURCE_SHA (CMake) names the commit
+#define CT_BUILD_SOURCE_SHA "unknown" // -DCT_BUILD_SOURCE_SHA (CMake) names the commit
 #endif
 
 #ifndef CT_BRIDGE_VERSION
@@ -68,7 +68,7 @@ namespace aa = cluster_tools::archive::aeron_archive;
 
 namespace {
 
-common::NonBlockingLogWriter g_stderr(2); // main's log drain never blocks on stderr (S12 NOTE-5)
+common::NonBlockingLogWriter g_stderr(2); // main's log drain never blocks on stderr
 
 void writeRecord(const common::LogRecord &r)
 {
@@ -190,7 +190,7 @@ int run()
     }
 
     // 3.3 step 5: connectAeron with the driver timeout (70: no driver answered, both modes)
-    auto monitor = std::make_shared<at::AeronFatalMonitor>(); // fatal conductor errors: _Exit(70) (F1)
+    auto monitor = std::make_shared<at::AeronFatalMonitor>(); // fatal conductor errors: _Exit(70)
     std::shared_ptr<aeron::Aeron> aeron;
     try
     {
@@ -207,7 +207,7 @@ int run()
     }
 
 #if defined(CT_BRIDGE_TC_CONDUCTORSTALL)
-    // R-K13 (d): a handler on the conductor thread that parks it once SIGUSR2 arrived and a counter became available
+    // (d): a handler on the conductor thread that parks it once SIGUSR2 arrived and a counter became available
     aeron->addAvailableCounterHandler([](aeron::concurrent::CountersReader &, std::int64_t, std::int32_t) {
         while (g_parkConductor.load(std::memory_order_acquire))
         {
@@ -249,7 +249,7 @@ int run()
     invokeAgent = [&agent] { agent.invoke(); };
 
     common::ConductorWatch watch(aeron, c.driverTimeoutMs, {},
-        !br::app_seams::disabled(br::app_seams::Rule::CONDUCTOR_REVALIDATE_OFF)); // re-validated every check (FIX-1)
+        !br::app_seams::disabled(br::app_seams::Rule::CONDUCTOR_REVALIDATE_OFF)); // re-validated every check
     if (!br::app_seams::disabled(br::app_seams::Rule::CONDUCTOR_WATCH_OFF))
     {
         supervisor.setLivenessCheck([&watch](std::int64_t, std::string &why) { return watch.check(why); });

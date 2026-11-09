@@ -1,7 +1,7 @@
-# domain/bridge - the C++ settlement bridge's domain (RC2 S9b contract sections 2-12): staging, the in-flight ring
+# domain/bridge - the C++ settlement bridge's domain (sections 2-12): staging, the in-flight ring
 # and key table, the cursor and sync, epoch binding, the per-source verdicts and rotation, the halt machine, the
 # fence and storm guard, the metrics it owns. No Aeron, no SBE, no I/O: builds and tests in every configuration,
-# the WITH_AERON=OFF job included. It plugs into S9a's frozen archive interfaces (ct_archive_core) and nothing else.
+# the WITH_AERON=OFF job included. It plugs into frozen archive interfaces (ct_archive_core) and nothing else.
 #
 # ct_bridge_domain         the production library: every CT_TEST_DISABLE_* seam compiles to nothing.
 # ct_bridge_domain_seamed  the same sources with CT_TEST_SEAMS, linked ONLY by test targets.
@@ -56,7 +56,7 @@ if(BUILD_TESTING)
     add_test(NAME bridge.domain COMMAND ct_bridge_domain_tests)
     set_tests_properties(bridge.domain PROPERTIES TIMEOUT 1800 ENVIRONMENT "CT_BRIDGE_PROPERTY_RUNS=2000")
 
-    # Section 4 "allocates nothing after construction" (review NOTE-10): a counted-allocation window (own binary:
+    # Section 4 "allocates nothing after construction": a counted-allocation window (own binary:
     # it replaces the global operator new)
     add_executable(ct_bridge_alloc_tests tests/ZeroAllocTest.cpp)
     target_link_libraries(ct_bridge_alloc_tests PRIVATE ct_bridge_domain_seamed)
@@ -75,14 +75,14 @@ if(BUILD_TESTING)
     set_tests_properties(bridge.domain_negative_controls PROPERTIES TIMEOUT 3600
         ENVIRONMENT "CT_BRIDGE_PROPERTY_RUNS=400")
 
-    # W1: the E1 fixture guard refuses an edited fixture, an unlisted file and a lock without the pin.
+    # The E1 fixture guard refuses an edited fixture, an unlisted file and a lock without the pin.
     add_test(NAME bridge.e1_fixture_guard
         COMMAND ${CMAKE_COMMAND} -DCT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
             -DCT_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/e1-fixture-guard
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/e1_fixture_guard_test.cmake")
     set_tests_properties(bridge.e1_fixture_guard PROPERTIES TIMEOUT 120)
 
-    # RC2 S10' 3.4 (lane C, W2b): TwoLaneDomainPropertyTest, two real BridgeDomain lanes over one stub core written to
+    # TwoLaneDomainPropertyTest, two real BridgeDomain lanes over one stub core written to
     # the 4R rule (per-lane halt table, overflow record, holder set). Its own binary and RED table, so the domain's
     # suite and negative-controls.txt stay untouched; the stub-core seams are test-local CT_TEST_DISABLE_* variables.
     add_executable(ct_bridge_twolane_tests tests/TestMain.cpp tests/TwoLaneDomainPropertyTest.cpp)

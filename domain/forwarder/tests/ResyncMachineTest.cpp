@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 ResyncMachineTest: the dispatch machine (4.3) and the resync rules (section 6).
+// ResyncMachineTest: the dispatch machine (4.3) and the resync rules.
 #include "doctest/doctest.h"
 
 #include <vector>
@@ -117,14 +117,14 @@ TEST_CASE("ResyncMachineTest.shapeS1CountBounds")
         h.end(h.send().correlationId, -1, 0);
         CHECK(h.m.counters().shapeViolations[0] == 1);
     }
-    SUBCASE("probe with count != 0 is a pre-S8 core (F15)")
+    SUBCASE("probe with count != 0 is a core without the head probe")
     {
         Harness h;
         h.m.onRegistered(h.now);
         const PendingRequest probe = h.send();
         h.entries({ 1, 2, 3 });
         h.end(probe.correlationId, 3, 3);
-        CHECK(h.m.verdict() == ResyncVerdict::PRE_S8_CORE);
+        CHECK(h.m.verdict() == ResyncVerdict::PRE_HEAD_PROBE_CORE);
         CHECK(h.m.verdictDetail() == 3);
     }
 }
@@ -471,7 +471,7 @@ TEST_CASE("ResyncMachineTest.triggersFromEachMode")
 
 TEST_CASE("ResyncMachineTest.seqBelowOneIsRefusedInEveryMode")
 {
-    // Review NOTE-2: never held, never pushed (no carrier), the cursor stays, counted; in LIVE, RESYNCING and D3 alike.
+    // Never held, never pushed (no carrier), the cursor stays, counted; in LIVE, RESYNCING and D3 alike.
     Harness h;
     h.registerLive(5);
     h.dispatch(fx::create(0, 777));

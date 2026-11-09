@@ -86,9 +86,9 @@ TEST_CASE("an unexpected client close is fatal; a deliberate one is not")
     CHECK_FALSE(deliberate.isFatal());
 }
 
-// ---- added by the S11 independent review (notebook .../RC2-me-link/S11/review.md) ----
+// ---- added by an independent review ----
 
-TEST_CASE("review: every terminating conductor report is fatal in the shape the C conductor sends it; buffer-full is not")
+TEST_CASE("every terminating conductor report is fatal in the shape the C conductor sends it; buffer-full is not")
 {
     // aeron_client_conductor.c reports driver timeout, the heartbeat-counter loss (also code
     // DRIVER_TIMEOUT), client timeout and the conductor service-interval timeout with POSITIVE
@@ -138,7 +138,7 @@ TEST_CASE("review: every terminating conductor report is fatal in the shape the 
     CHECK(monitor.isFatal());
 }
 
-TEST_CASE("F1: RESOURCE_TEMPORARILY_UNAVAILABLE from the driver is a retry, any other registration error is not")
+TEST_CASE("RESOURCE_TEMPORARILY_UNAVAILABLE from the driver is a retry, any other registration error is not")
 {
     for (const int code : { AERON_ERROR_CODE_RESOURCE_TEMPORARILY_UNAVAILABLE, -AERON_ERROR_CODE_RESOURCE_TEMPORARILY_UNAVAILABLE })
     {
@@ -163,7 +163,7 @@ TEST_CASE("F1: RESOURCE_TEMPORARILY_UNAVAILABLE from the driver is a retry, any 
     CHECK_FALSE(isTransientRegistrationError(std::runtime_error("x")));
 }
 
-TEST_CASE("F4: connectAeron refuses to run without a monitor it can own")
+TEST_CASE("connectAeron refuses to run without a monitor it can own")
 {
     AeronClientOptions options;
     CHECK_THROWS_AS(connectAeron(options, nullptr), std::invalid_argument);

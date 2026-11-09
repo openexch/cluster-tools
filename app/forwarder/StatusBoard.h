@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_APP_FORWARDER_STATUS_BOARD_H
 #define CLUSTER_TOOLS_APP_FORWARDER_STATUS_BOARD_H
 
-// The forwarder's StatusBoard: the shared app/common StatusBoardT over ForwarderSnapshot (RC2 S9c W1).
+// The forwarder's StatusBoard: the shared app/common StatusBoardT over ForwarderSnapshot.
 #include "common/StatusBoardT.h"
 
 #include "Snapshot.h"

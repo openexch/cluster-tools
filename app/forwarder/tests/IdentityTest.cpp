@@ -1,11 +1,11 @@
-// RC2 S10' 8.3 MainTest.identityIsTheConfiguredIdOnBothClusters (8.2 rule 3, review N-8): the forwarder's identity is
+// MainTest.identityIsTheConfiguredIdOnBothClusters: the forwarder's identity is
 // FWD_INSTANCE_ID on BOTH cluster sessions, across restarts. main builds the agent and the two clients exactly as below
 // (parseForwarderConfig -> forwarderIdentity / coreClientSettings / meClientSettings); three "starts" from one
 // environment each run the agent over two FakeTransports to a registered core session and a bound ME session.
 // On the core the identity is RegisterSession.identity (the field the core keeps per session) and the connect
-// request's clientInfo; on the ME, whose session has no identity field (no wire change in S10'), it is the connect
+// request's clientInfo; on the ME, whose session has no identity field (no wire change), it is the connect
 // request's clientInfo ("name=ct-forwarder-me identity=<id> cluster-tools-client"). RED IDENTITY_RANDOM: a random
-// identity per start (the S12 shape).
+// identity per start (the earlier shape).
 #include "doctest/doctest.h"
 
 #include <map>

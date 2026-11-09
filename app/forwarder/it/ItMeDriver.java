@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// RC2 S12 W8, the ME half of the T1 driver (contract 11.4), run against the match jar (java -cp match-cluster.jar
-// T1MeDriver.java ...), split from T1CoreDriver because the two jars pin different Aeron versions (assumption 3).
+// The ME half of the T1 driver, run against the match jar (java -cp match-cluster.jar
+// ItMeDriver.java ...), split from ItCoreDriver because the two jars pin different Aeron versions (assumption 3).
 //
 //   genesis <aeronDir> <ingress> <genesisId> <ledgerCapacity>
 //       ME ADMIN: EngineConfig FRESH, behaviour 2, the given genesisId and commandLedgerCapacity, maxWireVersion 12,
@@ -10,26 +10,26 @@
 //   open-orders <aeronDir> <ingress> <outFile>
 //       ME ADMIN RequestOpenOrdersSnapshot 7: writes "orderId omsOrderId" per resting leg; prints "OPEN legs=N".
 //   resend <aeronDir> <meIngress> <frame.bin> [count]
-//       RC2 S10' 7.1 item 3 (T1-F re-sends, review F-6): opens an ME FORWARDER session on T1_ME_FORWARDER_KEY (the
+//       For the T1-F re-send drill: opens an ME FORWARDER session on T1_ME_FORWARDER_KEY (the
 //       runner's 8:FORWARDER, a key no forwarder uses; the ADMIN session of `epoch` is NOT reused) and takes it through
-//       the forwarder's M2 -> M3 step of S12 4.2: nothing is offered until the S12 W9 epoch hello (a ClusterHeartbeat
+//       the forwarder's M2 -> M3 step: nothing is offered until the epoch hello (a ClusterHeartbeat
 //       with meEpoch != 0 on THIS session) arrived. Then offers the captured frame bytes (a ct_forwarder_tc_capture
 //       <n>.bin: order schema 1, template 9 or 10, exactly as fwdA offered them) `count` times (default 1), polls 3 s
 //       and prints the ME's reply frames on this session by template. Prints "FRAME bytes=N template=T sha256=H" first
-//       (the runner compares H with the capture sidecar, N-11), "HELLO meEpoch=E after=Mms", "SENT count=C",
+//       (the runner compares H with the capture sidecar), "HELLO meEpoch=E after=Mms", "SENT count=C",
 //       "REPLY template=T count=K" per template (or "REPLY none"). A hello refusal exits 78 with the reason
 //       ("HELLO REFUSED <reason>": the credential rejected, or no hello within 10 s).
 //   book <aeronDir> <ingress>
-//       RC2 S13 contract 12: opens an ME ADMIN session (the open itself triggers a resnapshot, ACS:1613-1616), waits
+//       Opens an ME ADMIN session (the open itself triggers a resnapshot, ACS:1613-1616), waits
 //       for one BookSnapshot 22 of every configured market (T1_ME_MARKETS) or 2 s, prints per market
-//       "BOOK market=<m> version=<v> bid=<b> ask=<a>" (bid=0 ask=0 for a versioned empty book after W-ME2) or
+//       "BOOK market=<m> version=<v> bid=<b> ask=<a>" (bid=0 ask=0 for a versioned empty book after) or
 //       "BOOK market=<m> none" (no snapshot: the market was never versioned), closes. Raw little-endian reads.
 //   listen <aeronDir> <ingress> <seconds>
-//       RC2 S13 (TK-I, evidence): an ME ADMIN session for <seconds>; prints "T=<ms> tpl=22|25|26 market=<m> ..." per
+//       (TK-I, evidence): an ME ADMIN session for <seconds>; prints "T=<ms> tpl=22|25|26 market=<m> ..." per
 //       book or trade frame (26: "maxTradeId=<id> price=<p>" of the batch's highest tradeId), raw reads.
 //
-// T1_ME_MARKETS (RC2 S13 W8, default 1): genesis configures markets 1..N (market 1 BTC-USD carries the load; the
-// others are configured and never traded, the contract 12 "markets 2..5" lines); book waits for markets 1..N.
+// T1_ME_MARKETS (default 1): genesis configures markets 1..N (market 1 BTC-USD carries the load; the
+// others are configured and never traded, the "markets 2..5" lines); book waits for markets 1..N.
 //
 // Credentials: T1_ME_ADMIN_KEY (keyId:ADMIN:secretHex), T1_ME_FORWARDER_KEY (resend). Exit 0 = done, 1 = the step
 // failed, 78 = the hello was refused (resend).
@@ -59,12 +59,12 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
-public final class T1MeDriver {
+public final class ItMeDriver {
 
     private static final long TIMEOUT_MS = 30_000;
-    // Only market 1 carries the T1 load (T1CoreDriver load), so the ME creates one book (the array book allocates
+    // Only market 1 carries the T1 load (ItCoreDriver load), so the ME creates one book (the array book allocates
     // every price level up front: 0.01 .. 100.00 in 0.01 steps = 1e4 levels).
-    // RC2 S13 W8: T1_ME_MARKETS (1..5) configures more markets, which no command touches (the markets 2..5 lines).
+    // T1_ME_MARKETS (1..5) configures more markets, which no command touches (the markets 2..5 lines).
     private static final String[] ALL_SYMBOLS = { "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD" };
     private static final String[] SYMBOLS = java.util.Arrays.copyOf(ALL_SYMBOLS, markets());
 
@@ -182,7 +182,7 @@ public final class T1MeDriver {
         }
     }
 
-    /** S10' 7.1 item 3: the hello was refused (exit 78). */
+    /** The hello was refused (exit 78). */
     static final class HelloRefused extends Exception {
         private static final long serialVersionUID = 1L;
 
@@ -209,7 +209,7 @@ public final class T1MeDriver {
         System.out.println("FRAME bytes=" + frame.length + " template=" + fh.templateId() + " version=" + fh.version()
                 + " sha256=" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(frame)));
         try (Session fwd = new Session(aeronDir, ingress, "T1_ME_FORWARDER_KEY", true)) {
-            // M2 (S12 4.2): wait for the W9 hello on this session; nothing is offered before it
+            // M2: wait for the hello on this session; nothing is offered before it
             final long start = System.currentTimeMillis();
             final MessageHeaderDecoder h = new MessageHeaderDecoder();
             final ClusterHeartbeatDecoder hb = new ClusterHeartbeatDecoder();
@@ -230,7 +230,7 @@ public final class T1MeDriver {
                 Thread.onSpinWait();
             }
             if (epoch == 0) {
-                throw new HelloRefused("no W9 epoch hello (ClusterHeartbeat with meEpoch != 0) on the FORWARDER session within 10 s"
+                throw new HelloRefused("no epoch hello (ClusterHeartbeat with meEpoch != 0) on the FORWARDER session within 10 s"
                         + (zeroSeen ? " (only meEpoch 0: the ME is not FRESH)" : ""));
             }
             System.out.println("HELLO meEpoch=" + epoch + " after=" + (System.currentTimeMillis() - start) + "ms");
@@ -327,7 +327,7 @@ public final class T1MeDriver {
 
     private static final java.nio.ByteOrder LE = java.nio.ByteOrder.LITTLE_ENDIAN;
 
-    /** RC2 S13 contract 12: one BookSnapshot per configured market (or 2 s), then the BOOK lines. */
+    /** One BookSnapshot per configured market (or 2 s), then the BOOK lines. */
     private static void book(final String aeronDir, final String ingress) throws Exception {
         try (Session admin = new Session(aeronDir, ingress)) {
             final int n = SYMBOLS.length;
@@ -369,7 +369,7 @@ public final class T1MeDriver {
         }
     }
 
-    /** RC2 S13 (evidence): the book and trade frames of one ADMIN session for a while. */
+    /** (evidence): the book and trade frames of one ADMIN session for a while. */
     private static void listen(final String aeronDir, final String ingress, final long seconds) throws Exception {
         try (Session admin = new Session(aeronDir, ingress)) {
             System.out.println("LISTEN open T=" + System.currentTimeMillis());

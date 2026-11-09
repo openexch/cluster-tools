@@ -92,7 +92,7 @@ void Supervisor::exitProcess(int code, const std::string &why)
     char line[512];
     const int n = std::snprintf(line, sizeof(line), "%s exit %d: %s\n", g_processName.load(std::memory_order_acquire), code,
         why.c_str());
-    NonBlockingLogWriter writer(2); // never blocks on a stuck stderr (NOTE-5)
+    NonBlockingLogWriter writer(2); // never blocks on a stuck stderr
     if (n > 0)
     {
         writer.write(line, static_cast<std::size_t>(n < static_cast<int>(sizeof(line)) ? n : static_cast<int>(sizeof(line)) - 1));
@@ -199,7 +199,7 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
     }
     catch (const std::exception &e)
     {
-        // review NOTE-5: a thread that cannot start is a process-health failure (70), never an uncaught 134
+        // A thread that cannot start is a process-health failure (70), never an uncaught 134
         const int code = exitWith(70, std::string("a thread could not start: ") + e.what());
         stopRequested.store(true, std::memory_order_release);
         if (duty.joinable())
@@ -237,7 +237,7 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         ts.tv_nsec = static_cast<long>(waitNs % 1'000'000'000LL);
         const int sig = ::sigtimedwait(&set, nullptr, &ts);
         const std::int64_t now = monotonicNs();
-        const std::int64_t wakeGapNs = now - lastWakeNs; // >= the watchdog: this process itself did not run (NOTE-4)
+        const std::int64_t wakeGapNs = now - lastWakeNs; // >= the watchdog: this process itself did not run
         lastWakeNs = now;
         if ((SIGTERM == sig || SIGINT == sig) && stopAt < 0)
         {
@@ -262,7 +262,7 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         if (httpFatal.load(std::memory_order_acquire) >= 0)
         {
             const int code = exitWith(70, std::string("the ") + m_settings.threadPrefix +
-                "-http thread failed (an exception escaped, NOTE-5)");
+                "-http thread failed (an exception escaped)");
             abandon();
             return code;
         }
@@ -310,7 +310,7 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
         }
     }
 
-    // Stop path (F14): the listening socket is shut down so accept() returns; joins are bounded.
+    // Stop path: the listening socket is shut down so accept() returns; joins are bounded.
     if (nullptr != http)
     {
         http->shutdown();

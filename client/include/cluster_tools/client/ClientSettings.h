@@ -6,8 +6,8 @@
 #include <vector>
 
 // Settings of one cluster session (one ClusterClient). Defaults mirror
-// io.aeron.cluster.client.AeronCluster.Context 1.53.1 where Aeron has one, and the RC2 spec
-// where it decided (keepalive 1 s, rc2-forwarder.md 2.3 item 5). Endpoints, response channel
+// io.aeron.cluster.client.AeronCluster.Context 1.53.1 where Aeron has one, and the
+// where it decided (keepalive 1 s). Endpoints, response channel
 // and credentials have NO default: validate() refuses to start without them.
 
 namespace cluster_tools { namespace client {
@@ -21,7 +21,7 @@ struct ClientSettings
     // "id=host:port,..." one entry per member (operator config). Required.
     std::string ingressEndpoints;
     // Base ingress channel; the client appends endpoint= per member, e.g.
-    // "aeron:udp?term-length=4m|mtu=8192" (bridge A5).
+    // "aeron:udp?term-length=4m|mtu=8192" (bridge).
     std::string ingressChannel = "aeron:udp";
     // Egress response channel, e.g. "aeron:udp?endpoint=10.0.0.5:0". The cluster must be able
     // to route to it: never 0.0.0.0 (poc/README.md detail 2). Port 0 is resolved by the driver.
@@ -33,7 +33,7 @@ struct ClientSettings
     // Encoded credentials presented on connect (core: CoreCredentials::encode(), 38 bytes).
     std::vector<std::uint8_t> credentials;
     // Empty credentials are refused unless this is set explicitly: a cluster without an
-    // authenticator (the ME before RC2 S6) is the only legitimate case.
+    // authenticator (the ME) is the only legitimate case.
     bool allowEmptyCredentials = false;
 
     std::string clientName = "cluster-tools";

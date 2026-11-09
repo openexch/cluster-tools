@@ -541,7 +541,7 @@ TEST_CASE("egress: only this session's app messages reach the handler, payload a
     CHECK(client.counters().foreignSessionFragments == 1);
 }
 
-TEST_CASE("egress: every app message carries the leadership term its SessionMessageHeader was stamped with (RC2 S12 W6)")
+TEST_CASE("egress: every app message carries the leadership term its SessionMessageHeader was stamped with")
 {
     FakeTransport fake;
     Recorder recorder;
@@ -549,7 +549,7 @@ TEST_CASE("egress: every app message carries the leadership term its SessionMess
     connectOk(fake, client);
     fake.pushAppMessage(77, { 1 }, 900, 5);
     fake.pushNewLeader(77, 6, 1, DETAIL_ENDPOINTS, 901);
-    fake.pushAppMessage(77, { 2 }, 900, 5); // a deposed leader's frame after the event (FIX-1)
+    fake.pushAppMessage(77, { 2 }, 900, 5); // a deposed leader's frame after the event
     fake.pushAppMessage(77, { 3 }, 901, 6);
     std::vector<std::pair<std::uint8_t, std::int64_t>> seen;
     std::vector<std::int64_t> clientTermAtDelivery;
@@ -613,7 +613,7 @@ TEST_CASE("connect() while active is refused, not restarted")
     CHECK(client.state() == ClientState::CONNECTED);
 }
 
-// ---- added by the S11 independent review (notebook .../RC2-me-link/S11/review.md) ----
+// ---- added by an independent review ----
 
 namespace
 {
@@ -706,9 +706,9 @@ static_assert(ClusterTransport<AssemblingTransport>);
 
 }
 
-TEST_CASE("review: a new-leader message whose fragments straddle two polls right after NewLeaderEvent is delivered")
+TEST_CASE("a new-leader message whose fragments straddle two polls right after NewLeaderEvent is delivered")
 {
-    // Review D1 (was RED): AeronCluster clears its assembler INSIDE onNewLeader, so fragments
+    // (was RED): AeronCluster clears its assembler INSIDE onNewLeader, so fragments
     // after the event in the same poll assemble normally. The client now resets at the event.
     AssemblingTransport fake;
     ClusterClient<AssemblingTransport> client(fake, settings());
@@ -735,7 +735,7 @@ TEST_CASE("review: a new-leader message whose fragments straddle two polls right
     CHECK(delivered == 1);
 }
 
-TEST_CASE("review: the new leader's ingress registration failing closes the session at once (TRANSPORT_ERROR)")
+TEST_CASE("the new leader's ingress registration failing closes the session at once (TRANSPORT_ERROR)")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -753,7 +753,7 @@ TEST_CASE("review: the new leader's ingress registration failing closes the sess
     CHECK_FALSE(fake.subscriptionOpen);
 }
 
-TEST_CASE("review: keepalive under sustained back-pressure is retried at the retry interval, each call returns at once")
+TEST_CASE("keepalive under sustained back-pressure is retried at the retry interval, each call returns at once")
 {
     FakeTransport fake;
     Client client(fake, settings());
@@ -777,7 +777,7 @@ TEST_CASE("review: keepalive under sustained back-pressure is retried at the ret
     CHECK(client.counters().keepAlivesSent == 1);
 }
 
-TEST_CASE("F2: an absurd leaderHeartbeatTimeoutNs from the wire falls back to the default (no overflow)")
+TEST_CASE("an absurd leaderHeartbeatTimeoutNs from the wire falls back to the default (no overflow)")
 {
     FakeTransport fake;
     Client client(fake, settings());

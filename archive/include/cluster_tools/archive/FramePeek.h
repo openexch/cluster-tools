@@ -1,8 +1,8 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_FRAME_PEEK_H
 #define CLUSTER_TOOLS_ARCHIVE_FRAME_PEEK_H
 
-// The frame admission gate and common-head peek of the C++ bridge (RC2 S9a contract 4.4, the
-// rc2-bridge-cpp 2.3 gate, RC2 S1 contract section 2 rule 7). Pure: no Aeron, no SBE. One WITH_BRIDGE
+// The frame admission gate and common-head peek of the C++ bridge.
+// Pure: no Aeron, no SBE. One WITH_BRIDGE
 // translation unit (archive/aeron/src/JournalCodecLayout.cpp) static-asserts every constant here
 // against the generated schema 4 codecs, so a schema edit that moves them fails the build.
 //

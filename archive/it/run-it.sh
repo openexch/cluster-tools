@@ -1,5 +1,5 @@
 #!/bin/bash
-# Archive integration run for the C++ bridge's archive side (RC2 S9a contract 9.3). For every
+# Archive integration run for the C++ bridge's archive side. For every
 # scenario of ct_archive_it: a fresh in-tree aeronmd for the C++ side, one or two Java Aeron
 # Archives (JournalArchiveFixture.java on the pinned aeron-all jar), the scenario, teardown. Then the
 # negative controls: the same scenario with a CT_TEST_DISABLE_<rule> seam set must FAIL.

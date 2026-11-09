@@ -8,7 +8,7 @@
 #include "cluster_tools/domain/forwarder/DispatchRules.h"
 
 // SendRing - the fixed 65,536-slot FIFO of classified dispatches in their 5.5 form, between the
-// resync machine (producer) and the ME offers (consumer), and its drain plan (RC2 S12 5.3, 7).
+// resync machine (producer) and the ME offers (consumer), and its drain plan.
 //
 // Drain plan: the frame at the ring head is
 //   - one template 9 frame for a COMMAND slot;

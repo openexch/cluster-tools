@@ -1,4 +1,4 @@
-// Archive integration scenarios (RC2 S9a contract 9.3): the archive side against a real Java Aeron
+// Archive integration scenarios: the archive side against a real Java Aeron
 // Archive (JournalArchiveFixture.java on the pinned aeron-all 1.53.1) over UDP, the C++ side on the
 // in-tree aeronmd in its own directory. One scenario per process run:
 //   ct_archive_it <scenario> <work-dir> <aeronmd> <aeron-all.jar> <fixture-classes> <fixture-dir>
@@ -655,7 +655,7 @@ void chainFollowAcrossRecordingsAndSuccessor()
 
 void chainFollowWithLateSuccessor()
 {
-    // Review F-1: the ME writer is down for seconds between the stop and the successor (the normal
+    // The ME writer is down for seconds between the stop and the successor (the normal
     // restart timing). The read continues after the ended recording: each seq exactly once, one
     // replay per recording.
     Fixture fx(g.portBase);
@@ -712,7 +712,7 @@ void replayToEphemeralPortResolvesBeforeStartReplay()
 
 void cHelperSendsPortZeroUnresolved()
 {
-    // Characterisation of contract 1.4: aeron_archive_replay sends the channel verbatim.
+    // Characterisation: aeron_archive_replay sends the channel verbatim.
     Fixture fx(g.portBase);
     const std::string rec = fx.cmd("RECORD");
     fx.cmd("SYNTH 1 3 9");
@@ -810,7 +810,7 @@ void invokerRunsWhileArchiveCallBlocks()
     b.keepalive.reset();
     ::kill(fx->jvm->pid, SIGSTOP);
     const auto stoppedAt = Steady::now();
-    b.set->follower(0).policy().forceProbe(); // before the image liveness timeout (review N8)
+    b.set->follower(0).policy().forceProbe(); // before the image liveness timeout
     require(b.runUntil([&] { return b.observer.find(FaultKind::ARCHIVE_GONE) != nullptr; }, 8s), "no ARCHIVE_GONE");
     const double took = secondsSince(stoppedAt);
     note("ARCHIVE_GONE " + std::to_string(took) + " s after SIGSTOP; keepalive max gap " +

@@ -1,3 +1,3 @@
-# The RED of A7 (genesisId >= 1 everywhere, coordinator 2026-11-01), run by archive/tests/run-negative-controls.sh against
+# The RED of the genesisId rule (genesisId >= 1 everywhere, 2026-11-01), run by archive/tests/run-negative-controls.sh against
 # ct_domain_engine_config_seamed_tests: with the rule reverted to "== 0 only" the -1 case must fail on its assertion.
-genesisId must be at least 1 and at most 2^63-1 (tool-side RC2 S1 and A7 2026-11-01)|GENESIS_ID_POSITIVE|the old rule takes -1 as a valid nonce|CHECK( minusOneRefused )
+genesisId must be at least 1 and at most 2^63-1 (tool-side since 2026-11-01)|GENESIS_ID_POSITIVE|the old rule takes -1 as a valid nonce|CHECK( minusOneRefused )

@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 SendRingTest (5.3, 7): capacity, overflow, the drain plan with release grouping.
+// SendRingTest (5.3, 7): capacity, overflow, the drain plan with release grouping.
 #include "doctest/doctest.h"
 
 #include "Fixtures.h"

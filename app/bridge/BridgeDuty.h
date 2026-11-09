@@ -14,9 +14,9 @@
 #include "BridgeSnapshot.h"
 #include "StopBounds.h"
 
-// The bridge-duty thread body (RC2 S9c 3.2 step 7) and the bridge-http routes (section 9).
+// The bridge-duty thread body and the bridge-http routes.
 //
-// Duty: one agent iteration, the heartbeat every iteration (main's watchdog, F3), the StatusBoard snapshot every
+// Duty: one agent iteration, the heartbeat every iteration (main's watchdog), the StatusBoard snapshot every
 // 100 ms, then the idle strategy when the iteration did no work (common::BRIDGE_IDLE: spin 0, yield 10, park 1 ms).
 // The stop flag is main's (SIGTERM / SIGINT). SIGHUP is the Supervisor's COUNT_ONLY policy: nothing reaches the agent.
 
@@ -24,8 +24,8 @@ namespace cluster_tools { namespace app { namespace bridge {
 
 using BridgeBoard = common::StatusBoardT<BridgeSnapshot>;
 
-// The one SupervisorSettings shape (G7) with the bridge's values: watchdog and STALLED 5 s (the forwarder's, D-S9c-4),
-// join bound = the archive message timeout 5 s + 2 s = 7 s (3.4, FIX-7), SIGHUP counted only (D-S9c-15).
+// The one SupervisorSettings shape with the bridge's values: watchdog and STALLED 5 s (the forwarder's),
+// join bound = the archive message timeout 5 s + 2 s = 7 s, SIGHUP counted only.
 inline common::SupervisorSettings bridgeSupervisorSettings()
 {
     common::SupervisorSettings s;
@@ -122,7 +122,7 @@ inline HttpExtras extrasOf(const HttpContext &c)
     return x;
 }
 
-// bridge-http: GET /health /ready /metrics; nothing else (section 9).
+// bridge-http: GET /health /ready /metrics; nothing else.
 inline common::HttpResponse routeBridge(const common::HttpRequest &request, const HttpContext &c)
 {
     common::HttpResponse response;

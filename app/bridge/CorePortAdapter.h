@@ -11,13 +11,13 @@
 #include "AppSeams.h"
 #include "BridgeSnapshot.h"
 
-// CorePortAdapter - domain::CorePort over the S11 client's tryOffer (RC2 S9c 5.2): the ONLY path a domain frame takes
+// CorePortAdapter - domain::CorePort over the client's tryOffer: the ONLY path a domain frame takes
 // to the wire. The registrar's RegisterSession and the client's keepalives use the same publication, so the FIFO the
 // report-loss rule relies on holds across every frame the session sends. The mapping (Types.h):
 //   OK -> OK; BACK_PRESSURED, NOT_CONNECTED, NOT_READY -> RETRY (counted bridge_offer_retry_total{status});
 //   CLOSED, MAX_POSITION_EXCEEDED -> CLOSED (the domain pauses reads until onSessionDown / onSessionUp);
 //   TRANSPORT_ERROR -> REFUSED (the domain sets Fatal::OFFER_REFUSED: exit 70, a bridge bug).
-// After an OK offer the observer sees the frame bytes (O3 / O4: the codec's trade getter, metrics only, G1).
+// After an OK offer the observer sees the frame bytes (O3 / O4: the codec's trade getter, metrics only).
 
 namespace cluster_tools { namespace app { namespace bridge {
 

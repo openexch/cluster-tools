@@ -9,7 +9,7 @@
 #include "cluster_tools/domain/forwarder/ResyncMachine.h"
 #include "cluster_tools/domain/forwarder/TickEmitter.h"
 
-// ForwarderSnapshot - everything /health, /ready and /metrics show (RC2 S12 contract section 10), written by
+// ForwarderSnapshot - everything /health, /ready and /metrics show, written by
 // the duty thread every 100 ms into the StatusBoard and read by fwd-http and main. Plain data: trivially
 // copyable, no pointers, no strings; pure (WITH_AERON=OFF) so MetricsRender tests build everywhere.
 
@@ -24,9 +24,9 @@ inline constexpr std::uint32_t ME_EGRESS_STALE = 1u << 3;
 inline constexpr std::uint32_t NO_RECENT_ANSWER = 1u << 4;
 inline constexpr std::uint32_t RING_DEEP = 1u << 5;
 inline constexpr std::uint32_t STOPPING = 1u << 6;
-inline constexpr std::uint32_t RING_HEAD_STALE = 1u << 7; // review NOTE-3: the head waited 30 s for the ME
-inline constexpr std::uint32_t CORE_NO_LEADER = 1u << 8;  // review NOTE-3: the core client awaits a new leader
-inline constexpr std::uint32_t STORAGE_STARVED = 1u << 9; // S10' Q1: an ingress publication refused for storage space
+inline constexpr std::uint32_t RING_HEAD_STALE = 1u << 7; // The head waited 30 s for the ME
+inline constexpr std::uint32_t CORE_NO_LEADER = 1u << 8;  // The core client awaits a new leader
+inline constexpr std::uint32_t STORAGE_STARVED = 1u << 9; // An ingress publication refused for storage space
 inline constexpr unsigned COUNT = 10;
 }
 
@@ -65,7 +65,7 @@ enum class MeLink : std::uint8_t
     BOUND = 3,
 };
 
-// RC2 S13 10.2: BOOK_STALE is a TICK-readiness condition (PO-1): it drives forwarder_ticks_ready, /health.ticksReady
+// BOOK_STALE is a TICK-readiness condition: it drives forwarder_ticks_ready, /health.ticksReady
 // and ForwarderTicksNotReady, never a bit of the dispatch /ready mask above (COUNT stays 10).
 namespace ticks_not_ready {
 inline constexpr std::uint8_t NONE = 0;
@@ -126,7 +126,7 @@ struct ForwarderSnapshot
     std::int64_t identity = 0;
     std::int64_t meEpoch = 0;         // bound E, 0 until bound
     char version[48] = {};
-    char build[48] = {};              // RC2 S16 W4: the binary's source_sha (compile-time), /health.build
+    char build[48] = {};              // The binary's source_sha (compile-time), /health.build
 
     bool ready = false;
     std::uint32_t notReady = 0;       // not_ready bits
@@ -162,14 +162,14 @@ struct ForwarderSnapshot
     std::uint64_t dutyMaxCycleUs = 0;
     std::uint64_t logDropped = 0;
 
-    // RC2 S10' 8.2 rule 6: the media driver in force (DriverMode: 1 embedded, 2 external) and whether the embedded
+    // The media driver in force (DriverMode: 1 embedded, 2 external) and whether the embedded
     // per-instance dir was a stale one reused and cleaned at start
     std::uint8_t driverMode = 0;
     std::uint64_t driverDirReclaimed = 0;
-    // S10' Q1: seconds an ingress publication has been refused for storage space (closed episodes + the current one)
+    // Seconds an ingress publication has been refused for storage space (closed episodes + the current one)
     std::uint64_t storageStarvedSeconds = 0;
 
-    // RC2 S13 (K4): the five ladders / emitter slots, the stitcher's frame-level counters and the tick readiness
+    // The five ladders / emitter slots, the stitcher's frame-level counters and the tick readiness
     BookView books[domain::forwarder::TICK_MARKETS];
     std::uint64_t bookForeignMarket = 0;
     std::uint64_t bookMalformedNoMarket = 0;

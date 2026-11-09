@@ -1,8 +1,8 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_FOLLOW_H
 #define CLUSTER_TOOLS_ARCHIVE_FOLLOW_H
 
-// The interfaces S9a freezes for its owner (the S9b domain, ct-journal-tail): the frame sink, the
-// fault report and the archive port results the follow policy consumes (RC2 S9a contract 3.3, 4.3,
+// The interfaces the archive side freezes for its owner (the domain, ct-journal-tail): the frame sink, the
+// fault report and the archive port results the follow policy consumes (
 // 4.4, 4.5). Pure.
 
 #include "cluster_tools/archive/Chain.h"
@@ -26,12 +26,12 @@ enum class SinkAction : std::uint8_t
     CONTINUE, // accepted, the poll goes on
     BREAK,    // accepted, the poll stops after it
     ABORT,    // not accepted, redelivered
-    // RC2 S10' 5.1 R1: consumed (the read moves past it, the poll goes on) but never a memo proof: a halted bridge's
+    // R1: consumed (the read moves past it, the poll goes on) but never a memo proof: a halted bridge's
     // re-scan walks past a hole or a bad copy without letting a later resume land behind that bad copy
     CONSUME
 };
 
-// What the owner answers for a refused frame. The bridge closes the replay (SCHEMA_REFUSED, D-1
+// What the owner answers for a refused frame. The bridge closes the replay (SCHEMA_REFUSED,
 // verdict by the owner); ct-journal-tail prints the frame and continues with the next one.
 enum class RefusalAction : std::uint8_t
 {
@@ -48,7 +48,7 @@ struct JournalFrame
     std::size_t length = 0;
     Peek peek;
     bool readWasMemoFree = true;     // this attach started at chain index 0 at its start (5.2 rule 5)
-    // RC2 S10' 5.1 R1: the listing this read walks has a recording after this frame's (a halted bridge's re-scan walks
+    // R1: the listing this read walks has a recording after this frame's (a halted bridge's re-scan walks
     // past a hole or a refusal into it instead of deciding HOLED / BAD on this recording)
     bool laterRecordings = false;
 };
@@ -63,7 +63,7 @@ struct RefusedFrame
     std::size_t length = 0;
     bool hasPeek = false;            // rows 1-6 passed (a HEAD refusal)
     Peek peek;
-    bool laterRecordings = false;    // as JournalFrame::laterRecordings (S10' 5.1 R0 / R1)
+    bool laterRecordings = false;    // as JournalFrame::laterRecordings (R0 / R1)
     bool readWasMemoFree = true;     // as JournalFrame::readWasMemoFree
 };
 
@@ -78,7 +78,7 @@ public:
     virtual RefusalAction onRefused(const RefusedFrame &frame) noexcept = 0;
 };
 
-// Source faults and events (4.5 verdicts, section 7 class S rows).
+// Source faults and events (4.5 verdicts, class S rows).
 enum class FaultKind : std::uint8_t
 {
     NONE,
@@ -90,7 +90,7 @@ enum class FaultKind : std::uint8_t
     REPLAY_ENDPOINT_UNRESOLVED,  // S2
     REPLAY_OPEN,                 // S2 (reason in openFailure)
     POSITION_REJECTED,           // S3
-    SCHEMA_REFUSED,              // row 2, B (D-1)
+    SCHEMA_REFUSED,              // row 2, B
     SEQ_REGRESSION_IN_RECORDING, // row 3, S6
     RESUME_BELT,                 // row 4, S6
     EARLY_EOF,                   // rows 6, 7a

@@ -1,9 +1,9 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_TYPES_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_TYPES_H
 
-// The bridge domain's value types (RC2 S9b contract section 4): the egress the core sends the bridge, the fence
-// triggers, the offer outcome S9c maps the S11 client's OfferStatus onto, the staged trade, the source commands,
-// the state, halt, fatal and degraded codes and the read-only view S9c renders. Pure: no SBE, no Aeron.
+// The bridge domain's value types: the egress the core sends the bridge, the fence
+// triggers, the offer outcome maps the client's OfferStatus onto, the staged trade, the source commands,
+// the state, halt, fatal and degraded codes and the read-only view renders. Pure: no SBE, no Aeron.
 
 #include "cluster_tools/archive/Follow.h"
 
@@ -53,7 +53,7 @@ struct FeedPositionReport
     std::int64_t lastAppliedJournalSeq = 0;
     bool feedHalted = false;          // derived from feedHaltedRaw == 1 (kept for readers)
     std::uint8_t haltReasonRaw = 0;
-    std::uint8_t feedHaltedRaw = 0;   // the raw BoolFlag byte: 2..255 is invalid, never `true` (review N-5)
+    std::uint8_t feedHaltedRaw = 0;   // the raw BoolFlag byte: 2..255 is invalid, never `true`
 };
 
 // SettleRejected 114: the core's refusal of a feed entry, ORIGIN egress of the bridge session. For a feed entry
@@ -68,7 +68,7 @@ struct SettleRejected
     std::int64_t detail = 0;
 };
 
-// AdminAck 110 (the domain reads the acks of its FeedHalt 66; S9c reads the RegisterSession 80 ones).
+// AdminAck 110 (the domain reads the acks of its FeedHalt 66; the app reads the RegisterSession 80 ones).
 struct AdminAck
 {
     std::int64_t correlationId = 0;
@@ -102,13 +102,13 @@ constexpr bool isRefusalFence(FenceTrigger t) noexcept
         FenceTrigger::SETTLE_REJECTED_EPOCH == t || FenceTrigger::REPORT_LOSS == t;
 }
 
-// The S11 client's OfferStatus as the domain sees it (S9c maps: OK; BACK_PRESSURED, NOT_CONNECTED, NOT_READY ->
+// The client's OfferStatus as the domain sees it (the app maps: OK; BACK_PRESSURED, NOT_CONNECTED, NOT_READY ->
 // RETRY; CLOSED, MAX_POSITION_EXCEEDED -> CLOSED; TRANSPORT_ERROR -> REFUSED).
 enum class OfferOutcome : std::uint8_t
 {
     OK,
     RETRY,   // back-pressure, not connected, not ready
-    CLOSED,  // closed, max position: S9c reconnects
+    CLOSED,  // closed, max position: reconnects
     REFUSED  // transport error: a frame the client cannot send
 };
 
@@ -180,7 +180,7 @@ constexpr std::uint32_t bit(Degraded d) noexcept
     return static_cast<std::uint32_t>(d);
 }
 
-// RC2 S17 W12 B1: what /health reports next to the halt reason (additive "haltDetail" key).
+// What /health reports next to the halt reason (additive "haltDetail" key).
 enum class HaltDetail : std::uint8_t
 {
     NONE,
@@ -188,7 +188,7 @@ enum class HaltDetail : std::uint8_t
 };
 const char *haltDetailName(HaltDetail detail) noexcept;
 
-// Read by S9c for /health, /ready, logs (copied; single writer, the duty thread B).
+// Read by for /health, /ready, logs (copied; single writer, the duty thread B).
 struct BridgeView
 {
     State state = State::DOWN;
@@ -196,7 +196,7 @@ struct BridgeView
     HaltReason coreMirror = HaltReason::NONE;
     std::int64_t syncEpoch = 0;
     std::int64_t cursor = 0;   // C of the last report
-    std::int64_t last = 0;     // the forward rule's last (G1)
+    std::int64_t last = 0;     // the forward rule's last
     std::int64_t expected = 0; // e = last + 1
     std::size_t attached = 0;
     bool reportThisTerm = false;
@@ -205,19 +205,19 @@ struct BridgeView
     std::size_t staged = 0;
     TimePoint lastForwardAt{};
     Fatal fatal = Fatal::NONE;
-    // RC2 S9c W2a (2026-10-31, additive, read-only; S9c contract 4.3 bits 4 and 8, review FIX-10):
+    // (additive, read-only; bits 4 and 8):
     TimePoint lastReportAt{};       // the domain's time of its last accepted report (reset by onSessionDown)
     std::int64_t consumedPosition = 0; // the follower's consumed replay position as the domain last saw it
                                        // (JournalFrame.endPosition of an accepted frame, AttachInfo.from)
-    // RC2 S10' (additive): the cursor the current sync started from (a lane_ahead fence moves it: progress, 3.6) and
+    // (additive): the cursor the current sync started from (a lane_ahead fence moves it: progress, 3.6) and
     // the re-scan walks past a holed / bad recording since the halt began (5.4, /health relistsSinceHalt)
     std::int64_t syncCursor = 0;
     std::uint64_t relistsSinceHalt = 0;
-    // RC2 S17 W12 B1 (additive): FOREIGN_JOURNAL_HEAD while the halt in force is a foreign journal head
+    // (additive): FOREIGN_JOURNAL_HEAD while the halt in force is a foreign journal head
     HaltDetail haltDetail = HaltDetail::NONE;
 };
 
-// One source verdict (8.1), logged once per (source, e, kind); S9c drains them into the log.
+// One source verdict (8.1), logged once per (source, e, kind); the app drains them into the log.
 enum class VerdictKind : std::uint8_t
 {
     UNKNOWN,
@@ -244,8 +244,8 @@ enum class BadReason : std::uint8_t
     SEQ_REGRESSION,
     FOREIGN_EPOCH,
     MALFORMED_EXTENT,
-    STALE_EPOCH_PREFIX, // review NOTE-8: a foreign-epoch frame before any own-epoch frame of the read
-    FOREIGN_JOURNAL_HEAD, // RC2 S17 W12 B1: the first frame of a read refused SCHEMA (a journal of another schema)
+    STALE_EPOCH_PREFIX, // A foreign-epoch frame before any own-epoch frame of the read
+    FOREIGN_JOURNAL_HEAD, // The first frame of a read refused SCHEMA (a journal of another schema)
     COUNT
 };
 const char *badReasonLabel(BadReason reason) noexcept;

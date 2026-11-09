@@ -5,10 +5,10 @@
 
 #include "cluster_tools/domain/forwarder/TestSeams.h"
 
-// AdmissionWatcher - trigger T3 (RC2 S12 contract 6.2, W16, S8 3.5, D-S12-4): every BROADCAST GLOBAL
+// AdmissionWatcher - trigger T3: every BROADCAST GLOBAL
 // AdmissionState (marketId 0) whose (gateState, gateReasons) differs from the baseline fires a RESYNC(0),
 // so the core's CAPACITY'd dispatches are re-offered. An ORIGIN AdmissionState (the RegisterSession reply)
-// only resets the baseline and never fires. Per-market states are not triggers (Q9). A new core session
+// only resets the baseline and never fires. Per-market states are not triggers. A new core session
 // starts with no baseline; a BROADCAST seen without a baseline sets it and fires (the conservative side:
 // a RESYNC(0) is always safe, a missed one may strand a CAPACITY'd dispatch).
 

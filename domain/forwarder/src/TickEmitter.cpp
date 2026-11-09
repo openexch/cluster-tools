@@ -2,7 +2,7 @@
 
 #include "cluster_tools/domain/forwarder/TestSeams.h"
 
-// RC2 S13 contract section 6 (E1-E11) and the reset table 6.0. Every "RED shape" branch is a test seam that compiles
+// The emitter rules (E1-E11) and the reset table. Every "RED shape" branch is a test seam that compiles
 // to nothing in the production library (TestSeams.h).
 
 namespace cluster_tools { namespace domain { namespace forwarder {
@@ -80,7 +80,7 @@ bool TickEmitter::isChange(const Slot &s, const TickCandidate &c) const noexcept
         }
         if (seams::disabled(seams::Rule::TICK_TRADE_ONLY_SILENT))
         {
-            return true; // RED shape: the RC1 X6 text ("lastTradePrice changed" emits)
+            return true; // RED shape: the X6 text ("lastTradePrice changed" emits)
         }
     }
     if (seams::disabled(seams::Rule::TICK_TOP_ONLY) && c.version > s.lastOffered.version)
@@ -129,7 +129,7 @@ void TickEmitter::offer(int market, Slot &s, const TickCandidate &c, TickEdge ed
     }
     s.lastOffered = c;
     s.haveOffered = true;
-    // 6.0 / E10 (review F-1): the window starts on a leading, trailing or retry offer; an E7 re-offer carries no new
+    // 6.0 / E10: the window starts on a leading, trailing or retry offer; an E7 re-offer carries no new
     // information and is outside the rate, so it leaves the window as it was
     const bool startsWindow = TickEdge::REOFFER != edge || seams::disabled(seams::Rule::TICK_REOFFER_OUTSIDE_RATE);
     if (startsWindow && !seams::disabled(seams::Rule::TICK_RATE_CAP))
@@ -186,7 +186,7 @@ void TickEmitter::step(int market, BookLadder &ladder, const TradeMark &mark, st
         return;
     }
 
-    // the section 3 gate: hold the candidate, count once per episode, no pending-age clock
+    // the gate: hold the candidate, count once per episode, no pending-age clock
     if (TickGate::OPEN != gate)
     {
         const unsigned which = TickGate::UNREGISTERED == gate ? 0u : 1u;

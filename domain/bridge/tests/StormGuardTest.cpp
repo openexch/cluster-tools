@@ -1,4 +1,4 @@
-// StormGuardTest (RC2 S9b 13.8, cpp 2.6 W15, S9a 7 K2 as generalised by D-S9b-5): the resync storm guard of 9.6.
+// StormGuardTest (7 as generalised): the resync storm guard of 9.6.
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -165,13 +165,13 @@ TEST_CASE("StormGuardTest.coreRefusedSendsNothing")
     const int feed = rig.core.feedOffers();
     rig.runFor(60'000ms, 50ms);
     CHECK(rig.core.feedOffers() == feed);
-    CHECK(rig.feedHaltOffers() == 0); // the core already latched: no FeedHalt (cpp 2.7)
+    CHECK(rig.feedHaltOffers() == 0); // the core already latched: no FeedHalt
     CHECK(rig.core.queries > 0);      // the halted bridge still queries
 }
 
 TEST_CASE("StormGuardTest.coreOnlyRangeRecordEndsCoreRefused")
 {
-    // D-S9b-11: S8 3.9 (a) and (c) are the core's checks, not the bridge's: an outcome with ledgerCapacity 0 or a
+    // S8 3.9 (a) and (c) are the core's checks, not the bridge's: an outcome with ledgerCapacity 0 or a
     // release entry with commandIdHigh 0 is refused by the core on every copy; the bridge rotates once per source,
     // then parks in CORE_REFUSED without a re-offer loop (13.17 repeats this on the real core)
     Rig rig(2);
@@ -193,7 +193,7 @@ TEST_CASE("StormGuardTest.coreOnlyRangeRecordEndsCoreRefused")
 
 TEST_CASE("StormGuardTest.stormRetriesAnUntriedSourceOnceItsCopyArrives")
 {
-    // the 9.6 amendment of 2026-10-31 (review FIX-2, the former OQ-3 probe): node 0 carries a corrupt but decodable
+    // the 9.6 amendment of 2026-10-31 (the former OQ-3 probe): node 0 carries a corrupt but decodable
     // copy of 11; node 1 is a lagging ME whose 11.. are not journaled yet. The storm switches to node 1, which cannot
     // offer 11: it stays UNTRIED. The bridge parks CORE_REFUSED, and on the haltRescan cadence re-tries node 1 only
     // (nothing tried is re-offered). Once node 1 journals 11..20 the bridge offers its valid copy, which reach-clears
@@ -225,7 +225,7 @@ TEST_CASE("StormGuardTest.stormRetriesAnUntriedSourceOnceItsCopyArrives")
 
 TEST_CASE("StormGuardTest.stormRotationNeverTargetsTheCurrentSource")
 {
-    // review NOTE-1: source 0 offered the refused 11 (tried); the bridge now sits on source 1, which has not offered
+    // Source 0 offered the refused 11 (tried); the bridge now sits on source 1, which has not offered
     // it. At the second counted sync start the only untried source is the CURRENT one: a SWITCH to it would be a
     // no-op that drops the sync start's REATTACH. The storm rotation never targets it (k < n); the bridge parks
     // CORE_REFUSED and the haltRescan retry reads source 1 (with a rewind).
@@ -250,7 +250,7 @@ TEST_CASE("StormGuardTest.stormRotationNeverTargetsTheCurrentSource")
 
 TEST_CASE("StormGuardTest.egressRegressionCopyRotatesToAValidOne")
 {
-    // review NOTE-4: D1 row 6 (g < P: an in-epoch ME rewind) latches SOURCE_SCHEMA with skip 0 and no SettleRejected;
+    // row 6 (g < P: an in-epoch ME rewind) latches SOURCE_SCHEMA with skip 0 and no SettleRejected;
     // like any rotatable latch the storm guard tries the other source, whose valid copy reach-clears it
     Rig rig(2);
     SimRecording &a = rig.archive(0).record();
@@ -268,7 +268,7 @@ TEST_CASE("StormGuardTest.egressRegressionCopyRotatesToAValidOne")
 
 TEST_CASE("StormGuardTest.mixedLatchReportsHigherClass")
 {
-    // RC2 S10' 4R rule 6 (lane R review FIX-4): the core reports one haltReason; with this bridge's GAP record open and a
+    // 4R rule 6 (lane R): the core reports one haltReason; with this bridge's GAP record open and a
     // SOURCE_SCHEMA slot latched by another lane it reports the higher exit class. The storm guard reads the mirror
     // (SOURCE_SCHEMA: rotatable), while the bridge's own GAP halt still leaves by exit (a) on the cursor alone
     Rig rig(1);

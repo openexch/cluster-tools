@@ -34,17 +34,17 @@
 #include "TcCapture.h"
 #endif
 
-// ForwarderAgent - the fwd-duty agent (RC2 S12 contract sections 3, 4 and 8): one duty iteration drives both
+// ForwarderAgent - the fwd-duty agent: one duty iteration drives both
 // ClusterClients, the CoreSessionRegistrar, the resync machine, the send ring, the epoch binder, the
 // admission watcher and the codec. Header-only and templated on the two clients, so the app tests run it over
 // FakeTransport and production over AeronTransport. Single-threaded: only the duty thread touches it.
 //
-// One iteration (section 3): (1) both clients' doWork (connect steps, keepalive every 1 s, deadlines);
+// One iteration: (1) both clients' doWork (connect steps, keepalive every 1 s, deadlines);
 // (2) core poll, 256 frames, rule S first (a frame of another leadership term than the client's is dropped);
-// (3) the registrar; (4) ME poll, 256 frames (heartbeats to the binder; RC2 S13: 22 / 25 / 26 of an ended ME term
+// (3) the registrar; (4) ME poll, 256 frames (heartbeats to the binder; 22 / 25 / 26 of an ended ME term
 // dropped, then 22 / 25 into the market's ladder and 26 into its trade mark, 23 / 24 / 27 counted as known-ignored,
-// everything else counted unknown); (5) the resync timers and the RequestPendingDispatch offer; (5a, RC2 S13
-// section 3) the tick emitter, after the whole ME poll, for every touched or due market in market order (at most one
+// everything else counted unknown); (5) the resync timers and the RequestPendingDispatch offer; (5a)
+// the tick emitter, after the whole ME poll, for every touched or due market in market order (at most one
 // MarketTick 60 per market on the core publication); (6) up to 64 ME offers from the ring,
 // stopping at the first non-OK result (never retried in place); (7) link supervision (reconnects with an
 // exponential 1-30 s backoff, terminal refusals end the agent with a StopReason); main maps the StopReason to
@@ -56,16 +56,16 @@
 namespace cluster_tools { namespace app { namespace forwarder {
 
 inline constexpr int EXIT_OK = 0;
-inline constexpr int EXIT_SOFTWARE = 70; // EX_SOFTWARE: process health (F1-F4)
-inline constexpr int EXIT_TEMPFAIL = 75; // EX_TEMPFAIL: an inferred refusal, restart allowed (F7b)
-inline constexpr int EXIT_CONFIG = 78;   // EX_CONFIG: an observed refusal or a wrong binary (F5-F9, F15)
-// RC2 S10' 8.2 rule 2: the Aeron client's driver timeout is FWD_DRIVER_TIMEOUT_MS now (the shared strict parser,
-// ForwarderConfig); this constant is only the value the S12 drills ran with and the TIMEOUT_CONSTANT RED's fallback.
-// The S12 text: the Aeron client's driver timeout (F1): a dead media driver is a fatal conductor error after this long; T1-J asserts
-// exit 70 within this + 2 s. Fixed, like every other S12 constant (section 9). Review NOTE-10: 5 s, so a starved host
+inline constexpr int EXIT_SOFTWARE = 70; // EX_SOFTWARE: process health
+inline constexpr int EXIT_TEMPFAIL = 75; // EX_TEMPFAIL: an inferred refusal, restart allowed
+inline constexpr int EXIT_CONFIG = 78;   // EX_CONFIG: an observed refusal or a wrong binary
+// The Aeron client's driver timeout is FWD_DRIVER_TIMEOUT_MS now (the shared strict parser,
+// ForwarderConfig); this constant is only the value the drills ran with and the TIMEOUT_CONSTANT RED's fallback.
+// The text: the Aeron client's driver timeout: a dead media driver is a fatal conductor error after this long; T1-J asserts
+// exit 70 within this + 2 s. Fixed, like every other constant. 5 s, so a starved host
 // does not exit on a short driver stall.
 inline constexpr std::int64_t DRIVER_TIMEOUT_MS = 5000;
-// Review NOTE-3: ready is 0 while the ring's head has waited this long for a positive ME offer.
+// Ready is 0 while the ring's head has waited this long for a positive ME offer.
 inline constexpr std::int64_t RING_HEAD_READY_AGE_NS = 30'000'000'000LL;
 
 struct StopReason
@@ -79,12 +79,12 @@ struct StopReason
 
 struct AgentSettings
 {
-    std::int64_t identity = 0; // FWD_INSTANCE_ID (RC2 S10' 8.2 rule 3; diagnostics only at the core, S12 7.1)
-    std::uint8_t driverMode = 0;           // DriverMode (S10' 8.2 rule 6): /health driverMode, forwarder_driver_mode
+    std::int64_t identity = 0; // FWD_INSTANCE_ID (diagnostics only at the core)
+    std::uint8_t driverMode = 0;           // DriverMode: /health driverMode, forwarder_driver_mode
     std::uint64_t driverDirReclaimed = 0;  // 1 when the embedded per-instance dir was a stale one reused at start
     client::SessionClass coreCredentialClass = client::SessionClass::FORWARDER;
     const char *version = "dev";
-    const char *build = "unknown"; // RC2 S16 W4: source_sha, /health.build
+    const char *build = "unknown"; // source_sha, /health.build
     std::int64_t reconnectBackoffInitialNs = 1'000'000'000LL;
     std::int64_t reconnectBackoffMaxNs = 30'000'000'000LL;
 };
@@ -116,7 +116,7 @@ public:
             constructRegistrar(0); // RED shape: registers before the ME epoch is known (sourceEpoch 0)
         }
 #ifdef CT_FORWARDER_TC_CAPTURE
-        // ct_forwarder_tc_capture (RC2 S10' 7.1 item 2, never published): FWD_CAPTURE_DIR is required (78 at the first
+        // ct_forwarder_tc_capture (never published): FWD_CAPTURE_DIR is required (78 at the first
         // duty iteration when missing or unusable, before any session opens)
         if (std::string error; !m_capture.open(std::getenv("FWD_CAPTURE_DIR"), error))
         {
@@ -158,7 +158,7 @@ public:
         int work = m_core.doWork();
         work += m_me.doWork();
         m_now = m_core.nanoTime();
-        // Review FIX-1: the client applies the ME SessionEvent OK inside doWork(); a W9 hello right behind it in the same
+        // The client applies the ME SessionEvent OK inside doWork(); a hello right behind it in the same
         // egress batch reaches the poll below. Start the session (M2) now, so the binder is active for that poll.
         if (!domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_ME_SESSION_BEFORE_POLL))
         {
@@ -189,12 +189,12 @@ public:
         }
 
         m_resync.tick(m_now);
-        // RC2 S13 section 3: step 5 (the resync request) keeps its priority on the shared core publication; step 5a
+        // Step 5 (the resync request) keeps its priority on the shared core publication; step 5a
         // offers ticks after it and before the ME drain
         const bool ticksFirst = domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_TICK_BEFORE_REQUEST);
         if (ticksFirst)
         {
-            work += stepTicks(); // RED shape (CL-F-3): ticks ahead of the 65
+            work += stepTicks(); // RED shape: ticks ahead of the 65
         }
         work += offerRequest();
         if (!ticksFirst)
@@ -311,7 +311,7 @@ public:
     const domain::forwarder::BookStitcher &stitcher() const noexcept { return m_stitcher; }
     const domain::forwarder::TickEmitter &emitter() const noexcept { return m_emitter; }
 
-    // RC2 S13 10.2 BOOK_STALE (tick readiness, never the dispatch /ready): the first market and condition that clear it.
+    // BOOK_STALE (tick readiness, never the dispatch /ready): the first market and condition that clear it.
     // EMPTY markets never set it.
     struct TicksReadiness
     {
@@ -389,7 +389,7 @@ private:
         m_log->push(level, m_now, "%s", text);
     }
 
-    // RC2 S10' Q1 (coordinator decision 2026-11-01): an ingress publication refused for storage space on every attempt
+    // Storage starvation: an ingress publication refused for storage space on every attempt
     // for STORAGE_STARVED_EXIT_NS (30 s, a constant) ends the process 70: restartable and loud, never alive-not-ready
     // forever (the 2026-07-25 /dev/shm shape) and never 78 (a passing tmpfs squeeze must not stop it for good). Until
     // then /ready names storage_starved and forwarder_storage_starved_seconds_total grows.
@@ -443,7 +443,7 @@ private:
 
     void finish()
     {
-        // F14: polite close on both sessions (one SessionCloseRequest each), then the agent is done.
+        // Polite close on both sessions (one SessionCloseRequest each), then the agent is done.
         m_core.close();
         m_me.close();
         if (!m_stopReason.set())
@@ -482,7 +482,7 @@ private:
         return lower.find("version") != std::string::npos;
     }
 
-    // C1/M1 FAILED: retry (F10) or a terminal refusal (F6).
+    // C1/M1 FAILED: retry or a terminal refusal.
     template<typename Client>
     bool onConnectFailed(Client &client, unsigned cluster, const char *name)
     {
@@ -595,7 +595,7 @@ private:
             log(LogLevel::INFO, "registered (term %lld, sourceEpoch %lld): T1 head probe, then RESYNC(0)",
                 static_cast<long long>(m_registeredTerm), static_cast<long long>(m_binder.epoch()));
             m_resync.onRegistered(m_now); // T1
-            m_emitter.onRegistered();     // RC2 S13 E7: every market that offered re-offers once (D-S13-5)
+            m_emitter.onRegistered();     // E7: every market that offered re-offers once
         }
     }
 
@@ -718,7 +718,7 @@ private:
     {
         if (MeLink::UNVERIFIED == m_meLink || MeLink::BOUND == m_meLink)
         {
-            // RC2 S13 4.1 rule 6: an ME session end empties every ladder and trade mark (frames between two sessions
+            // An ME session end empties every ladder and trade mark (frames between two sessions
             // are lost; the next session's open triggers a snapshot); step 5a sees every market once (E11, 6.0)
             m_stitcher.onMeSessionEnd(m_now);
             for (bool &t : m_touched)
@@ -771,7 +771,7 @@ private:
         {
             return;
         }
-        // 6.2 rule S: frames of another term than the client's are dropped before the domain sees them (FIX-1).
+        // 6.2 rule S: frames of another term than the client's are dropped before the domain sees them.
         if (!domain::forwarder::test_seams::disabled(domain::forwarder::test_seams::Rule::AGENT_STALE_TERM_FILTER))
         {
             const std::int64_t term = m_core.leadershipTermId();
@@ -873,7 +873,7 @@ private:
             }
             case codec::T_ORDER_FAULT:
             case codec::T_CONFIG_APPLIED:
-                m_counters.coreControlFrames++; // CH_CONTROL, not a trigger (Q9)
+                m_counters.coreControlFrames++; // CH_CONTROL, not a trigger
                 return;
             default:
                 m_counters.unknown(domain::forwarder::CLUSTER_CORE, h.templateId);
@@ -893,7 +893,7 @@ private:
             log(LogLevel::ERROR, "core MeDispatch frame with a dispatchSeq below 1 refused whole (a core defect; %llu)",
                 static_cast<unsigned long long>(m_counters.dispatchSeqBelowOne));
         }
-        // includes a 104/105 carrying a dispatchSeq below 1 (review NOTE-2: only a corrupt core produces one; nothing of
+        // includes a 104/105 carrying a dispatchSeq below 1 (only a corrupt core produces one; nothing of
         // the frame is sent, no carrier, the cursor stays)
         if (shouldLog(++m_counters.coreMalformed))
         {
@@ -984,13 +984,13 @@ private:
         }
         if (codec::REJECT_UNREGISTERED_SESSION == r.reason || codec::REJECT_UNAUTHORIZED_CLASS == r.reason)
         {
-            m_registrationLost = true; // C3 -> C2 at supervision (F7 if the re-registration is refused)
+            m_registrationLost = true; // C3 -> C2 at supervision (if the re-registration is refused)
             return;
         }
         m_counters.unknown(domain::forwarder::CLUSTER_CORE, codec::T_ORDER_REJECT);
     }
 
-    // RC2 S13 7.3 (F-S13-9): the core refuses a 60 only by session authority (DMX:455-466). UNREGISTERED / UNAUTHORIZED
+    // The core refuses a 60 only by session authority (DMX:455-466). UNREGISTERED / UNAUTHORIZED
     // re-register exactly like the 65 case (the gate closes at supervision, E7 re-offers once REGISTERED again); any
     // other reason is a defect. Never an unknown core template (C8).
     void onTickReject(const sbe_adapter::forwarder_codec::OrderRejectView &r)
@@ -1054,7 +1054,7 @@ private:
         onMeMarketData(m, h);
     }
 
-    // RC2 S13 section 3 step 4: the book egress. The emission decision is NOT taken here (F-S13-4): step 5a decides once
+    // The book egress. The emission decision is NOT taken here: step 5a decides once
     // per iteration after the whole poll, on the newest state of the burst.
     void onMeMarketData(const client::EgressMessage &m, const sbe_adapter::forwarder_codec::Header &h)
     {
@@ -1063,8 +1063,8 @@ private:
         const std::uint16_t t = h.templateId;
         if (codec::T_BOOK_SNAPSHOT == t || codec::T_BOOK_DELTA == t || codec::T_TRADE_EXECUTION_BATCH == t)
         {
-            // F-S13-8 / D-S13-11: a frame of an ended ME term (a stopped old leader's late egress) never reaches the
-            // ladder; rule 1's lower-version acceptance is only safe within one term. 21 is not filtered (S12 binder).
+            // A frame of an ended ME term (a stopped old leader's late egress) never reaches the
+            // ladder; rule 1's lower-version acceptance is only safe within one term. 21 is not filtered (binder).
             if (m.leadershipTermId < m_me.leadershipTermId() && !seams::disabled(seams::Rule::AGENT_ME_STALE_TERM_FILTER))
             {
                 if (shouldLog(++m_counters.meStaleTerm))
@@ -1079,7 +1079,7 @@ private:
             {
                 codec::decodeTradeBatch(m.payload, m.length, h, m_tradeFrame); // a malformed batch is counted, dropped whole
                 m_stitcher.onTradeFrame(m_tradeFrame);
-                return; // section 5: the mark rides on ticks only, it never makes one
+                return; // The mark rides on ticks only, it never makes one
             }
             if (codec::T_BOOK_SNAPSHOT == t)
             {
@@ -1089,7 +1089,7 @@ private:
             {
                 codec::decodeBookDelta(m.payload, m.length, h, m_bookFrame);
 #ifdef CT_FORWARDER_TC_BOOKDROP
-                // ct_forwarder_tc_bookdrop (RC2 S13 T1 row TK-D, never published): every 40th BookDelta of market 1 is
+                // ct_forwarder_tc_bookdrop (T1 row TK-D, never published): every 40th BookDelta of market 1 is
                 // dropped before the ladder, a stand-in for a lossy drop at the ME (case B): the next delta's
                 // fromVersion no longer matches and the ladder breaks until the periodic snapshot repairs it.
                 if (1 == m_bookFrame.marketId && 0 == ++m_tcBookDeltasSeen % 40)
@@ -1115,13 +1115,13 @@ private:
             codec::T_OPEN_ORDERS_SNAPSHOT == t ? 2 : -1;
         if (known >= 0 && !seams::disabled(seams::Rule::AGENT_KNOWN_TEMPLATES))
         {
-            m_counters.meKnownIgnored[known]++; // F-S13-5: known, not used by the forwarder
+            m_counters.meKnownIgnored[known]++; // Known, not used by the forwarder
             return;
         }
         m_counters.unknown(domain::forwarder::CLUSTER_ME, t);
     }
 
-    // ------------------------------------------------------------------ RC2 S13 step 5a: ticks
+    // ------------------------------------------------------------------ step 5a: ticks
 
     // Section 3 gate: REGISTERED, the registration not lost (7.3), MeLink BOUND (E != 0), a core leader, no stop.
     domain::forwarder::TickGate tickGate() const noexcept
@@ -1212,9 +1212,9 @@ private:
         using domain::forwarder::ResyncVerdict;
         switch (m_resync.verdict())
         {
-            case ResyncVerdict::PRE_S8_CORE:
+            case ResyncVerdict::PRE_HEAD_PROBE_CORE:
                 stop(EXIT_CONFIG, "F15_PRE_S8_CORE",
-                    "core older than RC2 S8: the head probe (maxEntries 0) was answered with %lld entries",
+                    "core older than the resync head probe: the head probe (maxEntries 0) was answered with %lld entries",
                     static_cast<long long>(m_resync.verdictDetail()));
                 return;
             case ResyncVerdict::INVARIANT:
@@ -1300,7 +1300,7 @@ private:
             }
             if (!result.ok())
             {
-                // F11 / F12: stop draining this cycle, nothing popped; MAX_POSITION / TRANSPORT_ERROR close the
+                // Stop draining this cycle, nothing popped; MAX_POSITION / TRANSPORT_ERROR close the
                 // session inside the client (T2 at the next M3).
                 if (client::OfferStatus::BACK_PRESSURED == result.status || client::OfferStatus::NOT_CONNECTED == result.status ||
                     client::OfferStatus::NOT_READY == result.status)
@@ -1370,7 +1370,7 @@ private:
     domain::forwarder::ResyncMachine m_resync;
     domain::forwarder::EpochBinder m_binder;
     domain::forwarder::AdmissionWatcher m_watcher;
-    // RC2 S13 (K1: heap only, a restart starts EMPTY): the five ladders and trade marks, the emitter, the decode scratch
+    // Heap only, a restart starts EMPTY: the five ladders and trade marks, the emitter, the decode scratch
     domain::forwarder::BookStitcher m_stitcher;
     domain::forwarder::TickEmitter m_emitter;
     domain::forwarder::BookFrame m_bookFrame;
@@ -1407,7 +1407,7 @@ private:
     bool m_stopRequested = false;
     bool m_stopped = false;
     StopReason m_stopReason;
-    common::StorageStarvation m_storage[2];               // S10' Q1: [0] core, [1] ME ingress publication
+    common::StorageStarvation m_storage[2];               // [0] core, [1] ME ingress publication
     common::StorageStarvation m_storageAny;               // either of them: forwarder_storage_starved_seconds_total
     common::ClientStorageFeed<CoreClient> m_storageFeed0;
     common::ClientStorageFeed<MeClient> m_storageFeed1;

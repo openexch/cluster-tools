@@ -1,5 +1,5 @@
-// RC2 S10' 8.3 ct_forwarder_main_aeron_tests (WITH_AERON, real media drivers; the processes are the real binaries; the
-// bridge's S9c 12.2 MainAeronTest naming, review N-7). No cluster runs: the forwarder retries its connects with backoff
+// ct_forwarder_main_aeron_tests (WITH_AERON, real media drivers; the processes are the real binaries; the
+// bridge's MainAeronTest naming). No cluster runs: the forwarder retries its connects with backoff
 // and stays UP, which is all the start sequence needs.
 //   startSequenceBothModes  external: no driver started, connectAeron(AERON_DIR); no driver there = exit 70 after the
 //                           driver timeout; at the 3000 floor a live host driver is never read as dead. embedded: the
@@ -9,8 +9,8 @@
 //                           directory = 78, a parent dir that does not exist = 78 at the config parse
 //   startSequenceBothModes.embeddedLiveDriverInDir  a LIVE driver in ct-forwarder-<id> with no lock held (an aeronmd
 //                           pointed at that path, or a cleanup that removed the .lock under a running instance): 78 with
-//                           "a LIVE media driver is already in" on 3 attempts, the dir and the driver kept (contract 8.3's
-//                           own row; every other same-id case is refused by the lock before this check runs, review C13-1)
+//                           "a LIVE media driver is already in" on 3 attempts, the dir and the driver kept (its
+//                           own row; every other same-id case is refused by the lock before this check runs)
 //   sameIdStartsAreSerialised  two same-id embedded processes in the same instant, 3 times (stale dir / no dir): one
 //                           live driver, one 78, the live dir kept (the instance lock)
 //   heldInstanceLockRefusesTheStart  in-process: a held <dir>.lock refuses the start and leaves a stale dir untouched
@@ -414,7 +414,7 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embedded")
         fs::remove(instanceDir);
     }
     // a parent dir that does not exist: 78 at the config parse, before the http bind and any Aeron object (one rule with
-    // ct-bridge, review C13-3)
+    // ct-bridge)
     {
         Process fwd = spawn(CT_FORWARDER_BINARY, forwarderEnv("embedded", dir + "/missing", freePort(), 5000),
             dir + "/../fwd-emb-7.log");

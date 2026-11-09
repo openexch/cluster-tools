@@ -1,19 +1,19 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_BRIDGE_DOMAIN_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_BRIDGE_DOMAIN_H
 
-// The bridge domain (RC2 S9b sections 3, 4, 6-10): the composition S9a's follower calls as its FrameSink and
-// FollowObserver, and S9c's duty loop calls with the core's egress and the clock. One thread (B) only; every call
-// is noexcept and allocates nothing after construction (the memo's own bookkeeping is S9a's).
+// The bridge domain: the composition the archive follower calls as its FrameSink and
+// FollowObserver, and duty loop calls with the core's egress and the clock. One thread (B) only; every call
+// is noexcept and allocates nothing after construction (the memo's own bookkeeping is the archive side's).
 //
-// The rules it obeys (section 0): a record is fed exactly once, in order, or the bridge halts loudly.
-//   G1  within one sync starting at the report cursor C, last := C; a record is forwarded only when
+// The rules it obeys: a record is fed exactly once, in order, or the bridge halts loudly.
+//   Within one sync starting at the report cursor C, last := C; a record is forwarded only when
 //       journalSeq == last + 1; last rises only by a forward; seq <= last is a SKIP; seq > last + 1 is a hole.
-//   G2  RAM only; the core's lastAppliedJournalSeq is the only cursor.
-//   G3  the domain reads the peek only (template, journalSeq, meEpoch, egressSeq); the core is the one judge.
-//   G4  nothing silent: a SKIP, a hole, a refusal and a halt are each counted, and a halt is a FeedHalt.
-//   G5  a staged or encoded record leaves only by an OK offer or a fence.
+//   RAM only; the core's lastAppliedJournalSeq is the only cursor.
+//   The domain reads the peek only (template, journalSeq, meEpoch, egressSeq); the core is the one judge.
+//   Nothing silent: a SKIP, a hole, a refusal and a halt are each counted, and a halt is a FeedHalt.
+//   A staged or encoded record leaves only by an OK offer or a fence.
 //
-// The frozen duty iteration (S9c, section 3):
+// The frozen duty iteration:
 //   1. egress -> onReport / onSettleRejected / onAdminAck; NewLeader -> onFence(NEW_LEADER); registration accepted
 //      this term -> onSessionUp; session lost -> onSessionDown
 //   2. client.doWork()
@@ -45,14 +45,14 @@ namespace cluster_tools { namespace domain { namespace bridge {
 class BridgeDomain final : public archive::FrameSink, public archive::FollowObserver
 {
 public:
-    // `archive`: the S9a series the behind dwell reads (8.4, review FIX-6).
+    // `archive`: the series the behind dwell reads.
     BridgeDomain(const BridgeSettings &settings, archive::ResumeMemo &memo, const archive::ArchiveMetrics &archive,
         FrameEncoder &encoder, CorePort &core, BridgeMetrics &metrics);
 
     BridgeDomain(const BridgeDomain &) = delete;
     BridgeDomain &operator=(const BridgeDomain &) = delete;
 
-    // core session (S9c, step 1)
+    // core session
     void onSessionUp(TimePoint now) noexcept;
     void onSessionDown(TimePoint now) noexcept;
     void onFence(FenceTrigger trigger, TimePoint now) noexcept;
@@ -68,7 +68,7 @@ public:
     SourceCommand takeSourceCommand() noexcept;
     void tick(TimePoint now) noexcept;
 
-    // S9a FrameSink / FollowObserver
+    // FrameSink / FollowObserver
     archive::SinkAction onFrame(const archive::JournalFrame &frame) noexcept override;
     archive::RefusalAction onRefused(const archive::RefusedFrame &frame) noexcept override;
     void onFault(const archive::SourceFault &fault) noexcept override;
@@ -81,10 +81,10 @@ public:
     BridgeView view() const noexcept;
     Fatal fatal() const noexcept { return m_fatal; }
 
-    // The verdict log (8.1: each verdict logged once): S9c drains it into its log after every duty iteration.
+    // The verdict log (8.1: each verdict logged once): the app drains it into its log after every duty iteration.
     std::size_t drainVerdictEvents(VerdictEvent *out, std::size_t max) noexcept;
 
-    // Read-only state for the tests and S9c's /health detail.
+    // Read-only state for the tests and /health detail.
     const InflightRing &ring() const noexcept { return m_ring; }
     const Stager &stager() const noexcept { return m_stager; }
     const VerdictTable &verdicts() const noexcept { return m_verdicts; }
@@ -100,11 +100,11 @@ public:
     std::uint32_t stormTried() const noexcept { return m_storm.active ? m_storm.tried : 0; }
     bool confirming() const noexcept { return m_confirming; }
     bool feedingForTest() const noexcept { return feeding(); } // a re-scan (or streaming) is reading
-    // RC2 S10' 5.1 markers (C3 / C4 tests)
+    // Markers (C3 / C4 tests)
     bool successorsTried(std::size_t source) const noexcept { return m_relist.at(source).successorsTried; }
     bool steppedBack(std::size_t source) const noexcept { return m_relist.at(source).steppedBack; }
     std::int64_t relistSeen(std::size_t source) const noexcept { return m_relist.at(source).seen; }
-    bool tainted(std::size_t source) const noexcept { return m_tainted.at(source); } // the S10' 5.1 taint (C4 test)
+    bool tainted(std::size_t source) const noexcept { return m_tainted.at(source); } // the taint (C4 test)
 
 private:
     class Output final : public FrameOutput
@@ -127,7 +127,7 @@ private:
         std::uint32_t visited = 0; // sources the storm guard switched to for this cursor
     };
 
-    // RC2 S10' 5.1: the halted re-scan's successor walk per source (R1) and the step back (R2). Per (source, e): reset at
+    // The halted re-scan's successor walk per source (R1) and the step back (R2). Per (source, e): reset at
     // every sync start and when a walk starts for another e (C4).
     struct Relist
     {
@@ -205,7 +205,7 @@ private:
     std::size_t untriedStormSource(bool allowCurrent) const noexcept;
     std::size_t ringSourceOf(std::int64_t seq) const noexcept;
 
-    // RC2 S10' section 5
+    //
     bool relistEligible(bool memoFree, bool laterRecordings) const noexcept;
     bool stepBackDue(std::size_t source, const archive::RecordingKey *key) const noexcept;
     bool walkSkips(std::size_t source, const archive::RecordingKey &key) const noexcept;
@@ -215,7 +215,7 @@ private:
     void stepBack(std::size_t source) noexcept;
     bool rescanReason() const noexcept;
     void resetRelist() noexcept;
-    // RC2 S17 W12 B1
+    //
     bool foreignHeadEverywhere() const noexcept;
 
     void publish() noexcept;
@@ -276,17 +276,17 @@ private:
     // frame, and a sync start must rewind (7.2).
     bool m_acceptedSinceAttach = false;
     bool m_resumePending = true;
-    // review NOTE-8: an own-epoch frame was accepted since the read last started from a resume point (or the read
+    // An own-epoch frame was accepted since the read last started from a resume point (or the read
     // resumed from a proof, which implies one); a foreign frame before it is a stale prefix, not a re-genesis
     bool m_ownEpochSeen = false;
     bool m_readMemoFree = true; // the read started at chain index 0 (the resume point's AttachInfo.memoFree)
-    // RC2 S17 W12 B1 (review V8): a frame of this read was admitted by the follower (decodable, any epoch, forwarded or
+    // A frame of this read was admitted by the follower (decodable, any epoch, forwarded or
     // not) since the read last started from a resume point; a successor attach keeps it. A SCHEMA refusal while it is
     // false is the first frame of the read: a foreign journal head, never a bad copy
     bool m_admittedAny = false;
     int m_foreignSchema = -1; // the schemaId of the last foreign head refused (the WARN line)
     std::array<std::int64_t, archive::MAX_SOURCES> m_refusalVerifiedAt{}; // the e a memo-read refusal was verified at
-    // S10' 5.1: a re-scan walk went past a bad / stale recording of the source (taintVerify); the e it was verified at;
+    // A re-scan walk went past a bad / stale recording of the source (taintVerify); the e it was verified at;
     // the highest recording id the walk left as bad (cleared by a linear read that accepts a frame of a later recording)
     std::array<bool, archive::MAX_SOURCES> m_tainted{};
     std::array<std::int64_t, archive::MAX_SOURCES> m_taintVerifiedAt{};
@@ -302,8 +302,8 @@ private:
     std::array<int, archive::MAX_SOURCES> m_regressions{};
     std::size_t m_lastForwardSource = NO_SOURCE;
     TimePoint m_lastForwardAt{};
-    TimePoint m_lastReportAt{};          // W2a: BridgeView.lastReportAt
-    std::int64_t m_consumedPosition = 0; // W2a: BridgeView.consumedPosition
+    TimePoint m_lastReportAt{};          // BridgeView.lastReportAt
+    std::int64_t m_consumedPosition = 0; // BridgeView.consumedPosition
     archive::RecordingKey m_readKey{};
     bool m_expectFirstSeq = false;
     std::array<StepBack, archive::MAX_SOURCES> m_stepBack{};
@@ -312,8 +312,8 @@ private:
     DecisionRow m_waitRow = DecisionRow::UNDECIDED;
     bool m_confirming = false;
     Decision m_confirmDecision;
-    std::int64_t m_confirmE = 0; // the e the outstanding confirmation is for (review BLOCKER-1: one query per (row, e))
-    // the 9.6 amendment (review FIX-2): a CORE_REFUSED retry restricts the rotation to the untried sources
+    std::int64_t m_confirmE = 0; // the e the outstanding confirmation is for (one query per (row, e))
+    // the 9.6 amendment: a CORE_REFUSED retry restricts the rotation to the untried sources
     bool m_stormProbe = false;
     bool m_stormRetryPending = false;
     TimePoint m_behindRescanAt{};

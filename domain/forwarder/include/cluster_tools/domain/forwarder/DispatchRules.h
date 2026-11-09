@@ -5,11 +5,10 @@
 
 #include "cluster_tools/domain/forwarder/Dispatch.h"
 
-// Classification, the per-kind rules, the one-to-one mappings and the INVALID carrier
-// (RC2 S12 contract 5.2-5.5, BLOCKER-1 Fix A).
+// Classification, the per-kind rules, the one-to-one mappings and the INVALID carrier.
 //
-// The forwarder relays, it never decides (G2): every decoded dispatch reaches the ME in one of the
-// forms below (G4), and the ME journals the verdict the core applies.
+// The forwarder relays, it never decides: every decoded dispatch reaches the ME in one of the
+// forms below, and the ME journals the verdict the core applies.
 //   PASS             every rule holds: 5.2 (kinds 0..2) or 5.3 (kind 3)
 //   ME_INVALID (I)   kinds 0..2, every R rule holds, a B rule fails: sent verbatim, the ME journals INVALID 8
 //   CARRIER (C)      kinds 0..2 with an R rule failing, or V12 (kind > 3), or V1 (seq < 1): sent as the
@@ -18,7 +17,7 @@
 //   RELEASE_REFUSED  kind 3, X1 or X2 fails: sent alone in a one-entry frame (RX), so the ME's
 //                    decode drop costs no neighbour
 //   UNROUTABLE       kinds 0..2 / V12 with both ids 0: no carrier can carry the id; counted, not sent
-// Rules are evaluated in the ME's own order (FIX-10): V12 first; kinds 0..2 the reader group R1-R5
+// Rules are evaluated in the ME's own order: V12 first; kinds 0..2 the reader group R1-R5
 // (DurableOrderIntent.isValid), then the behaviour-2 causes B1-B6 (behaviourTwoCause order), then the
 // forwarder-local V1; kind 3: X1, X2, A1, V1. The FIRST failing rule is reported.
 

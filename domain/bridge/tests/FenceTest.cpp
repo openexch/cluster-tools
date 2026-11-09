@@ -1,5 +1,5 @@
-// FenceTest and OfferOutcomeTest (RC2 S9b 13.9): the fence of section 10 (the domain half of cpp 2.6 and S9a 7 K1)
-// and the offer outcomes of section 4.
+// FenceTest and OfferOutcomeTest: the fence (the domain half)
+// and the offer outcomes.
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"
@@ -87,7 +87,7 @@ TEST_CASE("FenceTest.otherRejectReasonsAreCountedOnly")
 
 TEST_CASE("FenceTest.settleRejectedBurstIsOneFence")
 {
-    // FIX-9: one refusal is followed by a FEED_GAP reject per in-flight frame (AE 1447-1451): one query, one storm count
+    // One refusal is followed by a FEED_GAP reject per in-flight frame (AE 1447-1451): one query, one storm count
     Direct d;
     bindAt(d, 10);
     d.core.silentDrop = true; // the core refused 11 (the refusal itself left only a latch)
@@ -116,7 +116,7 @@ TEST_CASE("FenceTest.settleRejectedBurstIsOneFence")
 
 TEST_CASE("FenceTest.haltedFenceBelowEMinusOneRefeeds")
 {
-    // FIX-13: a fence while HALTED whose report shows C' < e - 1 (pre-halt records lost with the old leader)
+    // A fence while HALTED whose report shows C' < e - 1 (pre-halt records lost with the old leader)
     Direct d;
     bindAt(d, 10);
     REQUIRE(d.rec(TEMPLATE_TRADE, 12) == SinkAction::ABORT); // a hole at 11

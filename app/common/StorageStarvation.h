@@ -6,8 +6,8 @@
 #include <cstdio>
 #include <string_view>
 
-// StorageStarvation - "our own resource is refused for storage space" held CONTINUOUSLY (RC2 S10' coordinator decision
-// Q1, 2026-11-01). A process whose publication (or replay image) the media driver refuses for insufficient storage stays
+// StorageStarvation - "our own resource is refused for storage space" held CONTINUOUSLY ends the process.
+// A process whose publication (or replay image) the media driver refuses for insufficient storage stays
 // alive and retries forever otherwise: alive, not ready, never progressing (the false-green shape of the 2026-07-25
 // /dev/shm starvation that left the settlement bridge silent for 17 h). The rule, one copy for ct-forwarder and
 // ct-bridge:
@@ -31,7 +31,7 @@ inline bool isStorageSpaceError(std::string_view detail) noexcept
         std::string_view::npos != detail.find("(-12) ");
 }
 
-// The same class for an aeron_errcode() (RC2 S10' review C13-6): ENOSPC, the errno a file allocation in the driver dir
+// The same class for an aeron_errcode(): ENOSPC, the errno a file allocation in the driver dir
 // fails with (aeron_driver_init on a full tmpfs: "(28) No space left on device ... cnc.dat", measured by tmpfs-min), or
 // -AERON_ERROR_CODE_STORAGE_SPACE (Aeron's own codes are negative; +12 is ENOMEM, not storage).
 inline constexpr int AERON_STORAGE_SPACE_CODE = -12; // -AERON_ERROR_CODE_STORAGE_SPACE

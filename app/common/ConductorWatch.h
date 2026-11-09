@@ -10,16 +10,16 @@
 
 namespace aeron { class Aeron; }
 
-// ConductorWatch - the client-conductor heartbeat check (RC2 S9c 3.4, review FIX-5, S11 N7; WITH_AERON only).
+// ConductorWatch - the client-conductor heartbeat check (WITH_AERON only).
 //
 // A WEDGED Aeron client conductor fires no callback: the fatal monitor never runs, the duty thread keeps beating and
 // keepalives go out on the mapped buffers until the driver reclaims the client, after which every reconnect ends
 // ATTEMPTS_EXHAUSTED forever with /health 200 (a half-alive process). The conductor stamps this client's heartbeat
 // counter (AERON_COUNTER_CLIENT_HEARTBEAT_TIMESTAMP_TYPE_ID 11, key = the client id, value = epoch ms) at every
 // keepalive; main reads it through the CountersReader (shared memory, no conductor involved) at every wake. The
-// decisions are ConductorWatchCore's: the record is re-validated on every check (a reclaimed or re-used slot = 70,
-// review FIX-1), a counter never found within the timeout = 70, a stale stamp = 70 (named a process pause when this
-// process itself did not run for the timeout, review NOTE-4).
+// decisions are ConductorWatchCore's: the record is re-validated on every check (a reclaimed or re-used slot = 70),
+// a counter never found within the timeout = 70, a stale stamp = 70 (named a process pause when this
+// process itself did not run for the timeout).
 
 namespace cluster_tools { namespace app { namespace common {
 

@@ -1,14 +1,14 @@
 #ifndef CLUSTER_TOOLS_APP_BRIDGE_TESTS_APP_RIG_H
 #define CLUSTER_TOOLS_APP_BRIDGE_TESTS_APP_RIG_H
 
-// The ct_bridge_app_tests rig (RC2 S9c 12.2): the real BridgeAgent over a real ClusterClient on the scripted
-// FakeTransport, with the S9b StubCore (the core model: admit, D3a, latch precedence) BEHIND the transport and the
-// S9b SimSources (S9a's SourceSet semantics over SimArchive) as the sources.
+// The ct_bridge_app_tests rig: the real BridgeAgent over a real ClusterClient on the scripted
+// FakeTransport, with the StubCore (the core model: admit, D3a, latch precedence) BEHIND the transport and the
+// SimSources (SourceSet semantics over SimArchive) as the sources.
 //   - every app frame the agent offers is read off the transport after the iteration (FIFO, per publication, with
 //     its session-header term: a frame of an ended term is dropped as the consensus module drops it);
 //   - RegisterSession 80 is answered by a registration model (ACCEPTED first, DUPLICATE after, or scripted);
 //   - the domain's frames (FakeEncoder bytes) go to the StubCore, whose egress (17 / 114 / 110 ref 66) is SBE-encoded
-//     with the generated money codecs and delivered on egress with a lag of 1..8 iterations (checklist C1: never before
+//     with the generated money codecs and delivered on egress with a lag of 1..8 iterations (never before
 //     the next poll), stamped with the cluster's current term;
 //   - elections (NewLeaderEvent, the uncommitted tail lost), session losses (SessionEvent CLOSED), image losses and a
 //     core that forgets the registration are scripted.
@@ -286,7 +286,7 @@ struct AppRigT
         REJECT,
         SILENT,
         ANSWER_FIRST_LATE, // only the first RegisterSession of a session is answered, `lateNs` later
-        DUPLICATE_IDENTITY // RC2 S10': REJECTED reason 44 until `duplicateUntilNs`, then ACCEPT (the old session timed out)
+        DUPLICATE_IDENTITY // REJECTED reason 44 until `duplicateUntilNs`, then ACCEPT (the old session timed out)
     } reg = Reg::ACCEPT;
     std::int64_t duplicateUntilNs = 0;
     std::int64_t lateNs = 7 * SECOND;

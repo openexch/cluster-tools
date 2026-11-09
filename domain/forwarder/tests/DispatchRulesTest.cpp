@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 DispatchRulesTest: 5.4 classification, table driven, checked against the
+// DispatchRulesTest: 5.4 classification, table driven, checked against the
 // test-only port of the ME's own rules (MeRulesPort.h).
 #include "doctest/doctest.h"
 

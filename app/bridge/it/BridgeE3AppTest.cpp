@@ -1,25 +1,25 @@
-// RC2 S9c 12.6 bridge.e3_app: the S9b E3 (RealCoreOracleTest, the real behaviour-3 core in `serve`) driven THROUGH the
+// Bridge.e3_app: the E3 (RealCoreOracleTest, the real behaviour-3 core in `serve`) driven THROUGH the
 // app wiring: BridgeAgent<ClusterClient<FakeTransport>, E3Sources> with the real BridgeCodec, serve behind the fake
 // transport. Every app frame the agent offers (RegisterSession 80 included: serve answers it on the story's BRIDGE
-// session 701, DUPLICATE; OPEN_BRIDGE is NOT used, review NOTE-7) is in flight until the "cluster" commits it to serve
+// session 701, DUPLICATE; OPEN_BRIDGE is NOT used) is in flight until the "cluster" commits it to serve
 // in order; egress reaches the agent 1..8 iterations later, stamped with the term; an election (only while a FRAME is
 // uncommitted) drops the uncommitted tail and the undelivered egress and announces a NewLeaderEvent; a cold restart is
 // a new agent and a new client over the SAME serve session (the archives outlive it), its registration DUPLICATE.
-// Asserts per story (S9b 13.17): the final snapshotSha256 equals the story's clean hash, lastAppliedJournalSeq == N, the
-// latch line `L false 0`, invariantsHold, feedDuplicateCount == 0 (one session: N-9), per-sync ascending offers.
+// Asserts per story: the final snapshotSha256 equals the story's clean hash, lastAppliedJournalSeq == N, the
+// latch line `L false 0`, invariantsHold, feedDuplicateCount == 0 (one session), per-sync ascending offers.
 // Non-vacuity over the run: lossy elections > 0, restarts > 0. RED: FENCE_OFF ("CORE STATE:"; REGISTRATION_GATE_OFF cannot
 // fail here, see negative-controls-e3.txt).
 // CT_BRIDGE_E3_APP_STORIES stories (ctest 100; 10^3 once on the build box).
 //
-// RC2 S10' section 9 (S9c review NOTE-6): the SECOND-SESSION variant. A cold restart opens a NEW BRIDGE session on
+// The SECOND-SESSION variant. A cold restart opens a NEW BRIDGE session on
 // serve (OPEN_BRIDGE: the cluster's session open; the agent's own RegisterSession then answers DUPLICATE) under a new
-// identity (serve has no session close, so the dead session stays registered: under the S10' 4R rule a second live
+// identity (serve has no session close, so the dead session stays registered: under the 4R rule a second live
 // session of one identity is REJECTED DUPLICATE_IDENTITY, the deployment closes the old one first; a new identity is the
-// R-B5-2 replace shape). The restart happens while a feed frame is in flight, and the dead session's uncommitted tail
+// Replace shape). The restart happens while a feed frame is in flight, and the dead session's uncommitted tail
 // is NOT dropped: it is sequenced on the old session (ingress the leader had not yet read) 0..50 iterations AFTER the
 // new session's first feed frame was sequenced (at the latest 400 iterations after the restart, or before the next
 // round), so the core gets the same records from both sessions: duplicates across two sessions. Asserts per story: feedDuplicateMismatchCount == 0, the CanonicalDump sha equal to the clean model's (review
-// F-11: not snapshotSha256, whose session section differs with two sessions), cursor N, the latch line `L false 0`,
+// Not snapshotSha256, whose session section differs with two sessions), cursor N, the latch line `L false 0`,
 // invariantsHold. Non-vacuity: reopenings > 0 and duplicates > 0. RED: FENCE_OFF ("CORE STATE:"). The same-session
 // variant above is unchanged (feedDuplicateCount == 0, the snapshot hash).
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
@@ -501,7 +501,7 @@ Outcome story(std::uint64_t seed, const std::string &work, bool secondSession = 
     }
     if (secondSession)
     {
-        // review F-11: two registered sessions change the snapshot's session section; the money state is the dump
+        // Two registered sessions change the snapshot's session section; the money state is the dump
         if (dump.liveSha != dump.modelSha)
         {
             return coreFail("the CanonicalDump sha " + dump.liveSha.substr(0, 12) + " differs from the clean model's " +
@@ -575,7 +575,7 @@ TEST_CASE("BridgeE3AppTest.theRealCoreEndsInTheCleanStateThroughTheAppWiring")
 
 TEST_CASE("BridgeE3AppTest.aSecondSessionAfterARestartEndsInTheCleanDump")
 {
-    // RC2 S10' section 9: the restarted bridge on a NEW core session, the dead session's tail sequenced late
+    // The restarted bridge on a NEW core session, the dead session's tail sequenced late
     const char *env = std::getenv("CT_BRIDGE_E3_APP_STORIES");
     const int n = nullptr == env ? 100 : std::atoi(env);
     const fs::path work = fs::temp_directory_path() / "ct-bridge-e3-app-2s";

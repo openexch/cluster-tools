@@ -6,8 +6,8 @@
 #include "cluster_tools/domain/forwarder/BookLadder.h"
 #include "cluster_tools/domain/forwarder/MarketData.h"
 
-// TickEmitter - the coalescing MarketTick producer of RC2 S13 contract section 6, one slot per market 1..5.
-// Pure: it never touches a transport; the duty cycle (step 5a, section 3) calls step() once per touched or due
+// TickEmitter - the coalescing MarketTick producer, one slot per market 1..5.
+// Pure: it never touches a transport; the duty cycle (step 5a) calls step() once per touched or due
 // market after the whole ME poll and hands in a TickSink whose tryOffer is the core publication. Every rule E1-E11:
 //   E1 the candidate comes from an OK ladder only; BROKEN / EMPTY offer nothing (suppressed{broken})
 //   E2 a change = top (bid, ask) differs from lastOffered, or a newer trade AND a version move
@@ -43,7 +43,7 @@ enum class TickSuppressed : std::uint8_t
     COUNT
 };
 
-// The section 3 gate as the agent evaluates it each iteration.
+// The gate as the agent evaluates it each iteration.
 enum class TickGate : std::uint8_t
 {
     OPEN = 0,     // REGISTERED, registration not lost, MeLink BOUND, a core leader, no stop requested

@@ -1,4 +1,4 @@
-// CursorTableTest (RC2 S9b 13.1): the per-frame table of 7.3 (G1, the epoch rows, the head rule) and the report
+// CursorTableTest: the per-frame table of 7.3 (the epoch rows, the head rule) and the report
 // validity of 7.2.
 #include "doctest/doctest.h"
 
@@ -53,7 +53,7 @@ TEST_CASE("CursorTableTest.terminalBelowCursorNeverForwarded")
     Direct d;
     boundAt(d.core, 10);
     d.start();
-    // the Java bridge's inclusive terminal boundary (cpp F3) re-offered a 63 at the cursor
+    // the Java bridge's inclusive terminal boundary re-offered a 63 at the cursor
     CHECK(d.rec(TEMPLATE_TERMINAL, 10) == SinkAction::CONTINUE);
     CHECK(d.rec(TEMPLATE_TERMINAL, 9) == SinkAction::CONTINUE);
     const int feed = d.core.feedOffers();
@@ -64,7 +64,7 @@ TEST_CASE("CursorTableTest.terminalBelowCursorNeverForwarded")
 
 TEST_CASE("CursorTableTest.bridgeRestart3xSendsNothingBelowCursor")
 {
-    // R-B4-1 / H2: three cold restarts against a core at C = 1000 over a 2000-record journal
+    // H2: three cold restarts against a core at C = 1000 over a 2000-record journal
     for (int restart = 0; restart < 3; ++restart)
     {
         Rig rig(1);
@@ -103,7 +103,7 @@ TEST_CASE("CursorTableTest.holeIsNeverForwarded")
 
 TEST_CASE("CursorTableTest.epochMismatchHalts")
 {
-    // R-B4-2: every source foreign at e (an ME re-genesis): FeedHalt EPOCH_MISMATCH, nothing of the new epoch offered
+    // Every source foreign at e (an ME re-genesis): FeedHalt EPOCH_MISMATCH, nothing of the new epoch offered
     Rig rig(2);
     boundAt(rig.core, 3);
     for (std::size_t i = 0; i < 2; ++i)
@@ -135,7 +135,7 @@ TEST_CASE("CursorTableTest.epochMismatchHalts")
 
 TEST_CASE("CursorTableTest.foreignEpochOnOneSourceFailsOver")
 {
-    // D-S9b-1: one node with an unwiped old-epoch tail is a per-source verdict, not a genesis-only halt
+    // One node with an unwiped old-epoch tail is a per-source verdict, not a genesis-only halt
     Rig rig(2);
     boundAt(rig.core, 3);
     SimRecording &a = rig.archive(0).record();
@@ -259,7 +259,7 @@ TEST_CASE("CursorTableTest.invalidReportsAreRefused")
 
 TEST_CASE("CursorTableTest.staleOldEpochPrefixOnEveryNodeNeverLatchesGenesisOnly")
 {
-    // review NOTE-8 (amended 2026-10-31): every node kept an unwiped older-epoch recording at its chain head. A cold
+    // (amended 2026-10-31): every node kept an unwiped older-epoch recording at its chain head. A cold
     // read meets that foreign prefix before any frame of the bound epoch: it is a stale prefix (BAD), never a
     // re-genesis, so the bridge halts SOURCE_SCHEMA (admin class, reach-cleared) instead of EPOCH_MISMATCH, which the
     // core would latch genesis-only although every node holds the bound epoch's e behind the prefix.

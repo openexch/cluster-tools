@@ -1,5 +1,5 @@
-// BridgeCodec (RC2 S9b 13.11, 13.13-13.16): the translation of S9a 6 through the live Stager + the generated codecs,
-// graded ONLY against bytes the S9h Java harness wrote (feed_frames.inc, fixtures/e1) or the engines' own Java
+// BridgeCodec: the translation of 6 through the live Stager + the generated codecs,
+// graded ONLY against bytes the Java harness wrote (feed_frames.inc, fixtures/e1) or the engines' own Java
 // encoders (golden_frames.inc): C++-produced bytes would confirm themselves.
 #include "doctest/doctest.h"
 
@@ -72,7 +72,7 @@ bool same(const Bytes &a, std::size_t ab, const Bytes &b, std::size_t bb, std::s
     return a.size() >= ab + n && b.size() >= bb + n && std::equal(a.begin() + ab, a.begin() + ab + n, b.begin() + bb);
 }
 
-// S9a 6.3: the memcpy identities (frame offsets) and the permuted head; a test property, not the implementation
+// The memcpy identities (frame offsets) and the permuted head; a test property, not the implementation
 std::string identity(const Bytes &in, const Bytes &out)
 {
     const std::uint16_t t = static_cast<std::uint16_t>(in[2] | (in[3] << 8));
@@ -213,7 +213,7 @@ TEST_CASE("TranslatorE1Test.theCorpusTranslatesExactlyAsTheJavaReferenceDid")
 
 TEST_CASE("RawEnumsAreWrittenVerbatim")
 {
-    // 0..255 on each of the five enum fields and on 63 rejectReason (a plain uint8, FIX-14): out byte == in byte
+    // 0..255 on each of the five enum fields and on 63 rejectReason (a plain uint8): out byte == in byte
     struct Field
     {
         const char *name;
@@ -337,7 +337,7 @@ TEST_CASE("BridgeCodecTest.aRecordOffItsTemplateShapeIsNotEncoded")
     CHECK(codec.encodeTradeBatch(one, 1, out, sizeof(out)) == 0);
 }
 
-// RC2 S9c 12.3: the two egress frames the app reads (OrderReject 101, SettlementApplied 13) against the Java encoders'
+// The two egress frames the app reads (OrderReject 101, SettlementApplied 13) against the Java encoders'
 // goldens, and the O3 / O4 trade getter on the 61 and 62 frames this codec produces (metrics only).
 TEST_CASE("BridgeAppCodecTest.decodeOrderReject101AndSettlementApplied13")
 {

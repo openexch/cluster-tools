@@ -24,7 +24,7 @@
 #include "io_aeron_cluster_codecs/SessionKeepAlive.h"
 #include "io_aeron_cluster_codecs/SessionMessageHeader.h"
 
-// ClusterClient - the production Aeron Cluster session client (RC2 S11, rc2-forwarder.md 2.3).
+// ClusterClient - the production Aeron Cluster session client.
 //
 // A non-blocking state machine mirroring io.aeron.cluster.client.AeronCluster 1.53.1
 // (AsyncConnect + the CONNECTED / AWAIT_NEW_LEADER_CONNECTION / AWAIT_NEW_LEADER /
@@ -62,7 +62,7 @@ struct EgressMessage
 {
     std::int64_t clusterSessionId = -1;
     // The leadership term the service stamped on this frame's SessionMessageHeader (Aeron 1.53.1
-    // ClusteredServiceAgent sets it from every NewLeadershipTermEvent and from recovery). RC2 S12 rule S:
+    // ClusteredServiceAgent sets it from every NewLeadershipTermEvent and from recovery). rule S:
     // an owner that frames replies by arrival order drops a frame of another term than leadershipTermId().
     std::int64_t leadershipTermId = -1;
     std::int64_t timestamp = 0;

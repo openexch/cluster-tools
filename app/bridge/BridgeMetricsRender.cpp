@@ -126,9 +126,9 @@ bool healthHalted(const BridgeSnapshot &s) noexcept
 {
     if (app_seams::disabled(app_seams::Rule::HEALTH_HALTED_FROM_STATE))
     {
-        return db::State::HALTED == s.view.state || db::State::HALTING == s.view.state; // RED shape (S9b 9.1 as written)
+        return db::State::HALTED == s.view.state || db::State::HALTING == s.view.state; // RED shape (as written)
     }
-    return db::BridgeHalt::NONE != s.view.halt; // the halt record (D-S9c-2: a kept halt reads halted while DOWN)
+    return db::BridgeHalt::NONE != s.view.halt; // the halt record (a kept halt reads halted while DOWN)
 }
 
 int healthStatus(const BridgeSnapshot &s, const HttpExtras &x)
@@ -183,8 +183,8 @@ std::string renderHealthJson(const BridgeSnapshot &s, const HttpExtras &x)
         s.view.last, s.view.attached, s.view.degraded, s.registered ? "true" : "false",
         s.view.reportThisTerm ? "true" : "false", s.identity, 0 == readyBits(s, x) ? "true" : "false",
         static_cast<unsigned long long>(s.view.relistsSinceHalt),
-        db::haltDetailName(s.view.haltDetail), // RC2 S17 W12 B1 (additive): FOREIGN_JOURNAL_HEAD or NONE
-        static_cast<unsigned long long>(s.laneAheadFences), s.build); // RC2 S16 W4: the binary's source_sha
+        db::haltDetailName(s.view.haltDetail), // (additive): FOREIGN_JOURNAL_HEAD or NONE
+        static_cast<unsigned long long>(s.laneAheadFences), s.build); // The binary's source_sha
     return body;
 }
 
@@ -416,7 +416,7 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
         "Seconds the core ingress publication or every replay image was refused for storage space (exit 70 after 30 s, S10' Q1)",
         s.app.storageStarvedSeconds);
 
-    // ---- the domain (S9b 12)
+    // ---- the domain
     p.gauge("bridge_halted", "1 while a halt is recorded (also a kept halt while DOWN)", BridgeMetrics::value(m.halted));
     p.gauge("bridge_halt_reason", "BridgeHalt code (0 NONE, 1 GAP, 2 EPOCH_MISMATCH, 3 SOURCE_SCHEMA, 4 CORE_REFUSED)",
         BridgeMetrics::value(m.haltReason));
@@ -432,7 +432,7 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
     {
         p.labelled("bridge_source_verdicts", label("source", std::to_string(i)), BridgeMetrics::value(m.sourceVerdicts[i]));
     }
-    // RC2 S10' 5.4: the halted re-scan's walks past a holed / bad recording, per source
+    // The halted re-scan's walks past a holed / bad recording, per source
     p.family("bridge_halt_relists_total", "counter", "Re-scan walks past a holed or bad recording into later ones (5.1 R1)");
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -479,7 +479,7 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
     p.counter("bridge_recordings_ended_total", "Recordings that ended under the follower", BridgeMetrics::get(m.recordingsEnded));
     p.counter("bridge_source_parks_total", "Switches by the 8.3 park rows", BridgeMetrics::get(m.sourceParks));
 
-    // ---- the archive (S9a 8.1)
+    // ---- the archive
     p.family("bridge_source_attached", "gauge", "1 while the source is attached");
     for (std::size_t i = 0; i < n; ++i)
     {

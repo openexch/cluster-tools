@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-// Core credentials K6 v1, byte-compatible with assets
+// Core credentials v1, byte-compatible with assets
 // com.openexchange.assets.auth.CoreCredentials: [u8 version=1][u8 class][i32 keyId LE]
 // [32 bytes secret] = 38 bytes; spec string "keyId:class:secretHex" with the class by name
 // (case-insensitive) or numeric code; env AE_AUTH_CREDENTIAL. Strict, pure.

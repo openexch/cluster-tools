@@ -1,4 +1,4 @@
-// StagingTest (RC2 S9b 13.2, R-B3-1..3, K3): the staging decision of 6.1 as the live domain runs it.
+// StagingTest: the staging decision of 6.1 as the live domain runs it.
 #include "doctest/doctest.h"
 
 #include "BridgeTestSupport.h"

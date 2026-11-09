@@ -11,13 +11,13 @@
 
 #include "common/DirProbe.h"
 
-// ForwarderConfig - the strict environment of RC2 S12 contract section 9: every variable is required, a
-// missing or malformed one refuses to start (exit 78, F5); both credentials must be of class FORWARDER;
+// ForwarderConfig - the strict environment: every variable is required, a
+// missing or malformed one refuses to start (exit 78); both credentials must be of class FORWARDER;
 // the two response channels must differ unless both use port 0. Everything else (ring, hold, page, timers,
-// poll and drain limits, backoff) is a fixed constant in code (D-S12-9). Pure: the environment is read
+// poll and drain limits, backoff) is a fixed constant in code. Pure: the environment is read
 // through the getter, so the tests need no process environment and WITH_AERON=OFF builds it.
 //
-// RC2 S10' section 8 (checklist C13, not negotiable): the media driver is configurable, one rule with ct-bridge.
+// The media driver is configurable (not negotiable), one rule with ct-bridge.
 //   FWD_DRIVER_MODE       exactly embedded (dev and demo: the C media driver in this process) or external (prod: the
 //                         host aeronmd that admin / cloud-console manage); no default.
 //   AERON_DIR             external only (required there, refused with embedded): an existing directory at the parse.
@@ -26,8 +26,8 @@
 //                         <FWD_DRIVER_DIR>/ct-forwarder-<FWD_INSTANCE_ID> and its lock ct-forwarder-<id>.lock.
 //   FWD_DRIVER_TIMEOUT_MS the shared strict parser (app/common/DriverTimeout.h, 3000..60000), given the raw value (no
 //                         trimming: ' 5000' is refused, as BRIDGE_DRIVER_TIMEOUT_MS): the connect wait, the CnC
-//                         liveness check and the conductor heartbeat threshold; replaces the S12 constant 5000.
-// The directory checks go through a DirProbe (app/common/DirProbe.h, ct-bridge's rule, review C13-3); tests inject one.
+//                         liveness check and the conductor heartbeat threshold; replaces the former constant 5000.
+// The directory checks go through a DirProbe (app/common/DirProbe.h, ct-bridge's rule); tests inject one.
 //   FWD_INSTANCE_ID       1..INT64_MAX, both modes: the embedded dir's id and the identity on BOTH cluster sessions
 //                         (the core's RegisterSession.identity and the clientInfo of both connect requests), replacing
 //                         the random identity per start (a breaking env change, accepted at beta).

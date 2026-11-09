@@ -13,7 +13,7 @@
 #include "AppSeams.h"
 
 // BridgeSnapshot - everything /health, /ready and /metrics show that is not already a relaxed atomic of the domain
-// (BridgeMetrics) or of the archive (ArchiveMetrics) (RC2 S9c sections 4.3, 5.4, 9). Written by the duty thread every
+// (BridgeMetrics) or of the archive (ArchiveMetrics). Written by the duty thread every
 // 100 ms through the StatusBoard (plain data, trivially copyable: a publish allocates nothing), read by bridge-http.
 // Also here: the O3 / O4 latency histograms and the bounded ack map the agent owns (single writer B).
 
@@ -47,7 +47,7 @@ inline constexpr std::uint32_t NO_SOURCE_BEYOND_E = 1u << 11;
 inline constexpr std::uint32_t HOLE_GRACE = 1u << 12;
 inline constexpr std::uint32_t STOPPING = 1u << 13;
 inline constexpr std::uint32_t STALLED = 1u << 14; // main's view, added by the HTTP route
-inline constexpr std::uint32_t STORAGE_STARVED = 1u << 15; // S10' Q1: our publication / replay image refused for storage
+inline constexpr std::uint32_t STORAGE_STARVED = 1u << 15; // Our publication / replay image refused for storage
 inline constexpr int BITS = 16;
 }
 const char *notReadyBitName(int bit) noexcept;
@@ -63,7 +63,7 @@ struct ReadyInputs
     std::int64_t backlogBytes = 0;     // bridge_source_backlog_bytes
     bool anySourceAttached = false;
     bool stopping = false;
-    bool storageStarved = false;       // S10' Q1: the core ingress or every replay image refused for storage space
+    bool storageStarved = false;       // The core ingress or every replay image refused for storage space
     std::chrono::milliseconds reportInterval{ 10'000 };
     std::chrono::milliseconds reportIntervalHalted{ 5'000 };
 };
@@ -196,7 +196,7 @@ struct AppCounters
     std::uint64_t connectClusterErrors = 0;                   // bridge_connect_cluster_error_total
     std::uint64_t connectCycles = 0;                          // bridge_connect_cycles_total (cycles started)
     std::uint64_t connectCyclesFailed = 0;                    // cycles that ended FAILED (retried)
-    std::uint64_t storageStarvedSeconds = 0;                  // bridge_storage_starved_seconds_total (S10' Q1)
+    std::uint64_t storageStarvedSeconds = 0;                  // bridge_storage_starved_seconds_total
     std::uint64_t coreStaleTerm = 0;                          // bridge_core_stale_term_total
     std::uint64_t coreFutureTerm = 0;                         // bridge_core_future_term_total
     std::uint64_t coreMalformed = 0;                          // a core frame shorter than a money header
@@ -208,7 +208,7 @@ struct AppCounters
     std::uint64_t ackMapSkips = 0;                            // bridge_ack_map_skips_total
     std::uint64_t ackUnknown = 0;                             // an ack for a trade not in flight here
     std::uint64_t registrationLost = 0;                       // 6.2 OrderReject UNREGISTERED_SESSION handled
-    std::uint64_t duplicateIdentityRetries = 0;               // S10': RegisterSession re-sent after REJECTED DUPLICATE_IDENTITY
+    std::uint64_t duplicateIdentityRetries = 0;               // RegisterSession re-sent after REJECTED DUPLICATE_IDENTITY
     std::uint64_t sessionUps = 0;                             // onSessionUp calls (= C3 entries)
     std::uint64_t sessionDowns = 0;                           // onSessionDown calls
     std::uint64_t verdictEvents = 0;                          // verdict events drained into the log
@@ -242,7 +242,7 @@ struct BridgeSnapshot
     std::int64_t nowNs = 0;
     std::int64_t identity = 0;
     char version[32] = {};
-    char build[48] = {}; // RC2 S16 W4: the binary's source_sha (compile-time), /health.build
+    char build[48] = {}; // The binary's source_sha (compile-time), /health.build
     std::uint8_t driverMode = 0; // DriverMode
     std::uint8_t coreLink = 0;   // CoreLink
     std::uint8_t clientState = 0;
@@ -252,7 +252,7 @@ struct BridgeSnapshot
     bool stopping = false;
     std::uint32_t notReady = 0;  // bits 0..13 (bit 14 is main's, added by the route)
     domain::bridge::BridgeView view;
-    std::uint64_t laneAheadFences = 0; // RC2 S10' 13: /health detail (bridge_fences_total{trigger="lane_ahead"})
+    std::uint64_t laneAheadFences = 0; // 13: /health detail (bridge_fences_total{trigger="lane_ahead"})
     std::int64_t reportAgeMs = -1;          // from view.lastReportAt (-1: none this session)
     std::int64_t consumedPositionAgeMs = -1; // since view.consumedPosition last changed
     std::int64_t lastForwardAgeMs = -1;

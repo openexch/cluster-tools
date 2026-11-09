@@ -1,4 +1,4 @@
-// RC2 S9c 12.1 AckMapTest: the O4 map is bounded at 2^20 (an overwrite is counted), cleared at a session loss, and an
+// AckMapTest: the O4 map is bounded at 2^20 (an overwrite is counted), cleared at a session loss, and an
 // ack for an unknown trade records nothing; the O3 anomaly bounds (negative, > 1 h, non-positive timestamps).
 #include "doctest/doctest.h"
 

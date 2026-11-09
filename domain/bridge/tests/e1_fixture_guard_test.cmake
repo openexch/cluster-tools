@@ -1,4 +1,4 @@
-# bridge.e1_fixture_guard (RC2 S9b W1): the committed E1 fixtures verify; a scratch copy with one byte edited, a
+# bridge.e1_fixture_guard: the committed E1 fixtures verify; a scratch copy with one byte edited, a
 # regenerated SUMS without a lock bump, an e1.pin naming another capture, a placeholder pin and an unlisted file are
 # each refused for the named reason.
 #   cmake -DCT_SOURCE_DIR=<repo> -DCT_WORK_DIR=<scratch> -P e1_fixture_guard_test.cmake

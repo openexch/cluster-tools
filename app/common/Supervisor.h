@@ -10,16 +10,16 @@
 #include "common/LogRing.h"
 #include "common/StatusBoardT.h"
 
-// Supervisor - main's responsibilities after start (RC2 S12 contract section 3, FIX-8; F2, F3, F14). One copy for
-// ct-forwarder and ct-bridge (RC2 S9c W1, G7): the process name, the thread names, the SIGHUP meaning and the join
+// Supervisor - main's responsibilities after start. One copy for
+// ct-forwarder and ct-bridge: the process name, the thread names, the SIGHUP meaning and the join
 // bound are SupervisorSettings fields; the defaults are the forwarder's, so the forwarder is unchanged.
 //   - a loop on sigtimedwait with a 1 s timeout: SIGTERM / SIGINT set the stop flag, SIGHUP per sighupPolicy
-//     (RESYNC_FLAG: the resync flag, the forwarder's T4; COUNT_ONLY: counted and logged once, the bridge, D-S9c-15);
-//   - every wake: the liveness check of the owner (ct-bridge: the client-conductor heartbeat, 3.4 FIX-5), when set;
-//   - every wake: the duty watchdog (the duty heartbeat must advance within 5 s, else exit 70, F3), the
-//     duty's fatal flag (F2, exit 70), and the LogRing drain to stderr;
+//     (RESYNC_FLAG: the resync flag, the forwarder's T4; COUNT_ONLY: counted and logged once, the bridge);
+//   - every wake: the liveness check of the owner (ct-bridge: the client-conductor heartbeat), when set;
+//   - every wake: the duty watchdog (the duty heartbeat must advance within 5 s, else exit 70), the
+//     duty's fatal flag (exit 70), and the LogRing drain to stderr;
 //   - the stop path: shutdown() of the listening socket so accept() returns, then joins with a 2 s bound
-//     (exit 70 when it is hit, F14);
+//     (exit 70 when it is hit);
 //   - the exit code of the duty body otherwise (0, 75, 78 or 70).
 // The exit itself goes through a seam (production: flush stderr + std::_Exit) so ct_forwarder_main_tests can
 // observe it. Pure POSIX: no Aeron.
@@ -29,22 +29,22 @@ namespace cluster_tools { namespace app { namespace common {
 enum class SighupPolicy : std::uint8_t
 {
     RESYNC_FLAG, // ct-forwarder: SIGHUP sets resyncRequested (T4)
-    COUNT_ONLY   // ct-bridge: SIGHUP is counted (sighupCount) and logged once; no operator resync exists (G1)
+    COUNT_ONLY   // ct-bridge: SIGHUP is counted (sighupCount) and logged once; no operator resync exists
 };
 
 struct SupervisorSettings
 {
     std::int64_t waitNs = 1'000'000'000LL;          // sigtimedwait timeout while running
     std::int64_t stopWaitNs = 50'000'000LL;         // while a stop is in progress
-    std::int64_t watchdogNs = 5'000'000'000LL;      // F3 (both processes, RC2 S9c D-S9c-4)
+    std::int64_t watchdogNs = 5'000'000'000LL;      // (both processes)
     std::int64_t stalledNs = 5'000'000'000LL;       // /health STALLED (the same threshold in production)
-    std::int64_t joinBoundNs = 2'000'000'000LL;     // F14 / F7: per owner (forwarder 2 s, bridge 7 s)
+    std::int64_t joinBoundNs = 2'000'000'000LL;     // Per owner (forwarder 2 s, bridge 7 s)
     SighupPolicy sighupPolicy = SighupPolicy::RESYNC_FLAG;
     const char *processName = "ct-forwarder";      // the exit line and log lines
     const char *threadPrefix = "fwd";              // <prefix>-duty, <prefix>-http (<= 10 characters)
 };
 
-// Review NOTE-5: main drains the LogRing through this writer. It never blocks: a record goes out only when the fd is
+// Main drains the LogRing through this writer. It never blocks: a record goes out only when the fd is
 // writable right now (poll with 0 timeout; a record is < PIPE_BUF, so one write of it cannot block on a pipe), else it is
 // dropped and counted. A stuck stderr can therefore not stall the watchdog or the SIGTERM handling.
 class NonBlockingLogWriter
@@ -78,7 +78,7 @@ public:
     // "ct-forwarder").
     static void exitProcess(int code, const std::string &why);
     static void setProcessName(const char *name) noexcept;
-    // Review NOTE-5: a closed stderr pipe must not kill the process with SIGPIPE (exit 141); writes fail instead.
+    // A closed stderr pipe must not kill the process with SIGPIPE (exit 141); writes fail instead.
     static void ignoreSigpipe();
     static std::int64_t monotonicNs();
 
@@ -95,8 +95,8 @@ public:
     std::atomic<std::int64_t> stopRequestedAtNs{ -1 }; // monotonicNs() of the SIGTERM / SIGINT, -1 before one
     std::atomic<bool> resyncRequested{ false };
     std::atomic<std::uint64_t> sighupCount{ 0 };    // every SIGHUP (COUNT_ONLY: bridge_sighup_ignored_total)
-    std::atomic<int> dutyFatal{ -1 };               // set by the duty wrapper on an escaped exception (F2)
-    std::atomic<int> httpFatal{ -1 };               // set by the fwd-http wrapper on an escaped exception (NOTE-5)
+    std::atomic<int> dutyFatal{ -1 };               // set by the duty wrapper on an escaped exception
+    std::atomic<int> httpFatal{ -1 };               // set by the fwd-http wrapper on an escaped exception
     std::atomic<std::int64_t> lastAdvanceNs{ 0 };   // when the duty heartbeat last advanced (main's view)
 
     // The duty heartbeat age as main last saw it (/health STALLED at >= watchdogNs).

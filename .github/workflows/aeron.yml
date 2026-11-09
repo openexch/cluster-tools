@@ -1,4 +1,4 @@
-# The Aeron-linked build (critic D10): the cluster client, the transport adapters, codegen
+# The Aeron-linked build: the cluster client, the transport adapters, codegen
 # for the cluster protocol + money-schema + order-schema, the codec goldens and every unit
 # test that needs generated code. Separate from ci.yml on purpose: ci.yml stays the fast
 # WITH_AERON=OFF hexagon job on every PR; this one only runs when a path it builds changes.
@@ -9,12 +9,12 @@
 #
 # Not here: the real-cluster integration run (client/it/run-it.sh). It needs assets and match
 # jars built at the pinned commits, and those builds depend on runtime cluster-kit versions
-# that are not published to a registry yet; it runs locally and moves into the fixture (RC2
-# S14) once the runtime jars are artifacts. The archive integration run (archive/it/run-it.sh,
-# RC2 S9a 9.3) is local and in the S14 fixture as well; this job builds its binaries
-# (-DWITH_BRIDGE=ON) and runs the pure, codec-layout and adapter tests. RC2 S12: the forwarder's domain, codec,
+# that are not published to a registry yet; it runs locally and moves into the integration fixture
+# once the runtime jars are artifacts. The archive integration run (archive/it/run-it.sh)
+# is local and in that fixture as well; this job builds its binaries
+# (-DWITH_BRIDGE=ON) and runs the pure, codec-layout and adapter tests. The forwarder's domain, codec,
 # agent (two fake transports), config and supervisor tests and their negative-control tables run here too
-# (forwarder.*); its T1 run (app/forwarder/it/run-forwarder-it.sh) is local like the other integration runs.
+# (forwarder.*); its integration run (app/forwarder/it/run-forwarder-it.sh) is local like the other integration runs.
 name: aeron
 
 on:
@@ -77,7 +77,7 @@ jobs:
           CT_ARTIFACT_BASE_URL: https://github.com/openexch/assets
         run: |
           set -euo pipefail
-          # --harness: WITH_BRIDGE=ON requires the S9h feed harness jar (S9b W1)
+          # --harness: WITH_BRIDGE=ON requires the feed harness jar
           scripts/fetch-deps.sh "${PWD}/deps-cache" --harness > deps.args
           cat deps.args
           echo "args=$(tr '\n' ' ' < deps.args)" >> "$GITHUB_OUTPUT"
@@ -119,7 +119,7 @@ jobs:
       - name: Configure
         run: |
           # shellcheck disable=SC2086 # the args are -D flags, one per word
-          # RC2 S9c / S12: the bridge's and the forwarder's negative controls and tc drills (MainAeronTest.conductorStallExits70)
+          # The bridge's and the forwarder's negative controls and tc drills (MainAeronTest.conductorStallExits70)
           # need the seamed test builds (never published; publish.yml builds without them)
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON -DWITH_BRIDGE=ON -DCT_BRIDGE_TEST_BUILDS=ON \
             -DCT_FORWARDER_TEST_BUILDS=ON \

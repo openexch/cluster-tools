@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_BRIDGE_SETTINGS_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_BRIDGE_SETTINGS_H
 
-// BridgeSettings (RC2 S9b section 4): the defaults are the values of the contract. S9c reads none of them from
+// BridgeSettings: the defaults are the values of the contract. The app reads none of them from
 // the environment (they are not operator knobs); it supplies only `identity` (= BRIDGE_INSTANCE_ID), the source
 // count and the archive's probe interval. Tests shorten the timers.
 

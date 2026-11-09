@@ -6,11 +6,11 @@
 #
 # Usage: scripts/fetch-deps.sh <cache-dir> [--it] [--harness]
 #        --it also fetches the aeron-all jar the archive integration fixture runs on
-#        (archive/it, RC2 S9a 9.3) and prints -DCT_IT_AERON_ALL_JAR=...
-#        --harness also provides the RC2 S9h feed harness jar (assets test scope: the reference translator, serve,
+#        (archive/it) and prints -DCT_IT_AERON_ALL_JAR=...
+#        --harness also provides the feed harness jar (assets test scope: the reference translator, serve,
 #        story, t1-journal, t1-core) and prints -DCT_FEED_HARNESS_JAR=...; it is downloaded from
 #        $CT_ARTIFACT_BASE_URL/<feed_harness_url>, or a local build named by CT_FEED_HARNESS_JAR is accepted when its
-#        sha256 equals feed_harness_sha256 (the lock pins the jar by hash: one core, one jar, S9h 9.2)
+#        sha256 equals feed_harness_sha256 (the lock pins the jar by hash: one core, one jar)
 # Prints the cmake arguments to use on stdout, e.g.
 #   -DAERON_TARBALL=<cache>/aeron-1.53.1.tar.gz -DSBE_CLASSPATH=<cache>/sbe-tool-1.40.1.jar:<cache>/agrona-2.5.0.jar
 # The CMake configure re-hashes every one of them (cmake/VerifiedDependencies.cmake) and

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# RC2 S10' contract 7.1 item 5 / 7.2 O-F5 (S12 11.4 O-F5, first-apply order at N = 2): joins the core tap's dispatch map
-# (T1CoreDriver capture: "dispatchSeq commandIdHigh commandIdLow kind receiveMs" per BROADCAST MeDispatch) with the ME
+# O-F5 (O-F5, first-apply order at N = 2): joins the core tap's dispatch map
+# (ItCoreDriver capture: "dispatchSeq commandIdHigh commandIdLow kind receiveMs" per BROADCAST MeDispatch) with the ME
 # journal (ct-journal-tail --hex FRAME lines) and checks that record 3 `appliedPosition` is ascending in dispatchSeq.
 # Run with `python3 -I` (no site, no cwd on sys.path).
 #
-#   of5-check.py <dispatch.map> <journal.txt> [--load "LOAD sent=N rejects=R"] [--window <startMs> <endMs>]
+#   first-apply-check.py <dispatch.map> <journal.txt> [--load "LOAD sent=N rejects=R"] [--window <startMs> <endMs>]
 #                [--shuffle [--seed S]]
 #
 # Record 3 (ME journal schema 4 CommandOutcome, block 153; frame offset = 8 B header + field offset):
 #   commandIdHigh @32, commandIdLow @40, appliedPosition @103 (int64), result @136 (int32: 3 CAPACITY, 7 RELEASED).
-# The first record 3 of an id in journal order is its first apply. Exempt (S12 7.1): every id with a CAPACITY record 3
+# The first record 3 of an id in journal order is its first apply. Exempt: every id with a CAPACITY record 3
 # (re-offered after a T3, it applies after higher seqs) and, with --window, every id whose broadcast arrived inside the
 # declared ME-leader-change window [startMs, endMs] (commands truncated by the election, re-sent after newer ones).
 # Exempt ids are removed from the sequence entirely (an exempt id applied late must not raise the running maximum).
@@ -20,7 +20,7 @@
 # lines>". Named lines: "0 inversions" (inversions > 0), "every captured template-9 id has a record 3", "count >= sent
 # - rejects", "the map is dense", "some ids are checked" (checked > 0: no joined id outside every exemption makes the
 # check vacuous) and, with --window, "the window holds template-9 ids" (windowIds > 0: no dispatch crossed the declared
-# leader change; review F4). With --window a LOADSTART line records the first template-9 receiveMs against the window
+# leader change). With --window a LOADSTART line records the first template-9 receiveMs against the window
 # start. --shuffle (the negative control) permutes the positions of the checked ids before the
 # check (seeded, default 1): the "0 inversions" line must FAIL. Exit 0 PASS, 1 FAIL, 64 usage, 65 unreadable input.
 import random
@@ -33,7 +33,7 @@ TEMPLATE9_KINDS = (0, 1, 2)
 
 
 def usage(msg):
-    print("usage: of5-check.py <dispatch.map> <journal.txt> [--load \"LOAD sent=N rejects=R\"] "
+    print("usage: first-apply-check.py <dispatch.map> <journal.txt> [--load \"LOAD sent=N rejects=R\"] "
           "[--window <startMs> <endMs>] [--shuffle [--seed S]]: %s" % msg)
     sys.exit(64)
 

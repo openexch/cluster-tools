@@ -1,17 +1,17 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_TESTS_BRIDGE_TEST_SUPPORT_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_TESTS_BRIDGE_TEST_SUPPORT_H
 
-// Test doubles for the bridge domain (RC2 S9b section 13 preamble):
+// Test doubles for the bridge domain (preamble):
 //   FakeEncoder  encodes {template, seq, epoch, egressSeq, flag} per record (flag = the record's LAST byte, so a
 //                truncated staging copy and a poisoned copy are both visible to the stub core);
 //   StubCore     a scriptable CorePort and an in-memory core with a dense cursor modelled on the real core's
 //                admit (AE 1396-1460): binds on a 68 at seq 1 with meEpoch = genesisId, SettleRejected FEED_GAP /
-//                FEED_UNBOUND / ME_EPOCH_MISMATCH like D1, decode poison latches SOURCE_SCHEMA with NO SettleRejected,
+//                FEED_UNBOUND / ME_EPOCH_MISMATCH like the core, decode poison latches SOURCE_SCHEMA with NO SettleRejected,
 //                a 4.2 refusal latches SETTLE_REFUSED with a SettleRejected, a 62 applies entry by entry and stops
 //                at the first refusal, FeedHalt answered per D3a, a v1/v2 phase that drops 68 and 66 and reports
 //                0/0/NONE, an uncommitted tail lost at an election, and queries answered in log order;
-//   SimSources   S9a's SourceSet semantics (switchTo / reattach) over SimArchive followers, pure;
-//   Rig          the frozen duty iteration of section 3 over all of the above, on a manual clock.
+//   SimSources SourceSet semantics (switchTo / reattach) over SimArchive followers, pure;
+//   Rig          the frozen duty iteration of over all of the above, on a manual clock.
 
 #include "SimArchive.h"
 #include "TestSupport.h"
@@ -242,8 +242,8 @@ struct StubCore : CorePort
     // state
     std::int64_t bound = 0;
     std::int64_t cursor = 0;
-    std::int64_t consumePosition = 0; // P: the highest egressSeq applied (D1 row 6)
-    int rc1Applied = 0;               // behaviour 1/2: 61-64 settle on the RC1 path, the feed cursor stays 0
+    std::int64_t consumePosition = 0; // P: the highest egressSeq applied (row 6)
+    int rc1Applied = 0;               // behaviour 1/2: 61-64 settle on the path, the feed cursor stays 0
     std::uint8_t latch = 0;
     std::int64_t latchExpected = 0, latchSeen = 0, latchClearAt = 0;
     std::map<std::int64_t, std::uint64_t> digests;
@@ -426,7 +426,7 @@ struct StubCore : CorePort
             }
             else
             {
-                setLatch(1, 1, s, s - 1); // D2 row 3: a hole at 1, reach-cleared at c >= seen - 1 like any GAP
+                setLatch(1, 1, s, s - 1); // Row 3: a hole at 1, reach-cleared at c >= seen - 1 like any GAP
             }
             return false;
         }
@@ -469,7 +469,7 @@ struct StubCore : CorePort
         }
         if (r.egress < consumePosition)
         {
-            setLatch(3, cursor + 1, s, cursor + 1); // D1 row 6: the ME rewound inside its epoch, skip 0, no reject
+            setLatch(3, cursor + 1, s, cursor + 1); // Row 6: the ME rewound inside its epoch, skip 0, no reject
             return false;
         }
         if (FLAG_POISON == r.flag || refuseSeqs.count(s))
@@ -562,7 +562,7 @@ struct StubCore : CorePort
         {
             if (!v3 && T_ME_ENGINE_CONFIG != f.moneyTemplate && !silentDrop)
             {
-                ++rc1Applied; // behaviour 1/2: 61-64 apply on the RC1 path (no feed cursor, reports stay 0/0/NONE)
+                ++rc1Applied; // behaviour 1/2: 61-64 apply on the path (no feed cursor, reports stay 0/0/NONE)
             }
             lost();
             return; // behaviour 1/2: 68 unhandled; a silent drop leaves no trace
@@ -609,7 +609,7 @@ struct StubCore : CorePort
     }
 };
 
-// ------------------------------------------------------------------ S9a's SourceSet semantics, pure
+// ------------------------------------------------------------------ SourceSet semantics, pure
 
 struct SimSources
 {
@@ -707,7 +707,7 @@ struct Rig
 
     SimArchive &archive(std::size_t i) { return *sources.archives[i]; }
 
-    // FIX-1 of the 2026-10-31 review: an egress latency. With lag > 0 every event the core emitted reaches the domain
+    // An egress latency (2026-10-31 review). With lag > 0 every event the core emitted reaches the domain
     // `lag` duty iterations later (a Raft commit plus the egress hop), never before the next poll
     int lag = 0;
     long stepNo = 0;

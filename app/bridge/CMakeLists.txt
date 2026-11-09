@@ -1,4 +1,4 @@
-# app/bridge - ct-bridge, the RC2 S9c production C++ settlement bridge.
+# app/bridge - ct-bridge, the production C++ settlement bridge.
 #
 # Every configuration (the WITH_AERON=OFF fast job included):
 #   ct_bridge_pure / _seamed   BridgeConfig (strict env), BridgeMetricsRender (/health /ready /metrics, readiness), the
@@ -12,10 +12,10 @@
 #   ct_bridge_main_aeron_tests startSequenceBothModes, conductorStallExits70 (a real driver)
 #   ct_bridge_e3_app_tests     12.6 E3 through the agent with serve as the core (needs the harness jar)
 # CT_BRIDGE_TEST_BUILDS (never published; publish.yml refuses them):
-#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl / ct_bridge_nc_legacy / ct_bridge_nc_noepoch (S16), ct_bridge_tc_driverstall / _tc_conductorstall;
-#   RC2 S10': ct_bridge_nc_noconfirm / _nc_rotatepast / _nc_haltedparks / _nc_haltkeep / _nc_nosuccessor / _nc_noschemarescan,
+#   ct_bridge_nc_nofence / _nc_norotation / ct_bridge_negctl / ct_bridge_nc_legacy / ct_bridge_nc_noepoch, ct_bridge_tc_driverstall / _tc_conductorstall;
+#   ct_bridge_nc_noconfirm / _nc_rotatepast / _nc_haltedparks / _nc_haltkeep / _nc_nosuccessor / _nc_noschemarescan,
 #   ct_bridge_tc_slowhalt
-#   (ct_bridge_nc_mtu1408, the R-K6 wire RED, is retired: review NOTE-2, contract 19.5)
+#   (ct_bridge_nc_mtu1408, the wire RED, is retired)
 #
 # The domain, codec and app seam flavours are chosen by each final target (production or seamed), never by a library,
 # so a binary holds exactly one copy of each.
@@ -67,7 +67,7 @@ if(WITH_AERON AND WITH_BRIDGE)
     if(NOT CT_BUILD_MEDIA_DRIVER)
         message(FATAL_ERROR "ct-bridge (WITH_BRIDGE) needs CT_BUILD_MEDIA_DRIVER=ON: the embedded driver mode links aeron_driver_static")
     endif()
-    # The embedded driver: app/common/EmbeddedDriver.cpp (one copy with ct-forwarder, RC2 S10' 8.2 rule 4; compiled into
+    # The embedded driver: app/common/EmbeddedDriver.cpp (one copy with ct-forwarder; compiled into
     # each final target, never a library, so the link order below holds) over aeron_driver_static of the verified tree (it carries the C client too; it is linked first so
     # the client symbols resolve from it and nothing of aeron_static is pulled twice). The ldd allowlist gains nothing.
     function(ct_bridge_binary name pure domain codec archive)
@@ -104,14 +104,14 @@ if(WITH_AERON AND WITH_BRIDGE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls.txt")
         set_tests_properties(bridge.app_negative_controls PROPERTIES TIMEOUT 3600
             ENVIRONMENT "CT_BRIDGE_AGENT_PROPERTY_RUNS=200")
-        # RC2 S15 review F2: the nc_legacy control's own behaviour (seam forced on), pinned by ctest; the REQUIRE variable
+        # The nc_legacy control's own behaviour (seam forced on), pinned by ctest; the REQUIRE variable
         # makes the case fail instead of returning early if the seam does not engage
         add_test(NAME bridge.app_nc_legacy_control
             COMMAND ct_bridge_app_tests --test-case=BridgeAgentTest.legacyControlLosesOnlyTheOutcomeCommandId --no-colors=true)
         set_tests_properties(bridge.app_nc_legacy_control PROPERTIES TIMEOUT 600
             ENVIRONMENT "CT_TEST_DISABLE_NEGCTL_DROP_RECORD_3=1;CT_TEST_REQUIRE_NEGCTL_DROP_RECORD_3=1")
 
-        # RC2 S16 W4: the nc_noepoch control's own behaviour (seam forced on), pinned by ctest
+        # The nc_noepoch control's own behaviour (seam forced on), pinned by ctest
         add_test(NAME bridge.app_nc_noepoch_control
             COMMAND ct_bridge_app_tests --test-case=BridgeAgentTest.noEpochControlSkipsAForeignSeqAtOrBelowTheCursor --no-colors=true)
         set_tests_properties(bridge.app_nc_noepoch_control PROPERTIES TIMEOUT 600
@@ -208,17 +208,17 @@ if(WITH_AERON AND WITH_BRIDGE)
         ct_bridge_binary(ct_bridge_negctl ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_negctl PRIVATE CT_BRIDGE_NC_PRESET="NEGCTL_DROP_RECORDS_2_3")
-        # RC2 S15 W4 (PO-3, PO-3b): the legacy translator control. Trades and terminals translate; the outcome (record 3)
+        # The legacy translator control. Trades and terminals translate; the outcome (record 3)
         # reaches the core with a never-issued command id, same journal seq (a hole would latch the core FEED_GAP).
         ct_bridge_binary(ct_bridge_nc_legacy ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_nc_legacy PRIVATE CT_BRIDGE_NC_PRESET="NEGCTL_DROP_RECORD_3")
-        # RC2 S16 W4 (F-S16-3, RED-A04): the epoch check off (BDM row 1); the fresh ME's seqs at or below the cursor are
+        # The epoch check off (the domain's first decision row); the fresh ME's seqs at or below the cursor are
         # skipped by row 2, nothing halts. Test build only: publish.yml refuses it like its siblings.
         ct_bridge_binary(ct_bridge_nc_noepoch ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_nc_noepoch PRIVATE CT_BRIDGE_NC_PRESET="EPOCH_CHECK_OFF")
-        # RC2 S10' Q1: the tmpfs-starved-nc RED (storage starvation never ends the process)
+        # The tmpfs-starved-nc RED (storage starvation never ends the process)
         ct_bridge_binary(ct_bridge_nc_storagekeep ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_nc_storagekeep PRIVATE CT_BRIDGE_NC_PRESET="STORAGE_STARVED_EXIT_OFF")
@@ -228,7 +228,7 @@ if(WITH_AERON AND WITH_BRIDGE)
         ct_bridge_binary(ct_bridge_tc_conductorstall ct_bridge_pure_seamed ct_bridge_domain_seamed ct_bridge_codec_seamed
             ct_archive_aeron_seamed)
         target_compile_definitions(ct_bridge_tc_conductorstall PRIVATE CT_BRIDGE_TC_CONDUCTORSTALL=1)
-        # RC2 S10' (contract 3.3, 4.3, 5.3): the T1-N2 / halt / F-1 controls and the stale-FeedHalt timing device
+        # The N = 2 / halt controls and the stale-FeedHalt timing device
         foreach(nc IN ITEMS "noconfirm:HALT_CONFIRM_OFF" "rotatepast:ROTATE_PAST_CURSOR"
                 "haltedparks:HALTED_IGNORES_REPORT_RULES" "haltkeep:HALT_KEEP_ALWAYS" "nosuccessor:SUCCESSOR_WALK_OFF"
                 "noschemarescan:SCHEMA_RESCAN_OFF" "tc_slowhalt:FEEDHALT_PROMPT")

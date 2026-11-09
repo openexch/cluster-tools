@@ -1,4 +1,4 @@
-# The RED column of RC2 S10' 8.3 for ct_forwarder_main_aeron_tests (real drivers, the real binaries; the app seams of
+# The RED column for ct_forwarder_main_aeron_tests (real drivers, the real binaries; the app seams of
 # AppSeams.h through ct_forwarder_pure_seamed and the seamed tc build).
 MainAeronTest.embeddedDirIsPerInstance|EMBEDDED_DIR_PER_PID|the embedded driver dir per pid: a stale sibling is left behind|CHECK( reclaimed )
 MainAeronTest.heldInstanceLockRefusesTheStart|EMBEDDED_INSTANCE_LOCK|no instance lock: a second same-id start reclaims the dir under the holder|CHECK( refused )

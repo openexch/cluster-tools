@@ -1,15 +1,15 @@
-// RC2 S9c 12.2 ct_bridge_main_aeron_tests (WITH_AERON, real media drivers; the processes are the real binaries):
+// ct_bridge_main_aeron_tests (WITH_AERON, real media drivers; the processes are the real binaries):
 //   startSequenceBothModes  external: no driver started, connectAeron(AERON_DIR); no driver there = exit 70 after the
 //                           driver timeout. embedded: the per-instance dir is created and deleted, a stale dir of a
 //                           killed earlier run is reused and cleaned (bridge_driver_dir_reclaimed_total 1), a second
 //                           same-id instance = 78 on the lock, a per-instance path that is not a directory = 78 (RED
 //                           EMBEDDED_DIR_PER_PID on the in-process EmbeddedDriver)
 //   startSequenceBothModes.embeddedLiveDriverInDir  a LIVE driver in ct-bridge-<id> with no lock held: 78 with "a LIVE
-//                           media driver is already in" on 3 attempts, the dir and the driver kept (S10' review C13-1: the
+//                           media driver is already in" on 3 attempts, the dir and the driver kept (the
 //                           lock refuses every other same-id case before this check runs; its RED EMBEDDED_LIVE_CHECK is
 //                           the forwarder's in-process MainAeronTest.liveDriverInDirRefusesTheStart, the code is one copy)
 //   sameIdStartsAreSerialised  two same-id embedded processes in the same instant, 5 times (stale dir / no dir): one
-//                           live driver, one 78, the live dir kept (the instance lock, Q3)
+//                           live driver, one 78, the live dir kept (the instance lock)
 //   heldInstanceLockRefusesTheStart  in-process: a held <dir>.lock refuses the start and leaves a stale dir untouched
 //                           (RED EMBEDDED_INSTANCE_LOCK)
 //   conductorStallExits70   ct_bridge_tc_conductorstall on a live aeronmd: SIGUSR2 parks the client conductor; exit 70
@@ -283,7 +283,7 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.externalOnAHostDriver")
 {
     const std::string dir = workDir("ext-host");
     Process aeronmd = startAeronmd(dir + "/aeron", dir + "/aeronmd.log");
-    // at the floor of BRIDGE_DRIVER_TIMEOUT_MS (3000, review FIX-2): a live host driver is never read as dead; alive with
+    // at the floor of BRIDGE_DRIVER_TIMEOUT_MS (3000): a live host driver is never read as dead; alive with
     // /health 200 for 60 s (at 1000 the CnC heartbeat cadence of 1 s ends it with a spurious 70)
     Process bridge = spawn(CT_BRIDGE_BINARY, {}, bridgeEnv("external", dir + "/aeron", 3000), dir + "/bridge.log");
     const int port = httpPort(bridge);
@@ -330,7 +330,7 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embedded")
         CHECK(*code == 0);
         CHECK(!fs::exists(instanceDir));
     }
-    // kill -9: the dir stays behind; the restart reuses and cleans it (no dead sibling on the tmpfs, FIX-1)
+    // kill -9: the dir stays behind; the restart reuses and cleans it (no dead sibling on the tmpfs)
     {
         Process bridge = spawn(CT_BRIDGE_BINARY, {}, bridgeEnv("embedded", dir, 5000), dir + "/../bridge-emb-2.log");
         REQUIRE(httpPort(bridge) > 0);
@@ -366,7 +366,7 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embedded")
         REQUIRE(code.has_value());
         CHECK(*code == 0);
     }
-    // a per-instance path that cannot be the driver dir: 78 (host configuration, FIX-12)
+    // a per-instance path that cannot be the driver dir: 78 (host configuration)
     {
         std::ofstream(instanceDir) << "not a directory";
         Process bridge = spawn(CT_BRIDGE_BINARY, {}, bridgeEnv("embedded", dir, 5000), dir + "/../bridge-emb-5.log");
@@ -417,7 +417,7 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.embeddedLiveDriverInDir")
 
 TEST_CASE("MainAeronTest.sameIdStartsAreSerialised")
 {
-    // Q3 (coordinator decision 2026-11-01): two embedded ct-bridge processes with the same BRIDGE_INSTANCE_ID started in
+    // Same-id serialisation: two embedded ct-bridge processes with the same BRIDGE_INSTANCE_ID started in
     // the same instant give exactly one live driver and one exit 78, and the running driver dir is never deleted.
     // Five attempts: even ones over a stale dir (a killed driver's: without the lock both would wait out the live check,
     // both read it stale and both reclaim it, the second deleting the first's live dir), odd ones over no dir.

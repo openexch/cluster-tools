@@ -74,7 +74,7 @@ std::int64_t randomIdentity()
     {
         v = (static_cast<std::uint64_t>(device()) << 32) ^ device();
     }
-    return static_cast<std::int64_t>(v & 0x7FFF'FFFF'FFFF'FFFFULL) | 1; // non-zero, positive (the S12 shape)
+    return static_cast<std::int64_t>(v & 0x7FFF'FFFF'FFFF'FFFFULL) | 1; // non-zero, positive (the earlier shape)
 }
 
 }
@@ -161,7 +161,7 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProb
     c.meCredentials = credential(getenv, "ME_AUTH_CREDENTIAL", e);
     c.ingressChannel = required(getenv, "FWD_INGRESS_CHANNEL", e);
 
-    // RC2 S10' 8.2 rule 1: the driver mode first, then its keys, strict in both directions (C13)
+    // The driver mode first, then its keys, strict in both directions (C13)
     const std::string mode = trimmed(getenv("FWD_DRIVER_MODE"));
     if ("embedded" == mode)
     {
@@ -173,7 +173,7 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProb
     }
     else if (mode.empty() && app_seams::disabled(app_seams::Rule::DRIVER_MODE_DEFAULT_EXTERNAL))
     {
-        c.driverMode = DriverMode::EXTERNAL; // RED shape: a missing mode becomes external (the S12 behaviour)
+        c.driverMode = DriverMode::EXTERNAL; // RED shape: a missing mode becomes external (the earlier behaviour)
     }
     else if (mode.empty())
     {
@@ -226,7 +226,7 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProb
         }
     }
     // 8.2 rule 2: the shared strict parser on the raw value, as ct-bridge (TIMEOUT_CONSTANT RED: a missing key falls back
-    // to the S12 constant 5000)
+    // to the former constant 5000)
     {
         const char *raw = getenv("FWD_DRIVER_TIMEOUT_MS");
         if ((nullptr == raw || '\0' == *raw) && app_seams::disabled(app_seams::Rule::TIMEOUT_CONSTANT))

@@ -1,8 +1,8 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_INFLIGHT_RING_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_INFLIGHT_RING_H
 
-// The in-flight ring and the recording key table (RC2 S9b 6.2, cpp 2.5 as amended by S9a 5.2 rule 2): every
-// record whose offer returned OK, ascending in seq (G1), until a report with C' >= seq pops it and proves it on
+// The in-flight ring and the recording key table (as amended): every
+// record whose offer returned OK, ascending in seq, until a report with C' >= seq pops it and proves it on
 // the memo of the source it was read from (never another source). Preallocated; nothing allocates after
 // construction.
 
@@ -26,7 +26,7 @@ struct RingEntry
 };
 static_assert(sizeof(RingEntry) == 24);
 
-// The largest single push (a 62 at the cap): "full" means fewer free slots than this (review N-4).
+// The largest single push (a 62 at the cap): "full" means fewer free slots than this.
 inline constexpr std::size_t RING_PUSH_MAX = 64;
 
 class InflightRing

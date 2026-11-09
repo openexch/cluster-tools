@@ -51,8 +51,8 @@ jobs:
       # also require (the poc never noticed: its LD_LIBRARY_PATH covered the whole
       # aeron build tree). The box has no aeron libraries of its own; everything
       # else must resolve to stock system libs, which the closure check enforces.
-      # RC2 S12: ct-forwarder, the production forwarder (exit 78 on a missing env is its start smoke below).
-      # RC2 S9c: ct-bridge, the production settlement bridge (the embedded driver mode links aeron_driver_static from the
+      # ct-forwarder, the production forwarder (exit 78 on a missing env is its start smoke below).
+      # ct-bridge, the production settlement bridge (the embedded driver mode links aeron_driver_static from the
       # same verified tree: no new shared library; the same start smoke).
       FILES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so
       # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
@@ -96,7 +96,7 @@ jobs:
           CT_ARTIFACT_BASE_URL: https://github.com/openexch/assets
         run: |
           set -euo pipefail
-          # --harness: WITH_BRIDGE (ct-bridge) requires the S9h feed harness jar the lock pins (feed_harness_url)
+          # --harness: WITH_BRIDGE (ct-bridge) requires the feed harness jar the lock pins (feed_harness_url)
           scripts/fetch-deps.sh "${PWD}/deps-cache" --harness > deps.args
           echo "args=$(tr '\n' ' ' < deps.args)" >> "$GITHUB_OUTPUT"
 
@@ -177,7 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir dist
-          # RC2 S12: the negative-control and test-corruption forwarders are never published. This build does not
+          # The negative-control and test-corruption forwarders are never published. This build does not
           # set CT_FORWARDER_TEST_BUILDS, so they must not exist; and nothing in FILES may name them.
           if find build -type f -name 'ct_forwarder_nc_*' -o -type f -name 'ct_forwarder_tc_*' | grep -q .; then
             echo "::error::a ct_forwarder_nc_*/ct_forwarder_tc_* test build is in the publish tree"; exit 1
@@ -185,7 +185,7 @@ jobs:
           if echo " ${FILES} " | grep -qE 'ct_forwarder_(nc|tc)_'; then
             echo "::error::FILES names a forwarder test build"; exit 1
           fi
-          # RC2 S9c: the same for the bridge's negative-control and test-corruption builds (CT_BRIDGE_TEST_BUILDS is not set)
+          # The same for the bridge's negative-control and test-corruption builds (CT_BRIDGE_TEST_BUILDS is not set)
           if find build -type f \( -name 'ct_bridge_nc_*' -o -name 'ct_bridge_tc_*' -o -name 'ct_bridge_negctl' \) | grep -q .; then
             echo "::error::a ct_bridge_nc_*/ct_bridge_tc_*/ct_bridge_negctl test build is in the publish tree"; exit 1
           fi
@@ -233,11 +233,11 @@ jobs:
           done
           # And they actually start. switch-behavior: usage path exits 0.
           ./switch-behavior --help >/dev/null
-          # ct-forwarder: strict env (RC2 S12 section 9): no environment = refuse to start with 78 (F5).
+          # ct-forwarder: strict env: no environment = refuse to start with 78.
           rc=0
           env -i ./ct-forwarder >/dev/null 2>&1 || rc=$?
           [ "$rc" -eq 78 ] || { echo "::error::ct-forwarder without env exited $rc, expected 78"; exit 1; }
-          # ct-bridge: strict env (RC2 S9c section 8): no environment = refuse to start with 78 and name the keys
+          # ct-bridge: strict env: no environment = refuse to start with 78 and name the keys
           rc=0
           env -i ./ct-bridge > bridge-smoke.txt 2>&1 || rc=$?
           [ "$rc" -eq 78 ] || { echo "::error::ct-bridge without env exited $rc, expected 78"; exit 1; }

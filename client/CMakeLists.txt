@@ -1,4 +1,4 @@
-# client - the shared C++ cluster client (RC2 S11): forwarder and bridge both build on it.
+# client - the shared C++ cluster client: forwarder and bridge both build on it.
 #
 # ct_client_core   pure parts (endpoints, credentials, backoff, settings, vocabulary): no
 #                  Aeron, no SBE; builds and tests in the default WITH_AERON=OFF build.

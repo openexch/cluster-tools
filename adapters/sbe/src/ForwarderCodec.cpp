@@ -27,7 +27,7 @@ namespace cluster_tools { namespace sbe_adapter { namespace forwarder_codec {
 namespace money = com::openexchange::assets::infrastructure::generated;
 namespace me = com::match::infrastructure::generated;
 
-// The schemas this codec was written against (contract 5.1/5.2). A schema change that moves a field fails
+// The schemas this codec was written against. A schema change that moves a field fails
 // the build here, not on the wire.
 static_assert(money::MessageHeader::sbeSchemaId() == MONEY_SCHEMA_ID);
 static_assert(money::MessageHeader::sbeSchemaVersion() == MONEY_VERSION);
@@ -69,7 +69,7 @@ static_assert(money::MeDispatch::budgetEncodingOffset() == 71);
 static_assert(money::MeDispatch::timeInForceEncodingOffset() == 79);
 static_assert(money::MeDispatch::releaseScopeEncodingOffset() == 80);
 static_assert(money::MeDispatch::expectedOldRemainingEncodingOffset() == 81);
-// Review NOTE-7: every 105 entry offset too (readEntry reads both forms at these offsets).
+// Every 105 entry offset too (readEntry reads both forms at these offsets).
 static_assert(money::MeDispatchBatch::Dispatches::dispatchSeqEncodingOffset() == 0);
 static_assert(money::MeDispatchBatch::Dispatches::commandIdHighEncodingOffset() == 8);
 static_assert(money::MeDispatchBatch::Dispatches::commandIdLowEncodingOffset() == 16);
@@ -87,7 +87,7 @@ static_assert(money::MeDispatchBatch::Dispatches::timeInForceEncodingOffset() ==
 static_assert(money::MeDispatchBatch::Dispatches::releaseScopeEncodingOffset() == 80);
 static_assert(money::MeDispatchBatch::Dispatches::expectedOldRemainingEncodingOffset() == 81);
 
-// RC2 S13 contract 4.2 / 11.3: the book egress layouts the raw reads below use. A schema change that moves a field
+// The book egress layouts the raw reads below use. A schema change that moves a field
 // fails the build here, not on the wire. (CodecLayoutTest pins the same numbers from the test side.)
 static_assert(me::BookSnapshot::sbeTemplateId() == T_BOOK_SNAPSHOT);
 static_assert(me::BookDelta::sbeTemplateId() == T_BOOK_DELTA);

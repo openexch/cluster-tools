@@ -457,7 +457,7 @@ StartResult ArchiveSource::startReplay(const ReplayRequest &request)
     try
     {
         // The C aeron_archive_replay helper is not used: it sends the channel verbatim and a port-0
-        // endpoint reaches the archive unresolved (contract 1.4, cHelperSendsPortZeroUnresolved).
+        // endpoint reaches the archive unresolved (cHelperSendsPortZeroUnresolved).
         m_lastReplayChannel = "aeron:udp?endpoint=" + request.endpoint;
         ac::ReplayParams params;
         params.position(request.from).length(request.length);

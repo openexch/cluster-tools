@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_DOMAIN_BRIDGE_VERDICTS_H
 #define CLUSTER_TOOLS_DOMAIN_BRIDGE_VERDICTS_H
 
-// Failover (RC2 S9b section 8): the per-source verdicts at the current e (8.1) and the decision when every source
+// Failover: the per-source verdicts at the current e (8.1) and the decision when every source
 // has one (8.3, rows 1-6) as a pure function. Rotation, the dwell, the timers and the confirming report live in
 // BridgeDomain, which owns the clock and the commands.
 

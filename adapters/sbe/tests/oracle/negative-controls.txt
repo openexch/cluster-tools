@@ -1,4 +1,4 @@
-# The RED column of RC2 S9b 13.17 (3 stories per class in a negative-control run). "CORE STATE:" marks a failure the
+# The RED column of the oracle tests (3 stories per class in a negative-control run). "CORE STATE:" marks a failure the
 # real core's own state shows (latch, cursor, hash, the L line), not the bridge-side ascending-offer check.
 RealCoreOracleTest.theRealCoreEndsInTheCleanStateAcrossRestartsElectionsAndPartialHoles|FORWARD_GREATER|a hole on one source is forwarded: the core latches GAP|CORE STATE:
 RealCoreOracleTest.theRealCoreEndsInTheCleanStateAcrossRestartsElectionsAndPartialHoles|FENCE_OFF|offers continue after an election lost the tail|CORE STATE:

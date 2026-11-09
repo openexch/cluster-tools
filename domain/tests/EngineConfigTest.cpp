@@ -59,7 +59,7 @@ EngineConfig validDirect()
     config.maxOrdersPerLevel = 64;
     config.behaviorVersion = 2;
     config.commandLedgerCapacity = 1;
-    config.genesisId = 1; // the lower bound of [1, 2^63-1] (A7)
+    config.genesisId = 1; // the lower bound of [1, 2^63-1]
     config.maxWireVersion = 11;
     config.markets = { btc() };
     return config;
@@ -92,7 +92,7 @@ TEST_CASE("configVersion must be a positive uint32 (tool-side rule)")
     CHECK_FALSE(invalidReason(config).empty());
 }
 
-TEST_CASE("behaviorVersion must be in [1, UINT32_MAX] (tool-side, RC2 S1)")
+TEST_CASE("behaviorVersion must be in [1, UINT32_MAX] (tool-side)")
 {
     EngineConfig config = validArray();
     config.behaviorVersion = 0;
@@ -105,7 +105,7 @@ TEST_CASE("behaviorVersion must be in [1, UINT32_MAX] (tool-side, RC2 S1)")
     CHECK(invalidReason(config).find("behaviorVersion=") == 0);
 }
 
-TEST_CASE("commandLedgerCapacity must be in [1, UINT32_MAX] (tool-side, RC2 S1)")
+TEST_CASE("commandLedgerCapacity must be in [1, UINT32_MAX] (tool-side)")
 {
     EngineConfig config = validArray();
     config.commandLedgerCapacity = 0;
@@ -120,7 +120,7 @@ TEST_CASE("commandLedgerCapacity must be in [1, UINT32_MAX] (tool-side, RC2 S1)"
     CHECK(invalidReason(config).find("commandLedgerCapacity=") == 0);
 }
 
-TEST_CASE("genesisId must be at least 1 and at most 2^63-1 (tool-side RC2 S1 and A7 2026-11-01)")
+TEST_CASE("genesisId must be at least 1 and at most 2^63-1 (tool-side since 2026-11-01)")
 {
     EngineConfig config = validArray();
     config.genesisId = 0;
@@ -136,7 +136,7 @@ TEST_CASE("genesisId must be at least 1 and at most 2^63-1 (tool-side RC2 S1 and
     CHECK(invalidReason(config).find("genesisId=-9223372036854775808 must be in [1, 2^63-1]") == 0);
 }
 
-TEST_CASE("maxWireVersion must be in [11, 12] (tool-side, RC2 S1)")
+TEST_CASE("maxWireVersion must be in [11, 12] (tool-side)")
 {
     EngineConfig config = validArray();
     config.maxWireVersion = 0; // what a pre-12 frame decodes as; never a valid ceiling to send

@@ -1,8 +1,8 @@
 #!/bin/bash
-# RC2 S9c W6: the T1-BR drills R-K0..R-K13 (contract 12.4) on real processes, one host, serial, each drill on a fresh
+# The bridge integration drills on real processes, one host, serial, each drill on a fresh
 # topology so a failure is attributable:
-#   - 1 or 3 PRODUCTION AE processes (assets-cluster.jar), the S9h T1 key table (`::users=*`),
-#   - one `t1-journal` JVM (the S9h harness) hosting K scripted ME journal archives, controlled through a fifo that
+#   - 1 or 3 PRODUCTION AE processes (assets-cluster.jar), the T1 key table (`::users=*`),
+#   - one `t1-journal` JVM (the harness) hosting K scripted ME journal archives, controlled through a fifo that
 #     `t1-core run --journal-ctl` writes to as well,
 #   - `t1-core` one-shots (genesis, run, barrier, report, gate, oracle, latch-clear, open, deposit, withdraw),
 #   - ct-bridge (or a never-published test build), the media driver per drill: `external` = a runner aeronmd from the
@@ -13,13 +13,13 @@
 # Usage: app/bridge/it/run-bridge-it.sh <cmake-build-dir> <assets-cluster.jar> <harness.jar> <drill|all> [drill ...]
 # Drills: rk0-external rk0-embedded tmpfs-min rk1 rk1-embedded rk2-external rk2-embedded rk2-nc rk3 rk4 rk5 rk6
 #         rk8 rk9 rk9-nc rk10 rk11 rk11b rk12 rk12b rk12c rk12c-both rk13c rk13a rk13b rk13d-external rk13d-embedded
-#         (`all`: this S9c batch). S10' T1-N2 (`n2`): rk14-smoke-external rk14-smoke-embedded rk14-smoke-red rk14-stop;
-#         S10' halt (`halt`): rk2-stop-external rk2-stop-embedded rk2-stop-nc.
+#         (`all`: this batch). T1-N2 (`n2`): rk14-smoke-external rk14-smoke-embedded rk14-smoke-red rk14-stop;
+#         Halt (`halt`): rk2-stop-external rk2-stop-embedded rk2-stop-nc.
 #         Three bridge slots: bridge0 key 3:BRIDGE id 1 port 26080, bridge1 10:BRIDGE id 2 26081, bridge_b 11:BRIDGE id 3
 #         26082; IT_STAGE_A=1 turns an absent 4R core counter into a NOTE (the pre-<RC> core); IT_N2_ONLY0=1 never
 #         starts bridge1 (the runner RED by hand; rk14-smoke-red does the same and checks the named failures).
 # Env: IT_EVIDENCE (default app/bridge/it/evidence), IT_KEEP=1 keep work dirs, IT_ROUNDS (story rounds, default 12),
-#      IT_LONG (records of the long round of R-K1/R-K7, default 1000000), IT_SEED (story seed base, default 9100).
+#      IT_LONG (records of the long round, default 1000000), IT_SEED (story seed base, default 9100).
 set -uo pipefail
 
 if [ $# -lt 4 ]; then
@@ -32,7 +32,7 @@ HARNESS=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
 shift 3
 ALL=(rk0-external rk0-embedded rk1 rk1-embedded rk2-external rk2-embedded rk2-nc rk3 rk4 rk5 rk6 rk8 rk9 rk9-nc
     rk10 rk11 rk11b rk12 rk12b rk12c rk12c-both rk13c rk13a rk13b rk13d-external rk13d-embedded tmpfs-min)
-# S10' (contract 11): the N = 2 batch and the halt batch, each its own invocation
+# The N = 2 batch and the halt batch, each its own invocation
 N2=(rk14-smoke-external rk14-smoke-embedded rk14-lag-external rk14-cost-one rk14-lag-embedded rk14-restart rk14-replace
     rk14-lanehole-ahead rk14-lanehole-behind rk14-lanehole-behind-dead rk14-lanehole-stale rk14-twoholes rk14-lag-failover
     rk14-stop rk14-smoke-red rk14-lanehole-ahead-nc rk14-lag-failover-nc)
@@ -120,8 +120,8 @@ start_ae() { # node
 metric() { # url name -> value of the first sample line whose name (labels included) matches exactly
     curl -s --max-time 2 "$1" 2>/dev/null | awk -v n="$2" '$1 == n { print $2; exit }'
 }
-# S10' section 2 (T1-N2): three bridge slots, each with its own key, identity and HTTP port. The single-bridge drills of
-# S9c run on slot bridge0 (port 26080) and keep their calls: every per-bridge helper below takes an optional leading
+# The T1-N2 drills: three bridge slots, each with its own key, identity and HTTP port. The single-bridge drills
+# run on slot bridge0 (port 26080) and keep their calls: every per-bridge helper below takes an optional leading
 # slot name (bm bridge1 bridge_halted), the default is bridge0.
 SLOTS=(bridge0 bridge1 bridge_b)
 declare -A SLOT_PORT=([bridge0]=26080 [bridge1]=26081 [bridge_b]=26082)
@@ -138,7 +138,7 @@ bm_sum() { # [slot] family -> the sum over its labelled samples
     curl -s --max-time 2 "http://127.0.0.1:$(port_of "$SL")/metrics" 2>/dev/null |
         awk -v f="$1" 'index($1, f "{") == 1 || $1 == f { s += $2 } END { print s + 0 }'
 }
-scrape() { # [slot] label (the default slot keeps the S9c file names)
+scrape() { # [slot] label (the default slot keeps the file names)
     local SL tag=""; slot_arg "$@" && { shift; tag="$SL-"; }
     curl -s --max-time 3 "http://127.0.0.1:$(port_of "$SL")/metrics" > "$D/ev/metrics-$tag$1.prom" 2>/dev/null || true
     curl -s --max-time 3 "http://127.0.0.1:$(port_of "$SL")/health" > "$D/ev/health-$tag$1.json" 2>/dev/null || true
@@ -166,7 +166,7 @@ t1core() { env "${T1ENV[@]}" java "${JAVA_OPTS[@]}" -Xmx4g -jar "$HARNESS" t1-co
 
 # An operator re-journals source k from scratch (the node's archive replaced: KILL, the catalog wiped, REVIVE, a complete
 # recording 1..upto). The successor-recording shapes (FILL, RESTART) are not reached by the halted walk behind the old
-# recording's hole or refusal (S9c README finding F-1); a replaced history is (the S9b E3 / property fill).
+# recording's hole or refusal (README); a replaced history is (the E3 / property fill).
 rejournal() { # k upto
     jctl 30 KILL "$1" >> "$D/ev/jctl.txt"
     rm -rf "$D/journal/src$1"
@@ -204,7 +204,7 @@ wait_exit() { # name timeout_s
 }
 alive() { [ -n "${PID[$1]:-}" ] && kill -0 "${PID[$1]}" 2>/dev/null; }
 # "some input line" without `grep -q`: under pipefail an early-exiting grep -q SIGPIPEs the writer and the pipeline reads
-# as false even when the line was there (W9 local: every genesis-OPEN mark failed; negative checks could miss a line)
+# as false even when the line was there (local: every genesis-OPEN mark failed; negative checks could miss a line)
 has_line() { awk 'NF { f = 1 } END { exit !f }'; }
 now_s() { date +%s.%N; }
 elapsed() { python3 -I -c "import sys; print(f'{float(sys.argv[2]) - float(sys.argv[1]):.2f}')" "$1" "$2"; }
@@ -241,15 +241,15 @@ setup() {
 
 archives() { local s=""; for k in $(seq 0 $((K - 1))); do s="$s${s:+,}localhost:$((J_BASE + 100 * k))"; done; echo "$s"; }
 
-subset_archives() { # csv of source indexes -> their archive list (S10' 3.5: a drill and lag device, never the prod rule)
+subset_archives() { # csv of source indexes -> their archive list (a drill and lag device, never the prod rule)
     local s="" k
     for k in ${1//,/ }; do s="$s${s:+,}localhost:$((J_BASE + 100 * k))"; done
     echo "$s"
 }
 
 # start_bridge <name|slot> <mode> [binary] [SOURCES_OF=<csv>] [DRIVER_TIMEOUT_MS=<ms>] [extra env...]
-# A slot name (bridge0, bridge1, bridge_b; S10' section 2) derives the key, the identity and the HTTP port, the process
-# is PID[<slot>] and logs to ev/<slot>.log (a restart appends, marked in ev/timeline.txt). Any other name is the S9c
+# A slot name (bridge0, bridge1, bridge_b) derives the key, the identity and the HTTP port, the process
+# is PID[<slot>] and logs to ev/<slot>.log (a restart appends, marked in ev/timeline.txt). Any other name is the
 # single-bridge shape: slot bridge0's key, identity and port, PID[bridge], ev/<name>.log. Extra env (e.g. a test build's
 # BRIDGE_* override) comes last and wins.
 start_bridge() {
@@ -296,7 +296,7 @@ tl() { [ -n "$D" ] && echo "$(date +%s.%N) $*" >> "$D/ev/timeline.txt"; }
 quiescent() { # seq timeout_ms
     t1core barrier "$1" "$2" > "$D/ev/barrier-$1.txt" 2>&1 || return 1
     # the cursor gauge and the ring move at the next report (periodic, 10 s): two consecutive good samples, 1 s apart,
-    # on EVERY live bridge (S10' section 2)
+    # on EVERY live bridge
     local good=0 s ok
     for _ in $(seq 1 30); do
         sleep 1
@@ -336,8 +336,8 @@ common_checks() { # appends to FAILS the shared lines of every drill, per live b
         [ "$(bm0 "$s" bridge_aeron_errors_total)" = "0" ] || FAILS+=("${p}aeron_errors $(bm0 "$s" bridge_aeron_errors_total)")
         [ "$(bm0 "$s" bridge_log_dropped_total)" = "0" ] || FAILS+=("${p}log_dropped $(bm0 "$s" bridge_log_dropped_total)")
     done
-    # at N = 2 duplicates are recorded, never asserted zero (S9b 15c N-9); a mismatch is a defect in every drill
-    # review F11 (2026-11-01): an unreadable counter (no leader, a scrape timeout) is a failure, never a silent 0; one
+    # at N = 2 duplicates are recorded, never asserted zero (15c); a mismatch is a defect in every drill
+    # An unreadable counter (no leader, a scrape timeout) is a failure, never a silent 0; one
     # retry after wait_leader covers a leader change at the scrape
     local mm; mm=$(ae_metric assets_feed_duplicate_mismatch_total)
     [ -n "$mm" ] || { wait_leader; mm=$(ae_metric assets_feed_duplicate_mismatch_total); }
@@ -390,7 +390,7 @@ drill_rk0() { clean_run "rk0-$1" "$1"; finish "rk0-$1" "$(verdict)"; }
 
 drill_tmpfs_min() {
     # embedded mode on a tmpfs of decreasing size; the journal recorded with the production 64m term (a 192 MB replay
-    # image). The smallest passing size is the README number (NOTE-5).
+    # image). The smallest passing size is the README number.
     if ! sudo -n true 2>/dev/null; then echo "tmpfs-min NOT RUN no sudo" >> "$RESULTS"; return; fi
     local sizes=(512 384 320 288 256 240 224 208) last_ok=""
     for mb in "${sizes[@]}"; do
@@ -414,8 +414,8 @@ drill_tmpfs_min() {
 }
 
 drill_rk1() {
-    # the long story (S9h --long-round): kill -9 the bridge between 40 and 60 % of round 1; restart within 2 s. Then
-    # R-K7: the cold restart behind every applied record, then the rest of the story.
+    # the long story (--long-round): kill -9 the bridge between 40 and 60 % of round 1; restart within 2 s. Then
+    # The cold restart behind every applied record, then the rest of the story.
     setup rk1 1 1 $((SEED_BASE + 2)) 8 --long-round "$LONG" || { FAILS+=("setup"); finish rk1 FAIL; return; }
     start_bridge bridge external || FAILS+=("bridge start")
     wait_registered 30 || FAILS+=("not registered")
@@ -446,11 +446,11 @@ drill_rk1() {
     quiescent "$end1" 120000 || FAILS+=("quiescence at $end1")
     [ "$(bm_sum bridge_settle_rejected_total)" = "0" ] || FAILS+=("SettleRejected after the restart")
     oracle_ok upto-round1 --upto "$end1" || FAILS+=("oracle --upto $end1")
-    NOTES+=("duplicates (recorded, N-9): $(ae_metric assets_feed_duplicate_unverified_total) unverified")
+    NOTES+=("duplicates (recorded, not asserted): $(ae_metric assets_feed_duplicate_unverified_total) unverified")
     common_checks
     scrape rk1-end
     local rk1fails=("${FAILS[@]}")
-    # ---- R-K7: SIGTERM, a cold restart (an empty memo) behind every applied record, then the next records
+    # ----: SIGTERM, a cold restart (an empty memo) behind every applied record, then the next records
     FAILS=()
     kill -TERM "${PID[bridge]}"; wait_exit bridge 10
     [ "$WAIT_RC" = "0" ] || FAILS+=("SIGTERM exit $WAIT_RC (expected 0)")
@@ -480,7 +480,7 @@ drill_rk1() {
     [ "$skipped" = "$end1" ] || FAILS+=("skipped $skipped != $end1")
     oracle_ok final || FAILS+=("final oracle")
     common_checks
-    NOTES+=("R-K7: walk over $end1 applied records took $walkdone s, invoker max gap $gapmax ms, first new forward $first s")
+    NOTES+=("cold restart: walk over $end1 applied records took $walkdone s, invoker max gap $gapmax ms, first new forward $first s")
     local rk7=("${FAILS[@]}")
     FAILS=("${rk1fails[@]}")
     echo "rk7 $([ ${#rk7[@]} -eq 0 ] && echo PASS || echo FAIL) $(IFS='; '; echo "${rk7[*]:-}") walk $walkdone s gap $gapmax ms first $first s N $end1" >> "$RESULTS"
@@ -488,8 +488,8 @@ drill_rk1() {
 }
 
 drill_rk1_embedded() {
-    # three kill -9 + restart cycles in embedded mode on a tmpfs sized at the R-K0 minimum plus one replay image:
-    # every restart reclaims the per-instance dir, no storage failure (FIX-1)
+    # three kill -9 + restart cycles in embedded mode on a tmpfs sized at the minimum plus one replay image:
+    # every restart reclaims the per-instance dir, no storage failure
     if ! sudo -n true 2>/dev/null; then echo "rk1-embedded NOT RUN no sudo" >> "$RESULTS"; return; fi
     local size=${IT_TMPFS_MB:-512}
     setup rk1-embedded 1 1 $((SEED_BASE + 3)) 30 || { FAILS+=("setup"); finish rk1-embedded FAIL; return; }
@@ -632,7 +632,7 @@ drill_rk4() {
     for _ in $(seq 1 200); do [ "$(bm0 bridge_report_queries_total)" -gt $((q + 1)) ] && break; sleep 0.1; done # proofs
     local cold0; cold0=$(bm0 'bridge_memo_resumes_total{kind="cold"}')
     local proof0; proof0=$(bm0 'bridge_memo_resumes_total{kind="proof"}')
-    # precondition (FIX-9): C3 reached and the source attached at least once on this driver dir
+    # precondition: C3 reached and the source attached at least once on this driver dir
     if [ "$(bm0 bridge_registered)" != "1" ] || [ "$(bm0 'bridge_source_attached{source="0"}')" != "1" ]; then
         NOTES+=("precondition not met"); finish rk4 INCONCLUSIVE; return
     fi
@@ -713,12 +713,12 @@ drill_rk6_clean() {
     common_checks
     finish rk6 "$(verdict)"
 }
-# rk6-nc (ct_bridge_nc_mtu1408, the ingress without mtu=8192) is RETIRED (review NOTE-2, contract 19.5): on this host
+# rk6-nc (ct_bridge_nc_mtu1408, the ingress without mtu=8192) is RETIRED: on this host
 # Aeron fragments the cap-64 62 at 1408 and the consensus module reassembles it, so the session is never lost and the RED
 # cannot fail. The ingress literal is pinned by the unit RED CONFIG_MTU_DEFAULT (BridgeConfigTest), the 2026-09-02 B
-# replay-side MTU refusal by S9a and BridgeAgentTest.mtuRefusedEverywhereExits78; R-K6's pass lines stay.
+# replay-side MTU refusal by and BridgeAgentTest.mtuRefusedEverywhereExits78; pass lines stay.
 drill_rk6_nc() {
-    echo "rk6-nc is retired (review NOTE-2, contract 19.5)" >&2; finish rk6-nc FAIL
+    echo "rk6-nc is retired" >&2; finish rk6-nc FAIL
 }
 
 drill_rk8() {
@@ -811,9 +811,9 @@ drill_rk10() {
     [ "$(bm0 'bridge_halt_recovered_total{reason="GAP"}')" = "1" ] || FAILS+=("recovered GAP $(bm0 'bridge_halt_recovered_total{reason="GAP"}')")
     t1core barrier "$(barrier_of 4)" 60000 > /dev/null 2>&1
     t1core report > "$D/ev/report-resumed.json" 2>&1; grep -q '"feedHalted":false' "$D/ev/report-resumed.json" || FAILS+=("core still halted")
-    # S10' 11 (F-13 / RC-6): the S9c line inverts on the 4R core: the gate opens by itself at the GAP reach-clear, `open`
-    # answers DUPLICATE (IT_RK10_PRE4R=1 keeps the S9c expectation for a pre-4R core). RC2 S17 W12 G1: the operator's open
-    # after a halt names what it clears (`--ack-halt`: OPEN GLOBAL reason BRIDGE_HALT; the S17 feed harness)
+    # 11: the line inverts on the 4R core: the gate opens by itself at the GAP reach-clear, `open`
+    # answers DUPLICATE (IT_RK10_PRE4R=1 keeps the expectation for a pre-4R core). The operator's open
+    # after a halt names what it clears (`--ack-halt`: OPEN GLOBAL reason BRIDGE_HALT; the feed harness)
     sleep 1
     t1core gate > "$D/ev/gate-resumed.json" 2>&1
     t1core open --ack-halt > "$D/ev/open.txt" 2>&1
@@ -905,7 +905,7 @@ drill_rk12() { # variant: all one poison poison-both
     if [ "$variant" = one ] || [ "$variant" = poison ]; then
         if [ "$variant" = poison ]; then
             # the core's SOURCE_SCHEMA latch suspends GLOBAL (BRIDGE_HALT) until ADMIN OPEN: round r runs to its barrier
-            # (the storm guard recovers inside it), the gate is opened, then the rest. RC2 S17 W12 G1: the reach-clear keeps
+            # (the storm guard recovers inside it), the gate is opened, then the rest. The reach-clear keeps
             # the holder, so the open is the acknowledgement form (OPEN GLOBAL reason BRIDGE_HALT)
             run_story --to "$r" --timeout 180000 > "$D/ev/run.txt" 2>&1 || FAILS+=("rounds 0..$r")
             t1core open --ack-halt > "$D/ev/open.txt" 2>&1
@@ -956,7 +956,7 @@ drill_rk12() { # variant: all one poison poison-both
     [ "$WAIT_RC" = "0" ] || FAILS+=("SIGTERM while halted: exit $WAIT_RC (expected 0)")
     start_bridge bridge2 external || FAILS+=("restart")
     t1core barrier "$(barrier_of "$r")" 60000 > "$D/ev/barrier-s.txt" 2>&1 || FAILS+=("round $r not forwarded after the restart")
-    # RC2 S17 W12 G1: after the 76 {SOURCE_SCHEMA, 0} the holder waits for the acknowledgement form of open
+    # After the 76 {SOURCE_SCHEMA, 0} the holder waits for the acknowledgement form of open
     t1core open --ack-halt > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || NOTES+=("open: $(tr '\n' ' ' < "$D/ev/open.txt")")
     run_story --from $((r + 1)) --timeout 120000 > "$D/ev/run-end.txt" 2>&1 || FAILS+=("rounds $((r + 1))..")
     quiescent "$N" 30000 || FAILS+=("quiescence")
@@ -1033,7 +1033,7 @@ drill_rk13_tc() { # drill mode binary expected-line
     [ "$WAIT_RC" = "70" ] || FAILS+=("exit $WAIT_RC (want 70)")
     fle "$took" 7 || FAILS+=("exit after $took s")
     grep -q "$want" "$D/ev/bridge.log" || FAILS+=("no '$want' line")
-    grep -q "termination hook" "$D/ev/bridge.log" && FAILS+=("the termination hook line (FIX-4: F1 is the path)")
+    grep -q "termination hook" "$D/ev/bridge.log" && FAILS+=("the termination hook line (the conductor's driver timeout is the path)")
     grep -q "duty heartbeat did not advance" "$D/ev/bridge.log" && FAILS+=("the duty watchdog fired (the duty heartbeat stopped)")
     NOTES+=("SIGUSR2: exit $WAIT_RC after $took s; $(grep -m1 -o "$want.\{0,80\}" "$D/ev/bridge.log")")
     start_bridge bridge2 "$mode" || FAILS+=("restart (normal build)")
@@ -1044,9 +1044,9 @@ drill_rk13_tc() { # drill mode binary expected-line
     finish "$drill" "$(verdict)"
 }
 
-# ================================================================== S10' T1-N2 (contract sections 2, 3, 6)
+# ================================================================== T1-N2
 
-# A core counter of 4R.1 rule 7 (RC-4). On a core without it (stage A, IT_STAGE_A=1) the line is a NOTE and the row's
+# A core counter of 4R.1 rule 7. On a core without it (stage A, IT_STAGE_A=1) the line is a NOTE and the row's
 # substitute decides; on the <RC> core an absent counter is a FAIL (it is part of the pass line).
 core_counter() { # name -> value, or "absent"
     local v; v=$(ae_metric "$1"); echo "${v:-absent}"
@@ -1084,7 +1084,7 @@ lag_round() { # r lagsrc entries
     echo "$a $b $lagto"
 }
 # The short-pause device (B-1, second device): only on a lane started with DRIVER_TIMEOUT_MS=30000 (under the 10 s
-# driver liveness); a pause past the driver timeout ends the process on CONT (S10' section 1), so it is refused here.
+# driver liveness); a pause past the driver timeout ends the process on CONT, so it is refused here.
 pause_lane() { # slot seconds
     grep -q "start $1 pid ${PID[$1]} .*BRIDGE_DRIVER_TIMEOUT_MS=30000" "$D/ev/timeline.txt" ||
         { FAILS+=("pause_lane $1: the lane was not started with DRIVER_TIMEOUT_MS=30000"); return 1; }
@@ -1134,7 +1134,7 @@ drill_rk14_smoke() { # mode [red]
     finish "$drill" "$(verdict)"
 }
 
-# ---- section 6: the loss-producing R-K2 fault (NOTE-1): SIGSTOP the AE leader for 15 s under bridge load
+# ----: the loss-producing fault: SIGSTOP the AE leader for 15 s under bridge load
 # member_back <node> -> 0 when the old member is a follower again within 60 s; MEMBER_BACK names how
 member_back() {
     local l=$1 t0; t0=$(now_s); MEMBER_BACK=""
@@ -1217,7 +1217,7 @@ stop_leader_under_load() {
     NOTES+=("ae$l after CONT: $MEMBER_BACK")
     if ! wait "$runner"; then
         # the story driver (t1-core run) waits 30 s per reply; a command in flight to the frozen leader is lost with its
-        # reply (S10' T1 finding, not a bridge rule): re-drive from the round it was sending (its applied commands answer
+        # reply (T1 finding, not a bridge rule): re-drive from the round it was sending (its applied commands answer
         # DUPLICATE at the core)
         local lastr; lastr=$(grep -o '^ROUND [0-9]*' "$D/ev/run.txt" | tail -1 | awk '{print $2}')
         NOTES+=("story driver: $(grep -m1 -o 'no reply to correlationId [0-9]* within [0-9]* ms' "$D/ev/run.txt"); re-driven from round $((lastr + 1))")
@@ -1275,7 +1275,7 @@ drill_rk2_stop_nc() {
 }
 
 drill_rk14_stop() {
-    # section 6's leader freeze with two bridges (full lists): both fence, both resync from C', cursor N, oracle PASS
+    # Leader freeze with two bridges (full lists): both fence, both resync from C', cursor N, oracle PASS
     local drill=rk14-stop
     setup "$drill" 2 3 $((SEED_BASE + 1490)) 8 --long-round 200000 || { FAILS+=("setup"); finish "$drill" FAIL; return; }
     stop_leader_under_load external "$BRIDGE" bridge0 bridge1
@@ -1295,8 +1295,8 @@ drill_rk14_stop() {
     finish "$drill" "$(verdict)"
 }
 
-# ================================================================== S10' section 3.2: the N = 2 rows
-# W0 setup fixes (2026-11-01, dry-run transcripts in N/S10p/evidence/lane-a/dry-run/): the lane-hole rows put the holes in
+# ==================================================================: the N = 2 rows
+# Setup fixes (dry-run transcripts in N//evidence/lane-a/dry-run/): the lane-hole rows put the holes in
 # round 1 of a --long-round 2000 story (the plain round 3 is 28 records); the hole lane runs from the start and its
 # source's hole round is written after the other lane's barrier (a lane started after the core passed the hole syncs from
 # C' and never meets it); restart / replace run on the 10^6 round and the second kill waits until the replacement lane
@@ -1321,7 +1321,7 @@ dup_lines() { # the N = 2 duplicates line: the counter and the forwarded-sum sub
     [ $((fwd - N)) -ge "${MIN_DUP:-1}" ] || FAILS+=("forwarded sum - N $((fwd - N)) < ${MIN_DUP:-1}")
 }
 
-# RC2 S10' 3.7 (cost report, no threshold): a 1 s sampler of every live slot's attached sources (the ME replay images
+# (cost report, no threshold): a 1 s sampler of every live slot's attached sources (the ME replay images
 # held per node), started after setup; cost_line prints one COST line: the core log position delta over the run, the
 # forwarded sums, the core's duplicates, the attaches (memo resumes) per bridge, the max concurrent images per node.
 cost_start() {
@@ -1368,7 +1368,7 @@ drill_rk14_lag() { # mode
     local a1 b1 lagto; read -r a1 b1 lagto < <(lag_round 1 1 10000)
     t1core barrier "$b1" 120000 > /dev/null 2>&1 || FAILS+=("barrier b_1")
     for _ in $(seq 1 600); do [ "$(bm0 bridge0 bridge_last_offered_seq)" = "$b1" ] && [ "$(bm0 bridge1 bridge_last_offered_seq)" -ge "$lagto" ] && break; sleep 0.1; done
-    sleep 32 # S2-2 side observation: bridge1's /ready after 30 s of lag
+    sleep 32 # Side observation: bridge1's /ready after 30 s of lag
     curl -s --max-time 2 "http://127.0.0.1:$(port_of bridge1)/ready" > "$D/ev/ready-bridge1-lagged.txt"
     local lag=$(( $(core_cursor) - $(bm0 bridge1 bridge_last_offered_seq) ))
     NOTES+=("lag at the catch-up write $lag; bridge1 /ready after 32 s: $(tr -d '\n' < "$D/ev/ready-bridge1-lagged.txt" | cut -c1-80)")
@@ -1397,7 +1397,7 @@ drill_rk14_restart() { # restart|replace
     wait_registered bridge0 30 || FAILS+=("bridge0 registered"); wait_registered bridge1 30 || FAILS+=("bridge1 registered")
     [ "$v" = replace ] && { gate_watch_start 1800 || true; APPLIED0=$(core_counter assets_feed_halt_applied_total | sed 's/absent/0/'); }
     run_story --to 0 --timeout 60000 > "$D/ev/run0.txt" 2>&1 || FAILS+=("round 0")
-    # review F7: only the replace variant runs a gate watch (restart has no gate line)
+    # Only the replace variant runs a gate watch (restart has no gate line)
     local gmark=0; if [ "$v" = replace ]; then gmark=$(mark_after_open) || FAILS+=("$MARK_FAIL"); fi
     local a1 b1; read -r a1 b1 < <(round_parts 1)
     cursor_sampler_start
@@ -1445,7 +1445,7 @@ drill_rk14_restart() { # restart|replace
     finish "$drill" "$(verdict)"
 }
 
-lh_base() { # drill seed -> S1, A1, B1 (the hole round 1 of a --long-round 2000 story)
+lh_base() { # drill seed -> (the hole round 1 of a --long-round 2000 story)
     setup "$1" 2 1 $((SEED_BASE + $2)) "$ROUNDS" --long-round "${IT_LH_LONG:-2000}" || return 1
     S1=$(mid_round 1); read -r A1 B1 < <(round_parts 1)
 }
@@ -1474,7 +1474,7 @@ drill_rk14_lanehole_ahead() { # binary drill
     gate_watch_stop
     local sent; sent=$(bm0 bridge0 'bridge_feed_halts_sent_total{reason="1"}'); local stale; stale=$(counter_delta assets_feed_halt_stale_total "$STALE0")
     if [ "$binary" != "$BRIDGE" ]; then
-        # RED ct_bridge_nc_noconfirm (S2-7 discriminator (b)): the nc build sends a FeedHalt the core acks stale
+        # RED ct_bridge_nc_noconfirm (discriminator (b)): the nc build sends a FeedHalt the core acks stale
         NOTES+=("RED: FeedHalts sent $sent, halt_stale +$stale")
         FAILS=(); if [ "$sent" -ge 1 ] && [ "$stale" -ge 1 ]; then finish "$drill" PASS; else finish "$drill" INCONCLUSIVE; fi
         return
@@ -1540,7 +1540,7 @@ drill_rk14_lanehole_behind() { # variant behind|dead|stale
         [ -n "$ack" ] && [ -n "$sus" ] && [ $(( sus > ack ? sus - ack : ack - sus )) -le 1000 ] || FAILS+=("SUSPENDED/BRIDGE_HALT not within 1 s of the AdminAck (${ack:-none} / ${sus:-none})")
         [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
         [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 1 ] || FAILS+=("auto reopen +$(counter_delta assets_gate_auto_reopen_total "$REOPEN0") (want +1)")
-        # review F3 (2026-11-01, contract 3.2): the automatic OPEN is the first OPEN after this halt's SUSPENDED/BRIDGE_HALT
+        # The automatic OPEN is the first OPEN after this halt's SUSPENDED/BRIDGE_HALT
         # (after the mark too: the genesis OPEN never counts), within 1 s of the reach-clear. The reach-clear is not
         # stamped on a shared clock (bridge0's "halt left" comes about 5 s later), so the bound is taken from the release
         # write's start, which the reach-clear cannot precede: open_wall - release_start in [0, 1000] ms is sufficient.
@@ -1586,7 +1586,7 @@ drill_rk14_twoholes() {
     sleep 2
     [ "$(core_counter assets_feed_lane_halts)" = 1 ] || FAILS+=("step 1: lane halts $(core_counter assets_feed_lane_halts)")
     first_gate SUSPENDED BRIDGE_HALT 0 | has_line || FAILS+=("step 1: no SUSPENDED/BRIDGE_HALT")
-    # step 2 (W0 setup fix: write through s2 + 1 so source 1 is HOLED at s2 with seen s2 + 1, not BEHIND)
+    # step 2 (setup fix: write through s2 + 1 so source 1 is HOLED at s2 with seen s2 + 1, not BEHIND)
     jctl 60 WRITE 1 "$S1" $((s2 + 1)) >> "$D/ev/jctl.txt"
     for _ in $(seq 1 300); do [ "$(bm0 bridge1 bridge_halted)" = 1 ] && break; sleep 0.1; done
     sleep 2
@@ -1631,12 +1631,12 @@ drill_rk14_lag_failover() { # binary drill
         t1core round "$STORY" 1 > "$D/ev/round1.txt" 2>&1
         local fo0 la0 cold0 sk0; fo0=$(bm0 bridge0 bridge_source_failovers_total); la0=$(bm0 bridge0 'bridge_fences_total{trigger="lane_ahead"}')
         cold0=$(bm0 bridge0 'bridge_memo_resumes_total{kind="cold"}'); sk0=$(bm_sum bridge0 bridge_skipped_total)
-        # W9 (C14 setup fix, 2026-11-01): source 1 first only to s + 20000. With the whole round on source 1, bridge1
+        # Setup: source 1 first only to s + 20000. With the whole round on source 1, bridge1
         # delivered b_1 before the catch-up write (C' = b_1 at the fence): bridge0 had nothing past C' to forward
         # ("next forward none") and its BEHIND dwell then rotated to source 1 (failovers +1, cold +2), not the rule
         jctl 300 WRITE 1 "$A" $((Sx + 20000)) >> "$D/ev/jctl.txt"; jctl 300 WRITE 0 "$A" $((Sx - 1)) >> "$D/ev/jctl.txt"
         local tc="" tb=""; for _ in $(seq 1 1200); do
-            # W0 finding (dr-rk14-lag-failover, stage A): the core's cursor is not enough, bridge0's own last report must
+            # (dr-rk14-lag-failover, stage A): the core's cursor is not enough, bridge0's own last report must
             # show C' > s + 10000 (its periodic report, <= 10 s) or the hole is a plain failover (C = 0 at the write)
             [ -z "$tc" ] && [ "$(bm0 bridge0 bridge_core_cursor)" -gt $((Sx + 10000)) ] && tc=$(now_s)
             [ -z "$tb" ] && [ "$(bm0 bridge0 bridge_last_offered_seq)" = $((Sx - 1)) ] && tb=$(now_s)
@@ -1662,7 +1662,7 @@ drill_rk14_lag_failover() { # binary drill
     NOTES+=("forwarded bridge0 $(bm_sum bridge0 bridge_forwarded_records_total) bridge1 $(bm_sum bridge1 bridge_forwarded_records_total); core log position $(ae_metric assets_log_position) (3.7)")
     cost_line "two lanes, lag-failover ($drill)"
     if [ "$binary" != "$BRIDGE" ]; then
-        # RED ct_bridge_nc_rotatepast (ROTATE_PAST_CURSOR, contract 3.3). Review F2 (2026-11-01): the precondition (the
+        # RED ct_bridge_nc_rotatepast (ROTATE_PAST_CURSOR). The precondition (the
         # HOLED verdict) and a clean setup are required (every FAILS line here is setup: the RED is a cost, not a money
         # defect, so the oracle must still PASS), and bridge0 must be alive. The named failure is the rotation to source
         # 1 with no memo there: failovers +>= 1 AND cold +>= 1 AND a skip walk from source 1's chain start (skipped
@@ -1687,7 +1687,7 @@ drill_rk14_lag_failover() { # binary drill
     finish "$drill" "$(verdict)"
 }
 
-# ================================================================== S10' section 4 / 5: the halt drills (stage B, <RC>)
+# ==================================================================: the halt drills (stage B, <RC>)
 
 # The gate stream (4.5 item 7): one GATEWAY session printing every AdmissionState of GLOBAL, the ONLY source of gate
 # lines in these rows. Started straight on java (no sed in the pipe: the lines are read while it runs).
@@ -1705,7 +1705,7 @@ gate_transitions() { # the OPEN that clears GENESIS (INITIAL ... names=GENESIS) 
                 if (v["state"] == "OPEN" && prev == "GENESIS") { prev=v["names"]; next }
                 prev=v["names"]; print v["t"], v["state"], v["names"] }' "$D/ev/gate-watch.txt"; }
 mono_ms() { python3 -I -c 'import time; print(int(time.monotonic() * 1000))'; } # CLOCK_MONOTONIC, as the watch's t
-mark_after_open() { # W9 (C14 setup fix): the genesis OPEN is not a transition the drills count; gate_transitions drops
+mark_after_open() { # the genesis OPEN is not a transition the drills count; gate_transitions drops
     # the OPEN that clears GENESIS (it lands when later traffic reaches the core: 35 s on the box, 308 s on the dev box,
     # never on a schedule), so the mark is simply "now". A watch that is not running is a setup failure.
     alive gatewatch || { echo "SETUP: gate --watch is not running" >&2; echo 0; return 1; }
@@ -1747,7 +1747,7 @@ PY2
 halt_setup() { # drill seedOffset trade(yes|no) -> S, HR; HOLE all S, bridge0 external, run to the hole, halted
     local drill=$1
     setup "$drill" 2 1 $((SEED_BASE + $2)) "$ROUNDS" || return 1
-    # a Trade (its maker holds the hold asset): the first at or after mid_round 4, else after mid_round 2 (W0: the plain
+    # a Trade (its maker holds the hold asset): the first at or after mid_round 4, else after mid_round 2 (the plain
     # story of a seed may carry no Trade in its later rounds)
     if [ "$3" = yes ]; then S=$(trade_seq_after "$(mid_round 4)") || S=$(trade_seq_after "$(mid_round 2)") || { FAILS+=("no trade after mid_round 2"); return 1; }
     else S=$(mid_round 4); fi
@@ -1766,12 +1766,12 @@ halt_setup() { # drill seedOffset trade(yes|no) -> S, HR; HOLE all S, bridge0 ex
     scrape bridge0 halted
     [ "$(bm0 bridge_halted)" = "1" ] && [ "$(bm0 bridge_halt_reason)" = "1" ] || FAILS+=("halted $(bm0 bridge_halted) reason $(bm0 bridge_halt_reason)")
 }
-halt_bound_check() { # the R-B6-1 bound: SUSPENDED/BRIDGE_HALT within 1 s of the FeedHalt's AdminAck
+halt_bound_check() { # the bound: SUSPENDED/BRIDGE_HALT within 1 s of the FeedHalt's AdminAck
     local ack; ack=$(log_ms "$D/ev/bridge0.log" "FeedHalt AdminAck GAP")
     local sus; sus=$(first_gate SUSPENDED BRIDGE_HALT 0)
-    if [ -z "$ack" ] || [ -z "$sus" ]; then FAILS+=("R-B6-1: AdminAck ${ack:-none} / SUSPENDED ${sus:-none}"); return; fi
+    if [ -z "$ack" ] || [ -z "$sus" ]; then FAILS+=("halt bound: AdminAck ${ack:-none} / SUSPENDED ${sus:-none}"); return; fi
     local d=$(( sus > ack ? sus - ack : ack - sus ))
-    NOTES+=("R-B6-1: SUSPENDED/BRIDGE_HALT ${d} ms from the FeedHalt AdminAck")
+    NOTES+=("halt bound: SUSPENDED/BRIDGE_HALT ${d} ms from the FeedHalt AdminAck")
     [ "$d" -le 1000 ] || FAILS+=("SUSPENDED $d ms from the AdminAck (> 1000)")
     [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 1 ] || FAILS+=("halt applied +$(counter_delta assets_feed_halt_applied_total "$APPLIED0") (want +1)")
 }
@@ -1786,7 +1786,7 @@ reopen_check() { # 4R: OPEN by itself within 1 s of the bridge's "halt left", no
     [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = "${1:-1}" ] || FAILS+=("auto reopen +$(counter_delta assets_gate_auto_reopen_total "$REOPEN0") (want +${1:-1})")
 }
 
-drill_rk10b() { # variant: b (R-B6-1, -2, -4) | c (rule 4, withdraw between two engine events) | negctl (RED)
+drill_rk10b() { # variant: b (-2, -4) | c (rule 4, withdraw between two engine events) | negctl (RED)
     local v=$1 drill=rk10${1}; [ "$v" = negctl ] && drill=rk10b-negctl
     halt_setup "$drill" 1500 "$([ "$v" = c ] && echo yes || echo no)" || { finish "$drill" FAIL; return; }
     [ "$v" = negctl ] && { kill -9 "${PID[bridge0]}"; wait_exit bridge0 5; }
@@ -1904,11 +1904,11 @@ drill_rk11_regen() { # binary drill
     local f0; f0=$(( $(bm0 'bridge_fences_total{trigger="report_epoch_changed"}') + $(bm0 'bridge_fences_total{trigger="report_cursor_regressed"}') ))
     local k68; k68=$(bm0 'bridge_forwarded_records_total{kind="68"}')
     local so0; so0=$(bm0 bridge_client_sessions_opened_total)
-    local preWipe=${#FAILS[@]} # review F1: FAILS[0 .. preWipe) are the setup lines (start, registered, halt reason 2, flat)
+    local preWipe=${#FAILS[@]} # FAILS[0 .. preWipe) are the setup lines (start, registered, halt reason 2, flat)
     # the runbook (4.1 rule 6): the ME archives first (whole catalogs: KILL, remove, REVIVE), FRESH-only re-genesis
     jctl 30 KILL all >> "$D/ev/jctl.txt"; rm -rf "$D"/journal/src*; jctl 60 REVIVE all >> "$D/ev/jctl.txt"
     jctl 120 REGENESIS all 777001 --fresh-only >> "$D/ev/jctl.txt"
-    # S10' lane A (rk11-regen root cause, 2026-11-01): --fresh-only writes seq 1 and `run --from 0` sends WRITE all 1 ..;
+    # (rk11-regen root cause): --fresh-only writes seq 1 and `run --from 0` sends WRITE all 1 ..;
     # the harness (<RC> after f841e09) skips n <= lastWritten after a fresh-only re-genesis, so the recording holds one
     # seq 1. No runner workaround: a second seq 1 here faults SEQ_REGRESSION_IN_RECORDING and halts SOURCE_SCHEMA at e = 2.
     jctl 30 LIST all > "$D/ev/list-after-regen.txt"
@@ -1922,10 +1922,10 @@ drill_rk11_regen() { # binary drill
     sleep 2
     kill "${PID[latchw]}" 2>/dev/null; wait "${PID[latchw]}" 2>/dev/null; unset "PID[latchw]"
     local f1; f1=$(( $(bm0 'bridge_fences_total{trigger="report_epoch_changed"}') + $(bm0 'bridge_fences_total{trigger="report_cursor_regressed"}') ))
-    # S10' lane A (2026-11-01): the core wipe makes a NEW cluster, so the bridge's session is always lost and the halt is
+    # The core wipe makes a NEW cluster, so the bridge's session is always lost and the halt is
     # left by the 7.2 resumption rule on the new session's sync (epoch != syncEpoch: the genesis exit of 4.1 rule 8);
-    # the halted-report fence (FIX-3) fires only when the session survives a re-genesis, which this runbook cannot
-    # produce. The line accepts either path and names the one taken (contract amendment, lane A deviation 8).
+    # the halted-report fence fires only when the session survives a re-genesis, which this runbook cannot
+    # produce. The line accepts either path and names the one taken (an amended rule).
     local so1; so1=$(bm0 bridge_client_sessions_opened_total)
     if [ "$f1" -gt "$f0" ]; then NOTES+=("genesis exit path: halted-report fence +$((f1 - f0))")
     elif [ "$so1" -gt "$so0" ] && grep -q 'halt left' "$D/ev/bridge0.log"; then
@@ -1939,11 +1939,11 @@ drill_rk11_regen() { # binary drill
     run_story --from 0 --genesis 777001 --timeout 120000 > "$D/ev/run-epoch2.txt" 2>&1 || FAILS+=("epoch 2 rounds: $(tail -1 "$D/ev/run-epoch2.txt")")
     oracle_ok epoch2 --genesis 777001 || FAILS+=("oracle --genesis 777001: $(head -1 "$D/ev/oracle-epoch2.txt")")
     [ "$(bm0 bridge_client_sessions_opened_total)" = 2 ] || NOTES+=("sessions opened $(bm0 bridge_client_sessions_opened_total) (want 2)")
-    NOTES+=("fault lines during the wipe (expected, NOTE S2-1): $(grep -c 'ARCHIVE_GONE\|UNREACHABLE' "$D/ev/bridge0.log")")
+    NOTES+=("fault lines during the wipe (expected): $(grep -c 'ARCHIVE_GONE\|UNREACHABLE' "$D/ev/bridge0.log")")
     common_checks
     if [ "$drill" = rk11-regen-nc ]; then
         # RED ct_bridge_nc_haltkeep (HALT_KEEP_ALWAYS; was nc_haltedparks, vacuous on the new-session path, see above):
-        # the bridge stays HALTED after the dual genesis. Review F1 (2026-11-01): the RED is the named line on a LIVE
+        # the bridge stays HALTED after the dual genesis. The RED is the named line on a LIVE
         # bridge0 read as halted 1 reason 2 (EPOCH_MISMATCH) at the end, with no setup failure; an await-bound timeout
         # alone (a crashed or unconnected bridge forwards nothing either, and bm0 reads its port as 0) is INCONCLUSIVE.
         local named=no f setup=() i h r; h=$(bm bridge0 bridge_halted); r=$(bm bridge0 bridge_halt_reason)
@@ -1962,8 +1962,8 @@ drill_rk11_regen() { # binary drill
     finish "$drill" "$(verdict)"
 }
 
-# RC2 S10' Q1 (lane C, coordinator decision 2026-11-01): the S9c NOTE-5 240 MB case (below the 256 MB embedded minimum
-# of a 64m-term journal: every replay image refused for storage, the S9c bridge stayed alive with 61 REPLAY_STORAGE
+# Storage starvation: the 240 MB case (below the 256 MB embedded minimum
+# of a 64m-term journal: every replay image refused for storage, the bridge stayed alive with 61 REPLAY_STORAGE
 # faults). The rule: exit 70 within 30 s + one check of the storage_starved onset seen on /ready, the reason named in the
 # log, bridge_storage_starved_seconds_total growing before it. tmpfs-starved-nc runs ct_bridge_nc_storagekeep
 # (STORAGE_STARVED_EXIT_OFF) and must FAIL the rule's line "alive 45 s after the storage_starved onset".
@@ -2023,7 +2023,7 @@ drill_rk10_fill() { # variant fill|restart|twice ; binary
     local cold0; cold0=$(bm0 'bridge_memo_resumes_total{kind="cold"}')
     case $v in
         fill|twice) jctl 30 FILL 0 "$s1" >> "$D/ev/jctl.txt" ;;
-        restart) jctl 30 FILL 0 "$s1" >> "$D/ev/jctl.txt"; jctl 30 RESTART 0 "$s1" >> "$D/ev/jctl.txt" ;; # W0: RESTART skips held seqs
+        restart) jctl 30 FILL 0 "$s1" >> "$D/ev/jctl.txt"; jctl 30 RESTART 0 "$s1" >> "$D/ev/jctl.txt" ;; # RESTART skips held seqs
     esac
     local tf; tf=$(now_s) resumed=""
     for _ in $(seq 1 1200); do [ "$(bm0 bridge_halted)" = "0" ] && { resumed=$(elapsed "$tf" "$(now_s)"); break; }; sleep 0.1; done
@@ -2081,7 +2081,7 @@ drill_rk12_fill() { # binary
     sleep 5
     GMARK=$(mono_ms)
     [ "$(bm0 bridge_halt_reason)" = 3 ] || FAILS+=("halt reason $(bm0 bridge_halt_reason) (want 3)")
-    # valid copies in a successor: the CORRUPT mark is per source and survives a RESTART (W0), so it is removed first
+    # valid copies in a successor: the CORRUPT mark is per source and survives a RESTART, so it is removed first
     jctl 30 CORRUPT 0 "$s" none >> "$D/ev/jctl.txt"; jctl 30 RESTART 0 "$s" >> "$D/ev/jctl.txt"
     local tf; tf=$(now_s) resumed=""
     for _ in $(seq 1 1200); do [ "$(bm0 bridge_halted)" = "0" ] && { resumed=$(elapsed "$tf" "$(now_s)"); break; }; sleep 0.1; done
@@ -2096,7 +2096,7 @@ drill_rk12_fill() { # binary
     [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
     [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("an automatic OPEN after SOURCE_SCHEMA")
     gate_after "$GMARK" | awk '$2=="OPEN"' | has_line && FAILS+=("gate --watch shows an OPEN before the operator's open")
-    # RC2 S17 W12 G1: the SOURCE_SCHEMA reach-clear keeps NONGAP_AWAITING_OPEN, so the operator's open is the
+    # The SOURCE_SCHEMA reach-clear keeps NONGAP_AWAITING_OPEN, so the operator's open is the
     # acknowledgement form (OPEN GLOBAL reason BRIDGE_HALT; OPEN ADMIN is REJECTED 45 HALT_HOLDER_PENDING)
     t1core open --ack-halt > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || FAILS+=("open: $(cat "$D/ev/open.txt")")
     run_story --from $((r + 1)) --timeout 120000 > "$D/ev/run-end.txt" 2>&1 || FAILS+=("rounds $((r + 1))..")
@@ -2176,7 +2176,7 @@ for drill in "${DRILLS[@]}"; do
         *) echo "unknown drill $drill" >&2; exit 64 ;;
     esac
 done
-# Review F8 (2026-11-01): the exit status reads the verdict token (field 2), never detail text (rk10b's PASS detail
+# The exit status reads the verdict token (field 2), never detail text (rk10b's PASS detail
 # carries "INVARIANTS FAIL user=1"); FAIL, INCONCLUSIVE and NOT RUN rows give 1. Not counted: comment lines, the retry
 # rows "<drill>-tryN" (the drill's own final row carries the verdict), the tmpfs-min search rows "tmpfs-min-<MB>" (the
 # search ends at its first failing size by design; its "tmpfs-min RESULT ... none MB" line gives 1 when no size passed).

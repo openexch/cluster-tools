@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <string>
 
-// ConductorWatchCore - the decision half of ConductorWatch (RC2 S9c 3.4, F3b), pure: it reads the client heartbeat
+// ConductorWatchCore - the decision half of ConductorWatch, pure: it reads the client heartbeat
 // counter through HeartbeatCounters (the Aeron CountersReader in ct-bridge, a fake in the tests) and the caller's
-// epoch-ms clock. Every check (review FIX-1, 2026-11-01):
+// epoch-ms clock. Every check:
 //   - the counter is looked up by (RECORD_ALLOCATED, type 11, key == this client id); not found within the driver
 //     timeout from the first check = false (the watch never switches itself off);
 //   - once found, the record is re-validated before and after the value is read: a record that is no longer this
@@ -15,7 +15,7 @@
 //     when the slot now carries a fresh stamp of someone else (the zombie shape with a timeout above the driver's
 //     client liveness);
 //   - a stamp older than the timeout = false, named "process pause" when the gap since the previous check is itself at
-//     least the timeout (this process did not run), "conductor wedged" otherwise (review NOTE-4).
+//     least the timeout (this process did not run), "conductor wedged" otherwise.
 // `revalidate` false is the RED shape only (CONDUCTOR_REVALIDATE_OFF in the seamed builds).
 
 namespace cluster_tools { namespace app { namespace common {

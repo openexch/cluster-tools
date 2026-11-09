@@ -69,7 +69,7 @@ ResumeMemo::SourceMemo &ResumeMemo::slot(std::size_t source)
     {
         throw std::out_of_range("ResumeMemo: source index " + std::to_string(source));
     }
-    // RED shape (F9 / M3): one memo for every source.
+    // RED shape (M3): one memo for every source.
     return disabled(Rule::MEMO_SHARED_ACROSS_SOURCES) ? m_sources[0] : m_sources[source];
 }
 
@@ -201,7 +201,7 @@ ListingOutcome ResumeMemo::onListing(std::size_t source, const std::vector<Recor
         }
         if (chain.empty() && !prev.empty())
         {
-            history = true; // an archive wiped to an empty chain: retention never removes the active recording (review N-5)
+            history = true; // an archive wiped to an empty chain: retention never removes the active recording
         }
         // Keys gone: a leading run is retention (row 4), anything after it is a history change.
         std::size_t head = 0;
@@ -420,7 +420,7 @@ HoleDecision ResumeMemo::onHole(std::size_t source, std::int64_t expectedSeq, bo
     };
     if (readWasMemoFree)
     {
-        // Amended 5.2 rule 5 (review F-3): a memo-free read that sees the hole verifies it. The marker
+        // Amended 5.2 rule 5: a memo-free read that sees the hole verifies it. The marker
         // turns "verified": it no longer forces memo-free reads, and a later memo-read hole at the same
         // (source, e) in this sync is believed without a second invalidation.
         if (!disabled(Rule::MEMO_VERIFIED_MARKER))

@@ -1,8 +1,8 @@
-// RC2 S10' review C13-6 (ct_forwarder_config_tests, pure): the verdict on a failed embedded driver start.
+// DriverStartTest (ct_forwarder_config_tests, pure): the verdict on a failed embedded driver start.
 //   storageStarvedStartIsRetriedThen70  a start that failed for storage space (aeron_errcode ENOSPC, the CnC of a full
 //                           tmpfs; or Aeron's -12 STORAGE_SPACE) is retried while the starvation lasts and is 70
 //                           F_STORAGE_STARVED 30 s after the first such failure, never 78 (RED DRIVER_START_STORAGE_78:
-//                           78 at the first failure, the S9c FIX-12 shape that RestartPreventExitStatus=78 keeps down)
+//                           78 at the first failure, the shape that RestartPreventExitStatus=78 keeps down)
 //   otherStartFailuresAre78  every other failure is a 78 at once, also after a storage episode (which it ends)
 // The attempt cadence is the real one: a retry finds the failed attempt's dir and waits out the live-driver check
 // (about 3.1 s) before its 1 s pause, so attempts land about 4.1 s apart.

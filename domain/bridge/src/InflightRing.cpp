@@ -25,7 +25,7 @@ bool InflightRing::full() const noexcept
     }
     if (disabled(Rule::RING_FULL_AT_ZERO))
     {
-        return 0 == freeSlots(); // RED shape (pre N-4)
+        return 0 == freeSlots(); // RED shape (full at zero)
     }
     return freeSlots() < RING_PUSH_MAX;
 }

@@ -1,4 +1,4 @@
-# The ME journal schema 4 golden fixtures (RC2 S9a contract 9.2, FixtureGuard): byte copies of
+# The ME journal schema 4 golden fixtures (FixtureGuard): byte copies of
 # match's MeJournalFixtureDump output at me_journal_fixture_source_commit. Every .bin must hash as
 # its line in SHA256SUMS and SHA256SUMS must hash as the lock pins, so a drifted copy, or a
 # regenerated match dump copied in without a lock bump, fails configure. Runs at configure in

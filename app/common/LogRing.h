@@ -9,7 +9,7 @@
 #include <cstring>
 #include <memory>
 
-// LogRing - the duty thread never writes to a file descriptor (RC2 S12 G5, NOTE-10; app/common since RC2 S9c W1,
+// LogRing - the duty thread never writes to a file descriptor (app/common,
 // shared by ct-forwarder and ct-bridge): it formats a fixed
 // record into this single-producer / single-consumer ring and main drains it to stderr once a second. A full
 // ring drops the record and counts it (forwarder_log_dropped_total, bridge_log_dropped_total). No allocation after construction;
@@ -106,7 +106,7 @@ private:
     std::atomic<std::uint64_t> m_dropped{ 0 };
 };
 
-// First and every 1000th occurrence of a repeated event (contract section 3).
+// First and every 1000th occurrence of a repeated event.
 inline bool shouldLog(std::uint64_t occurrences) noexcept
 {
     return 1 == occurrences || 0 == occurrences % 1000;

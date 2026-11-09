@@ -1,5 +1,5 @@
-# The RED column of RC2 S9b 13.11, 13.13-13.16 (light method, see domain/bridge/tests/negative-controls.txt). The
-# first RED of 13.11/13.14 ("S9h": RED until the S9h files existed) is history: the files are pinned since 669866e.
+# The RED column of the bridge codec tests (light method, see domain/bridge/tests/negative-controls.txt). The
+# first RED of 13.11/13.14 (RED until the harness files existed) is history: the files are pinned since 669866e.
 TranslatorGoldenTest.everyNamedCaseOfTheHarnessIsReproducedByteForByte|CODEC_SWAP_TAKER_MAKER_ORDER|taker and maker order ids swapped|CHECK( equal )
 TranslatorE1Test.theCorpusTranslatesExactlyAsTheJavaReferenceDid|CODEC_SWAP_TAKER_MAKER_ORDER|taker and maker order ids swapped|CHECK( equal )
 TranslatorIdentityTest.memcpyIdentitiesHoldOnTheFixturesAndOnRandomRecords|CODEC_HEAD_NOT_PERMUTED|the head copied in schema 4 order|CHECK( failures == 0 )

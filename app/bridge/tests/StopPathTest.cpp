@@ -1,10 +1,10 @@
-// RC2 S9c 12.2 (main rows that need the real agent): the real Supervisor (bridge settings) around runBridgeDuty over the
+// StopPathTest, the stop-path cases that need the real agent: the real Supervisor (bridge settings) around runBridgeDuty over the
 // real BridgeAgent, its real invoker and RigSources whose archive calls block:
 //   invokerBeatsDuringABlockedArchiveCall   a 6 s blocked call whose invoker beats: no watchdog exit (RED INVOKER_NO_BEAT)
 //   sigtermReturns0WhileTheArchiveIsDead    SIGTERM with the current source ARCHIVE_GONE: 0 within 2 s, no stopReplay;
-//                                           on a live slow archive (stopReplay blocks 5 s): 0 within 7 s (FIX-7)
+//                                           on a live slow archive (stopReplay blocks 5 s): 0 within 7 s
 //   anEscapedExceptionIs70                  an exception out of the duty iteration: 70 through the catch-all, never 78
-//   sigtermDuringABlockedCallOnASlowArchiveReturns0  review FIX-3: SIGTERM lands in a 4.5 s blocked control call and
+//   sigtermDuringABlockedCallOnASlowArchiveReturns0: SIGTERM lands in a 4.5 s blocked control call and
 //                                           stopReplay would block 4.5 s more: 0 within the 7 s join bound, the source
 //                                           detached without stopReplay (RED STOP_DETACH_WHEN_LATE: the join bound's 70)
 #include "doctest/doctest.h"

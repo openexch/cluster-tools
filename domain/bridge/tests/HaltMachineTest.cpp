@@ -1,4 +1,4 @@
-// HaltMachineTest (RC2 S9b 13.7): the halt machine of section 9 (cpp 2.7): the FeedHalt fields, H2, the re-offers,
+// HaltMachineTest: the halt machine: the FeedHalt fields, H2, the re-offers,
 // the REJECTED fallback, the exits and the resumption rule with a kept halt.
 #include "doctest/doctest.h"
 
@@ -112,7 +112,7 @@ TEST_CASE("HaltMachineTest.preHaltStagedIsFlushedFirst")
 
 TEST_CASE("HaltMachineTest.feedHaltResentAfterReconnectAndNewLeader")
 {
-    // R-B4-5 (domain half of S9c's feedHaltResentAfterLeaderChange)
+    // (domain half of feedHaltResentAfterLeaderChange)
     Direct d;
     gapHalt(d);
     CHECK(d.feedHaltOffers() == 1);
@@ -171,7 +171,7 @@ TEST_CASE("HaltMachineTest.feedHaltResentUntilAcked")
 
 TEST_CASE("HaltMachineTest.rejectedFeedHaltFallsBackToSchemaThenExits")
 {
-    // FIX-10: a REJECTED means the core did not latch: offer the always-valid SOURCE_SCHEMA {e, e}, then exit 70
+    // A REJECTED means the core did not latch: offer the always-valid SOURCE_SCHEMA {e, e}, then exit 70
     Direct d;
     d.core.bound = EPOCH;
     d.core.cursor = 10;
@@ -290,7 +290,7 @@ TEST_CASE("HaltMachineTest.epochHaltStaysParked")
 
 TEST_CASE("HaltMachineTest.epochHaltLeavesOnCoreRegenesis")
 {
-    // FIX-3: the operator runs the dual genesis the halt waits for; the bridge leaves the halt without a restart
+    // The operator runs the dual genesis the halt waits for; the bridge leaves the halt without a restart
     Rig rig(1);
     rig.core.bound = EPOCH;
     rig.core.cursor = 3;
@@ -321,7 +321,7 @@ TEST_CASE("HaltMachineTest.epochHaltLeavesOnCoreRegenesis")
 
 TEST_CASE("HaltMachineTest.sessionLossWhileHaltingRefeedsThePrefix")
 {
-    // FIX-2: HALTING with the pre-halt flush back-pressured, the session closes: staging dropped; the next report
+    // HALTING with the pre-halt flush back-pressured, the session closes: staging dropped; the next report
     // shows C' < e - 1, so the halt is left and the prefix below e is re-forwarded before the FeedHalt
     Direct d;
     bindAt(d, 10);
@@ -401,7 +401,7 @@ TEST_CASE("HaltMachineTest.haltedOffersNoFeedFrame")
 
 TEST_CASE("HaltMachineTest.feedHaltToAV2CoreIsReofferedBounded")
 {
-    // N-6: a FeedHalt to a behaviour 1/2 core is unhandled: no AdminAck, re-offered every 5 s, bounded and visible
+    // A FeedHalt to a behaviour 1/2 core is unhandled: no AdminAck, re-offered every 5 s, bounded and visible
     Rig rig(1);
     rig.core.v3 = false;
     SimRecording &r = rig.archive(0).record();
@@ -420,7 +420,7 @@ TEST_CASE("HaltMachineTest.feedHaltToAV2CoreIsReofferedBounded")
     CHECK(rig.core.feedOffers() == 0);
 }
 
-// ------------------------------------------------------------------ RC2 S10' section 5 (F-1): re-list while halted
+// ------------------------------------------------------------------ re-list while halted
 
 namespace {
 
@@ -475,7 +475,7 @@ TEST_CASE("HaltMachineTest.rescanWalksTheSuccessorThatHoldsE")
 
 TEST_CASE("HaltMachineTest.fillOnlyESuccessorStepsBack")
 {
-    // R2 (F-2 trigger): the FILL successor holds only e and later seqs; e + 1 lives in the earlier recording
+    // R2 (trigger): the FILL successor holds only e and later seqs; e + 1 lives in the earlier recording
     Rig rig(1);
     SimRecording &old = holedAndHalted(rig, 0, 11, 20);
     rig.up();
@@ -628,7 +628,7 @@ TEST_CASE("HaltMachineTest.relistCadenceIsBounded")
     rig.runFor(600'000ms, 50ms);
     const int listings = rig.archive(0).listCalls - lists0;
     MESSAGE("listings in 10 min halted: " << listings);
-    // measured 18 (2026-11-01): two listings per 60 s re-scan (the re-scan's memo-free re-list, then the follower's own
+    // measured 18: two listings per 60 s re-scan (the re-scan's memo-free re-list, then the follower's own
     // re-list when the walk reaches the live end); the bound is two per re-scan, never per tick (RED RELIST_EVERY_TICK)
     CHECK_MESSAGE(listings <= 22, "listings > 22");
     CHECK(rig.domain->view().halt == BridgeHalt::GAP);
@@ -665,7 +665,7 @@ TEST_CASE("HaltMachineTest.genesisExitIsCounted")
 
 TEST_CASE("HaltMachineTest.rescanTakesExitAAtAQuietHead")
 {
-    // lane C W2b finding (TwoLaneDomainPropertyTest seeds 709779217, 709779263): a GAP re-scan reading a quiet head
+    // (TwoLaneDomainPropertyTest seeds 709779217, 709779263): a GAP re-scan reading a quiet head
     // (the chain ends below e, no record >= e to forward) must still leave by 9.4 exit (a) when another lane's delivery
     // moves C' >= seen - 1; before the fix it waited for the 20 s behind dwell (or forever with that row paused)
     Rig rig(1);
@@ -689,7 +689,7 @@ TEST_CASE("HaltMachineTest.rescanTakesExitAAtAQuietHead")
     CHECK(rig.metrics.recovered(BridgeHalt::GAP) == 1);
 }
 
-// ------------------------------------------------------------------ the S10' review fixes (2026-11-01)
+// ------------------------------------------------------------------ the fixes
 
 namespace {
 
@@ -718,7 +718,7 @@ RefusalAction refuse(Direct &d, std::size_t source, std::int64_t recordingId, st
 }
 
 // a memo-free read from the chain start passes the valid prefix 1..upTo (SKIPs at or below the cursor) before it meets a
-// refused copy: RC2 S17 W12 B1 tells that read (a bad copy, walk-eligible) from one whose FIRST frame is refused (a
+// refused copy: tells that read (a bad copy, walk-eligible) from one whose FIRST frame is refused (a
 // foreign journal head), so a refusal on a memo-free read is driven after its prefix, as the follower delivers it
 void skipPrefix(Direct &d, std::size_t source, std::int64_t recordingId, std::int64_t upTo)
 {
@@ -806,7 +806,7 @@ void taintSourceOneByAWalk(Direct &d)
 
 TEST_CASE("HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict")
 {
-    // review F1-TAINT-NO-RED (S10' 5.1 taint rule, C9): a foreign-epoch recording after 12 on both nodes. Source 1 meets
+    // The taint rule (C9): a foreign-epoch recording after 12 on both nodes. Source 1 meets
     // it on the walk's read, past the bad recording 10. A linear read of source 1 meets the bad copy of 6 first: BAD, so
     // the halt is SOURCE_SCHEMA (admin class); believing the non-linear FOREIGN makes every source foreign: EPOCH_MISMATCH
     Direct d(2, graceOneSecond);
@@ -837,7 +837,7 @@ TEST_CASE("HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict")
 
 TEST_CASE("HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch")
 {
-    // review F1-TAINT-HALTED-EXEMPT (C9): node 1 goes down after the walk, so the GAP at 13 is decided without it
+    // The taint rule while halted (C9): node 1 goes down after the walk, so the GAP at 13 is decided without it
     // (hole_grace, UNREACHABLE left out). Both nodes then gain a foreign-epoch recording and node 1 is back. The GAP
     // re-scan reads source 0 memo-free (FOREIGN, the truth) and rotates to source 1 by a MEMO RESUME (a proof in
     // recording 11, past the bad recording 10). Believed while halted, that FOREIGN makes every source foreign:
@@ -888,7 +888,7 @@ TEST_CASE("HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch")
 
 TEST_CASE("HaltMachineTest.taintClearsAfterALinearVerification")
 {
-    // review F1-TAINT-NO-RESET (C4): the operator removed the bad recording 10. The next non-linear verdict of source 1
+    // The taint reset path (C4): the operator removed the bad recording 10. The next non-linear verdict of source 1
     // is verified once; that linear read accepts a frame of recording 11 (after the bad one) with no refusal met, so the
     // taint clears: later verdicts of source 1 cost no more full re-reads
     Direct d(2, graceOneSecond);
@@ -908,7 +908,7 @@ TEST_CASE("HaltMachineTest.taintClearsAfterALinearVerification")
 
 TEST_CASE("HaltMachineTest.prematureGapClearReLatches")
 {
-    // review N2-1 (S10' 4R.1 rule 2): "a premature 76 {GAP, 0} is self-healing". The operator clears the lane table and
+    // "a premature 76 {GAP, 0} is self-healing". The operator clears the lane table and
     // opens the gate while this lane's hole at 11 is still open (C' = 10 < seen - 1 = 11): the next halted report shows
     // feedHalted 0 and the acked FeedHalt is re-offered, once
     Direct d;
@@ -927,12 +927,12 @@ TEST_CASE("HaltMachineTest.prematureGapClearReLatches")
     CHECK(d.domain->view().state == State::HALTED);
 }
 
-// ------------------------------------------------------------------ RC2 S17 W12 B1 (X-7): a foreign journal head
+// ------------------------------------------------------------------ a foreign journal head
 
 namespace {
 
-// X-7: the v0.5.0-beta ME journal archive left in place. Every source's chain starts with a recording of another journal
-// schema (schema 3 from its first byte); `to` > 0 adds a later recording with the RC2 ME's own valid 1..to of EPOCH.
+// The v0.5.0-beta ME journal archive left in place. Every source's chain starts with a recording of another journal
+// schema (schema 3 from its first byte); `to` > 0 adds a later recording with the ME's own valid 1..to of EPOCH.
 void foreignHeadOn(Rig &rig, std::size_t source, std::int64_t to)
 {
     SimRecording &old = rig.archive(source).record();
@@ -971,8 +971,8 @@ std::vector<SimRecording *> badCopyAtSix(Rig &rig, std::size_t n)
 
 TEST_CASE("HaltMachineTest.foreignHeadNeverWalksToASuccessor")
 {
-    // B1 (X-7, x7-v3 bridge0.log): on every source the chain head is a recording of another journal schema and a later
-    // recording holds the RC2 ME's valid 1..12. The refused head is a foreign journal, never a bad copy to walk past: the
+    // (x7-v3 bridge0.log): on every source the chain head is a recording of another journal schema and a later
+    // recording holds the ME's valid 1..12. The refused head is a foreign journal, never a bad copy to walk past: the
     // halt is SOURCE_SCHEMA {1, 1}, sticky, nothing is forwarded, the re-scans never walk (the core never binds)
     Rig rig(2);
     foreignHeadOn(rig, 0, 12);
@@ -1005,12 +1005,12 @@ TEST_CASE("HaltMachineTest.foreignHeadNeverWalksToASuccessor")
     CHECK(rig.core.feedHalts.front().reason == HaltReason::SOURCE_SCHEMA);
     CHECK(rig.core.feedHalts.front().expected == 1);
     CHECK(rig.core.feedHalts.front().seen == 1);
-    CHECK(rig.core.feedHalts.front().meEpochSeen == 0); // the unbound sync epoch (wire fields unchanged by B1)
+    CHECK(rig.core.feedHalts.front().meEpochSeen == 0); // the unbound sync epoch (wire fields unchanged)
 }
 
 TEST_CASE("HaltMachineTest.foreignHeadHaltLeavesWhenASourceHeadBecomesReadable")
 {
-    // B1 is sticky, not permanent: the operator wipes source 0's foreign journal (a clean listing of the RC2 ME's own
+    // Is sticky, not permanent: the operator wipes source 0's foreign journal (a clean listing of the ME's own
     // journal); the next re-scan reads a readable head, forwards 1..12 and leaves the halt (the designed recovery)
     Rig rig(2);
     foreignHeadOn(rig, 0, 0);
@@ -1032,7 +1032,7 @@ TEST_CASE("HaltMachineTest.foreignHeadHaltLeavesWhenASourceHeadBecomesReadable")
 
 TEST_CASE("HaltMachineTest.unboundBadCopyAfterAdmittedFramesStillWalks")
 {
-    // C3b (review V8): a genesis bridge (core unbound at the start), valid 1..5 then schema 3 at 6 on every source: the
+    // C3b: a genesis bridge (core unbound at the start), valid 1..5 then schema 3 at 6 on every source: the
     // refused frame is NOT the first frame of the read, so it is a bad copy at e and the re-scan walks into the valid
     // successor recorded during the halt
     Rig rig(2);
@@ -1061,7 +1061,7 @@ TEST_CASE("HaltMachineTest.unboundBadCopyAfterAdmittedFramesStillWalks")
 
 TEST_CASE("HaltMachineTest.badCopyAfterARestartWithTheMemoLostStillWalks")
 {
-    // C3c (review V8): the C3b halt, then the bridge restarts with its memo lost (a fresh process: memo-free reads from the
+    // C3c: the C3b halt, then the bridge restarts with its memo lost (a fresh process: memo-free reads from the
     // chain start) while the core keeps C = 5 and its SOURCE_SCHEMA latch. The restarted read SKIPs 1..5 before the
     // refused 6: a bad copy at e, never a foreign head; the re-scan walks into the successor
     Rig life1(2);
@@ -1096,8 +1096,8 @@ TEST_CASE("HaltMachineTest.badCopyAfterARestartWithTheMemoLostStillWalks")
 
 TEST_CASE("HaltMachineTest.foreignSchemaRecordAfterAStalePrefixIsNotAForeignHead")
 {
-    // RC2 S17 W12 B1, independent verifier (review V8 predicate): "no frame of this read admitted, WITH ANY EPOCH". On
-    // every source the chain is an unwiped older-epoch recording (decodable, the A04 stale prefix), then a recording of
+    // Independent verifier (predicate): "no frame of this read admitted, WITH ANY EPOCH". On
+    // every source the chain is an unwiped older-epoch recording (decodable, the stale prefix), then a recording of
     // another journal schema, then the bound epoch's valid 1..12. The halted re-scan's memo-free read admits the stale
     // prefix (walked, never own-epoch: m_ownEpochSeen stays false) before the SCHEMA refusal, so the refusal is NOT the
     // first frame of the read: the walk goes on into the valid successor and the halt ends. A predicate on
@@ -1123,7 +1123,7 @@ TEST_CASE("HaltMachineTest.foreignSchemaRecordAfterAStalePrefixIsNotAForeignHead
     }
     rig.up();
     REQUIRE(rig.runUntil([&] { return halted(rig); }));
-    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA); // the stale prefix (NOTE-8)
+    REQUIRE(rig.domain->view().halt == BridgeHalt::SOURCE_SCHEMA); // the stale prefix
     CHECK_FALSE(rig.domain->halt().foreignHead);
     rig.runUntil([&] { return rig.core.cursor == 12; }, 180'000ms, 50ms);
     const bool walked = rig.core.cursor == 12 && BridgeHalt::NONE == rig.domain->view().halt;

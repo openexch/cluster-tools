@@ -1,5 +1,5 @@
-# The E1 corpus fixtures of the C++ bridge (RC2 S9b W1, S9h 4.1 and section 8): domain/bridge/tests/fixtures/e1/ is
-# written ONLY by the S9h harness (`regen.sh - - <jar>`, the `e1` command) from the J-ME3 capture pinned by
+# The E1 corpus fixtures of the C++ bridge: domain/bridge/tests/fixtures/e1/ is
+# written ONLY by the harness (`regen.sh - - <jar>`, the `e1` command) from the J-ME3 capture pinned by
 # me_journal_e1_match_ref / me_journal_e1_sums_sha256. Every listed file must hash as its line in SHA256SUMS,
 # SHA256SUMS must hash as me_journal_e1_fixtures_sha256sums_sha256, e1.pin must name the lock's capture commit and
 # corpus SUMS, and the directory may hold no file SHA256SUMS does not list. A hand-edited fixture, or a regenerated

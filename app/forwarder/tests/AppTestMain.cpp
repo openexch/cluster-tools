@@ -1,4 +1,4 @@
-// doctest main for ct_forwarder_app_tests (RC2 S12 contract 11.3) with a counting global operator new: the
+// doctest main for ct_forwarder_app_tests with a counting global operator new: the
 // zeroAllocDutyCycle test arms it around 100,000 dispatches through decode, ring and offer.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"

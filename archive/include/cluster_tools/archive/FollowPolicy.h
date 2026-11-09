@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_FOLLOW_POLICY_H
 #define CLUSTER_TOOLS_ARCHIVE_FOLLOW_POLICY_H
 
-// The per-source follow state machine (RC2 S9a contract 4.2, 4.3 and the 4.5 decision table) as a
+// The per-source follow state machine (4.3 and the 4.5 decision table) as a
 // deterministic function of the adapter's observations and a clock the caller passes in. Pure: it
 // issues commands (ControlStep), the adapter (archive/aeron ArchiveSource, or a simulated archive in
 // the tests) executes them and reports the result back. FollowerLoop<Port> (FollowerLoop.h) is the
@@ -10,7 +10,7 @@
 // One duty iteration makes at most ONE archive control call (connect step, list, startReplay,
 // probe, stopReplay); fragment polling, image observation and the async-error poll are not control
 // calls. A paused follower (fragment limit 0) reads no fragments but still makes its control call,
-// so rows 7a, 9 and 13 keep running (the pause rule; review F1).
+// so rows 7a, 9 and 13 keep running (the pause rule).
 
 #include "cluster_tools/archive/ArchiveMetrics.h"
 #include "cluster_tools/archive/Chain.h"
@@ -117,10 +117,10 @@ public:
     void onDetached(TimePoint now);
     void onProbe(const ProbeResult &result, TimePoint now);
     void afterPoll(const ImageObservation &image, const AsyncErrorPoll &asyncError, TimePoint now);
-    // 3.2 step 3 (review N-4): the async error poll runs every iteration; outside FOLLOWING an error
+    // 3.2 step 3: the async error poll runs every iteration; outside FOLLOWING an error
     // belongs to no replay and is dropped, a lost control session ends the connection.
     void onIdleAsyncError(const AsyncErrorPoll &asyncError, TimePoint now);
-    // Review F-4: the poll ended on an owner sink ABORT (back-pressure): this iteration counts as paused
+    // The poll ended on an owner sink ABORT (back-pressure): this iteration counts as paused
     // for rows 11, 12 and 12b.
     void onSinkBackPressure() noexcept;
 
@@ -128,7 +128,7 @@ public:
     // sink answered CONTINUE or BREAK, so an aborted and redelivered frame is never a regression.
     FrameCheck checkFrame(const Peek &peek, TimePoint now);
     void onAccepted(const Peek &peek, std::int64_t endPosition);
-    // RC2 S10' 5.1 R1: SinkAction::CONSUME: the read position moves, no proof is recorded (and no hole marker read)
+    // R1: SinkAction::CONSUME: the read position moves, no proof is recorded (and no hole marker read)
     void onConsumed(const Peek &peek, std::int64_t endPosition);
     void onRefused(Refusal reason, std::int64_t endPosition, TimePoint now);
     void onRefusalSkipped(std::int64_t endPosition);
@@ -136,7 +136,7 @@ public:
     // State the adapter and the owner read.
     const Recording *currentRecording() const noexcept;
     std::size_t chainIndex() const noexcept { return m_index; }
-    // RC2 S10' 5.1 R1: the listing walked holds a recording after the current one (recordingId order)
+    // R1: the listing walked holds a recording after the current one (recordingId order)
     bool hasLaterRecording() const noexcept { return m_index + 1 < m_chain.size(); }
     std::int64_t consumed() const noexcept { return m_consumed; }
     bool readWasMemoFree() const noexcept { return m_readMemoFree; }
@@ -211,7 +211,7 @@ private:
     std::int64_t m_invalidFrom = 0;
     RecordingKey m_invalidKey;
     bool m_relistedOnce = false;
-    // The continuation point of the current read (review F-1): the last recording the read has fully
+    // The continuation point of the current read: the last recording the read has fully
     // consumed (RECORDING_ENDED, or the chain end reached by DRAINED/EMPTY/a proof at a stop). Kept across
     // the chain-exhausted back-off, so a successor listed seconds later continues the same read; cleared
     // on attach, detach, reattach and on any source fault.

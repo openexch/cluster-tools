@@ -1,4 +1,4 @@
-// RC2 S12 contract 11.1 ResyncPropertyTest (critic S12 RED "F3 property test including backlog entries").
+// ResyncPropertyTest (RED "property test including backlog entries").
 //
 // A seeded core model mints CREATE, CANCEL, AMEND, RELEASE_ID (UP_TO and ORDER) and orphan CANCEL
 // dispatches, a few anomalous ones of every class (I, C, RA, RX, unroutable), resolves random pending ones,
@@ -11,7 +11,7 @@
 //
 // Faults: a core leader change (the old image's undelivered suffix lost, the surviving prefix delivered
 // interleaved with the new term; the dispatch mask lost until re-registration; old-term ingress dropped);
-// stale old-term frames between new-term reply entries (FIX-1); a session close per A-2 (a partial reply,
+// stale old-term frames between new-term reply entries; a session close per A-2 (a partial reply,
 // a lost AdmissionState, a discard: the queue's suffix lost); a 108 delayed past T9 so both replies arrive;
 // a lost request (no 108 at all); CAPACITY'd entries kept pending until the gate opens (T3); ring stalls
 // (ME back-pressure); bursts that overflow hold or ring; forwarder restarts (a fresh machine).
@@ -47,7 +47,7 @@ using namespace cluster_tools::domain::forwarder;
 namespace {
 
 constexpr std::int64_t STEP_NS = 50'000'000LL; // 50 ms of model time per step
-constexpr std::int64_t STALE_TAG = 1LL << 50;    // P7: marks a stale-term copy (review FIX-4)
+constexpr std::int64_t STALE_TAG = 1LL << 50;    // P7: marks a stale-term copy
 
 struct Rng
 {
@@ -183,7 +183,7 @@ struct Run
     std::int64_t ringStallUntil = 0;
     std::uint64_t instances = 0;
 
-    // ---- the ME (review FIX-4): offers land in the current ME term's uncommitted tail; a commit makes them accepted
+    // ---- the ME: offers land in the current ME term's uncommitted tail; a commit makes them accepted
     // (or CAPACITY-refused); an ME leader change truncates the tail and the agent raises T2; an ME session close loses
     // the tail too, nothing is offered until the next session reaches M3, which raises T2.
     std::map<std::int64_t, std::int64_t> lastAccepted; // seq -> commit time
@@ -890,7 +890,7 @@ struct Run
         }
         if (0 == seed % 2)
         {
-            // Late loss (review FIX-4 kept T7 observable): after quiescence, with faults off and no ME loss left
+            // Late loss (kept T7 observable): after quiescence, with faults off and no ME loss left
             // to trigger T2, one more dispatch whose broadcast is lost and no traffic after it. Only the 10 s head
             // probe (T7) can find it; with T7 off the probe reply is ignored and P1 fails.
             note("LATE LOSS");

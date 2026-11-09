@@ -1,11 +1,11 @@
-// BridgeDomainPropertyTest (RC2 S9b 13.10): seeded random scenarios driven through S9a's REAL FollowPolicy +
-// FollowerLoop + ResumeMemo over SimArchive sources, with the REAL BridgeDomain as the owner (replacing S9a's stub
-// owner) and the stub core of BridgeTestSupport.h, which models the real core's outcomes (review FIX-12):
+// BridgeDomainPropertyTest: seeded random scenarios driven through REAL FollowPolicy +
+// FollowerLoop + ResumeMemo over SimArchive sources, with the REAL BridgeDomain as the owner (replacing stub
+// owner) and the stub core of BridgeTestSupport.h, which models the real core's outcomes:
 // SettleRejected FEED_GAP for every frame after a refusal and FEED_UNBOUND while unbound, decode poison that latches
 // with NO SettleRejected, a 62 applied entry by entry stopping at the first refusal, FeedHalt per D3a, a v1/v2 phase
 // that drops 68 and 66 and reports 0/0/NONE, and egress lost on a leader change.
 //
-// The scenario generator: 1-3 sources; re-journal step-backs; per-source holes; a whole-box hole; the K8 shape (a
+// The scenario generator: 1-3 sources; re-journal step-backs; per-source holes; a whole-box hole; the crash shape (a
 // memo read sees a hole a memo-free read does not); padding; refused frames on a subset (also a superseded corrupt
 // copy before good data); a foreign-epoch prefix recording on a subset; a dead node at its head; recordings stopped
 // and succeeded mid-run; elections losing the uncommitted tail; one stub-core-refused seq (poisoned copies on a
@@ -66,9 +66,9 @@ struct Scenario
     int v2Until = -1;                     // iteration the core switches to 3 (-1: v3 from the start)
     bool foreignPrefix = false;
     bool slow = false;
-    int lag = 1;             // FIX-1 (2026-10-31 review): egress reaches the domain 1..8 duty iterations after the commit
+    int lag = 1;             // egress reaches the domain 1..8 duty iterations after the commit
     std::int64_t foreignTail = 0; // the ME was re-genesised without the wipe: epoch 9 records from this seq on, on every source
-    bool postHaltEvents = false;  // FIX-3: an operator fill, a second lane past e, a core re-genesis after a halt
+    bool postHaltEvents = false;  // An operator fill, a second lane past e, a core re-genesis after a halt
     std::int64_t startCursor = 0; // the core starts bound at this cursor (0: unbound)           // some source holds an old-epoch recording at its chain head (core bound at 1)
 
     std::string describe() const
@@ -136,7 +136,7 @@ Scenario generate(std::mt19937_64 &rng)
             const std::int64_t a = pick(4, sc.n - 8);
             runs.push_back({ 1, a + 5 });
             runs.push_back({ a - 2, a });
-            runs.push_back({ a + 3, sc.n }); // K8: a memo read resumed after the short run sees a false hole
+            runs.push_back({ a + 3, sc.n }); // A memo read resumed after the short run sees a false hole
             if (1 == sc.sources && coin(0.5))
             {
                 sc.startCursor = a; // the core already at a: the short run is proven by its skips at the first read
@@ -231,7 +231,7 @@ Scenario generate(std::mt19937_64 &rng)
                 sc.deferredRun[s] = static_cast<int>(runs.size() - 1);
                 sc.stopAt[s] = static_cast<int>(pick(10, 150));
                 // recorded within 5 s of the start (holeGrace is 6 s here): a successor later than the grace is a
-                // blind period D-S9b-3 bounds on purpose (the halt is then the right outcome, not a liveness defect)
+                // blind period bounds on purpose (the halt is then the right outcome, not a liveness defect)
                 sc.successorDelay[s] = static_cast<int>(pick(0, 100));
             }
         }
@@ -256,7 +256,7 @@ Scenario generate(std::mt19937_64 &rng)
     }
     sc.elections = 0 == sc.poisonSeq && 0 == sc.coreRefuseSeq && (coin(0.4) || 0 != sc.startCursor);
     sc.smallRing = coin(0.1);
-    sc.slow = coin(0.3); // a small poll budget and frequent reports: the read and the cursor interleave (K8 proofs)
+    sc.slow = coin(0.3); // a small poll budget and frequent reports: the read and the cursor interleave (proofs)
     sc.retryProbability = coin(0.3) ? 0.05 : 0.0;
     sc.v2Until = coin(0.1) ? static_cast<int>(pick(100, 1500)) : -1;
     sc.lag = static_cast<int>(pick(1, 8));
@@ -372,7 +372,7 @@ const char *truthName(Truth t)
     return "?";
 }
 
-// S10' 5.3: some recording holds a valid own-epoch copy of seq
+// Some recording holds a valid own-epoch copy of seq
 bool holdsValid(const SimArchive &archive, std::int64_t seq, std::int64_t epoch)
 {
     for (const auto &rec : archive.recordings)
@@ -395,7 +395,7 @@ bool holdsValid(const SimArchive &archive, std::int64_t seq, std::int64_t epoch)
 
 Truth memoFree(const SimArchive &archive, std::int64_t e, std::int64_t epoch)
 {
-    bool ownSeen = false; // NOTE-8 (2026-10-31): a foreign frame before any own-epoch frame is a stale prefix: BAD
+    bool ownSeen = false; // A foreign frame before any own-epoch frame is a stale prefix: BAD
     for (const auto &rec : archive.recordings)
     {
         for (const auto &f : rec.frames)
@@ -431,19 +431,19 @@ struct Stats
     int recovered = 0, haltsWithLag = 0;
     int recoveredGap = 0, recoveredSchema = 0, recoveredEpoch = 0, recoveredRefused = 0;
     int fills = 0, lanes = 0, regeneses = 0;
-    // RC2 S10' 5.3: in-place successors (FILL / RESTART / above e / SOURCE_SCHEMA valid copies) and their recoveries
+    // in-place successors (FILL / RESTART / above e / SOURCE_SCHEMA valid copies) and their recoveries
     int successorFills = 0, successorRestarts = 0, successorsAbove = 0, schemaSuccessors = 0;
     int successorAttaches = 0, stepBacks = 0, schemaRescanRecoveries = 0, successorRecoveries = 0;
 };
 Stats g_stats;
-// S10' lane A (2026-11-01, carried finding): the S9b row-3 shape where a BEHIND verdict on a source the domain no
+// Carried finding: the row-3 shape where a BEHIND verdict on a source the domain no
 // longer follows goes stale (its successor recording appears during hole_grace) and the grace-expiry decision halts
 // although a memo-free read now delivers e. Set only by staleBehindHaltRecoversByTheReScan: the halt-time "delivers"
 // check is recorded instead of failed there, and the run must still end complete (every record once, in order).
 bool g_staleBehindHaltTolerated = false;
 int g_staleBehindHalts = 0;
 
-// The duty loop of section 3 with a checking core port in front of the stub.
+// The duty loop of with a checking core port in front of the stub.
 struct Property : CorePort
 {
     const Scenario &sc;
@@ -579,7 +579,7 @@ struct Property : CorePort
     }
     bool debug = std::getenv("CT_BRIDGE_PROPERTY_DEBUG") != nullptr;
 
-    // FIX-1: what the core emitted reaches the domain sc.lag duty iterations later, in order
+    // What the core emitted reaches the domain sc.lag duty iterations later, in order
     std::deque<std::pair<int, CoreEgress>> egressQueue;
 
     void deliver(int it)
@@ -617,8 +617,8 @@ struct Property : CorePort
         }
     }
 
-    // FIX-3: an operator refills source s with a complete journal of `epoch` (one active recording, nothing bad)
-    // RC2 S10' 5.3: an in-place successor recording on source s (the ME re-journals from `from` in place: the active
+    // An operator refills source s with a complete journal of `epoch` (one active recording, nothing bad)
+    // An in-place successor recording on source s (the ME re-journals from `from` in place: the active
     // recording stops, a new one holds from..to with valid copies); the old recordings stay in the chain
     void successor(std::size_t s, std::int64_t from, std::int64_t to, std::int64_t epoch)
     {
@@ -672,12 +672,12 @@ std::string runScenario(std::uint64_t seed)
     std::int64_t snapshotE = 0;
     bool v2Halted = false;
     bool v2HaltClean = false;
-    std::int64_t currentEpoch = EPOCH;  // FIX-3: a re-genesis moves the run to epoch 9
-    int eventAt = -1;                    // FIX-3: the post-halt event of this halt
+    std::int64_t currentEpoch = EPOCH;  // A re-genesis moves the run to epoch 9
+    int eventAt = -1;                    // The post-halt event of this halt
     bool eventDone = false;              // at most one post-halt event per run
     BridgeHalt pendingKind = BridgeHalt::NONE;
     std::int64_t pendingE = 0;           // a halt waiting to be recovered: its kind and e
-    // S10' 5.3: an in-place successor holding a valid e was recorded for the halt at successorE (in time for a re-scan)
+    // An in-place successor holding a valid e was recorded for the halt at successorE (in time for a re-scan)
     std::int64_t successorE = 0;
     bool successorRecovered = false;
     bool successorSchema = false;        // the successor carried valid copies for a SOURCE_SCHEMA halt (R0)
@@ -733,7 +733,7 @@ std::string runScenario(std::uint64_t seed)
         }
         if (std::uniform_int_distribution<int>(0, 99)(rng) < (sc.slow ? 15 : 70))
         {
-            p.core.commit(); // a slow core lets the cursor linger while the follower re-reads (the K8 proofs)
+            p.core.commit(); // a slow core lets the cursor linger while the follower re-reads (the proofs)
         }
         // 1. egress
         p.deliver(it);
@@ -810,7 +810,7 @@ std::string runScenario(std::uint64_t seed)
         const bool haltedNow = (State::HALTED == v.state || State::HALTING == v.state) && BridgeHalt::NONE != v.halt;
         if (haltedNow && sc.v2Until >= 0 && it < sc.v2Until && !v2Halted)
         {
-            // S10' W4: whether the journal was clean is judged when the v1/v2 halt happens, not at the end of the run (a
+            // Whether the journal was clean is judged when the v1/v2 halt happens, not at the end of the run (a
             // post-halt fill can add seq 1 later, and with 5.1 R1 the halted bridge now reaches it)
             v2Halted = true;
             v2HaltClean = false;
@@ -865,7 +865,7 @@ std::string runScenario(std::uint64_t seed)
             {
                 truths += std::string(" src") + std::to_string(s) + "=" + truthName(snapshot[s]);
             }
-            // S10' 5.3 R2: after a FILL successor (only e), e + 1 sits in the earlier recording: one memo-free re-read
+            // R2: after a FILL successor (only e), e + 1 sits in the earlier recording: one memo-free re-read
             // reaches it, so a halt at e + 1 while that recording holds a valid e + 1 is a missing step back
             if (0 != fillE && e == fillE + 1 && !sc.elections && holdsValid(*p.sources.archives[fillSource], e, currentEpoch))
             {
@@ -909,13 +909,13 @@ std::string runScenario(std::uint64_t seed)
                 snapshot.clear();
             }
         }
-        // FIX-3: halts are recovered from: count each kind once the core passed its e with the halt gone
+        // Halts are recovered from: count each kind once the core passed its e with the halt gone
         if (haltedNow && BridgeHalt::NONE == pendingKind)
         {
             pendingKind = v.halt;
             pendingE = p.domain->halt().e;
             attachesAtHalt = BridgeMetrics::get(p.metrics.haltSuccessorAttaches);
-            ++g_stats.haltsWithLag; // every run has an egress lag >= 1 (FIX-1)
+            ++g_stats.haltsWithLag; // every run has an egress lag >= 1
             if (sc.postHaltEvents && !eventDone)
             {
                 eventAt = it + static_cast<int>(std::uniform_int_distribution<int>(50, 400)(rng));
@@ -966,7 +966,7 @@ std::string runScenario(std::uint64_t seed)
             else if ((BridgeHalt::GAP == v.halt || BridgeHalt::SOURCE_SCHEMA == v.halt) &&
                 std::uniform_int_distribution<int>(0, 2)(rng) == 0)
             {
-                // S10' 5.3: an in-place successor (the old recordings stay): FILL (only e), RESTART (e .. n), above e
+                // An in-place successor (the old recordings stay): FILL (only e), RESTART (e .. n), above e
                 // (e + k .. n: the halt stays, seen = the min), or for SOURCE_SCHEMA valid copies from e on
                 const std::size_t s = std::uniform_int_distribution<std::size_t>(0, sc.sources - 1)(rng);
                 const int kind = BridgeHalt::SOURCE_SCHEMA == v.halt ? 1 : std::uniform_int_distribution<int>(0, 2)(rng);
@@ -990,7 +990,7 @@ std::string runScenario(std::uint64_t seed)
                     p.successor(s, std::min<std::int64_t>(sc.n, e + 1 + std::uniform_int_distribution<int>(0, 3)(rng)), sc.n,
                         currentEpoch);
                 }
-                // elections fence a re-scan every ~1.2 s here (a fence does not restart the 6 s cadence, N-5): the walk
+                // elections fence a re-scan every ~1.2 s here (a fence does not restart the 6 s cadence): the walk
                 // may never finish, so those runs check safety only
                 if (kind != 2 && inTime && !foreignBefore && currentEpoch == EPOCH && !sc.poisonSeq && !sc.coreRefuseSeq &&
                     !sc.elections)
@@ -1075,7 +1075,7 @@ std::string runScenario(std::uint64_t seed)
                     acceptedCopy = true;
                 }
             }
-            // 9.6 as amended 2026-10-31 (review FIX-2): a source that never offered C' + 1 stays untried and is re-tried on
+            // 9.6 as amended 2026-10-31: a source that never offered C' + 1 stays untried and is re-tried on
             // the haltRescan cadence, so an accepted copy that exists at the end of the run must have been offered
             if (acceptedCopy && p.domain->halt().e == sc.poisonSeq)
             {
@@ -1086,7 +1086,7 @@ std::string runScenario(std::uint64_t seed)
     }
     g_stats.successorAttaches += static_cast<int>(BridgeMetrics::get(p.metrics.haltSuccessorAttaches));
     g_stats.stepBacks += static_cast<int>(BridgeMetrics::get(p.metrics.haltStepbacks));
-    // S10' 5.3 (d): an in-place successor holding a valid e recovers the halt at e by the re-scan (R0 / R1)
+    // (d): an in-place successor holding a valid e recovers the halt at e by the re-scan (R0 / R1)
     if (0 != successorE)
     {
         if (!successorRecovered)
@@ -1160,7 +1160,7 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
             << ", recovered GAP " << g_stats.recoveredGap << ", SOURCE_SCHEMA " << g_stats.recoveredSchema
             << ", EPOCH_MISMATCH " << g_stats.recoveredEpoch << ", CORE_REFUSED " << g_stats.recoveredRefused
             << " (fills " << g_stats.fills << ", lanes " << g_stats.lanes << ", re-geneses " << g_stats.regeneses << ")"
-            << "; S10' successors: FILL " << g_stats.successorFills << ", RESTART " << g_stats.successorRestarts << ", above e "
+            << "; successors: FILL " << g_stats.successorFills << ", RESTART " << g_stats.successorRestarts << ", above e "
             << g_stats.successorsAbove << ", SOURCE_SCHEMA " << g_stats.schemaSuccessors << "; successor attaches "
             << g_stats.successorAttaches << ", step-backs " << g_stats.stepBacks << ", schema re-scan recoveries "
             << g_stats.schemaRescanRecoveries << ", successor recoveries " << g_stats.successorRecoveries);
@@ -1168,7 +1168,7 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
     CHECK(failures == 0);
     if (failures == 0 && runs >= 400)
     {
-        // FIX-1 (2026-10-31): with an egress lag in every run, halts are still reached (BLOCKER-1 would stop them)
+        // With an egress lag in every run, halts are still reached (BLOCKER-1 would stop them)
         CHECK(g_stats.haltsWithLag > 0);
         CHECK(g_stats.gaps > 0);
     }
@@ -1186,13 +1186,13 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
         CHECK(g_stats.fences > 0);
         CHECK(g_stats.ringFullPauses > 0);
         CHECK(g_stats.completed > runs / 3);
-        // FIX-1 and FIX-3 of the 2026-10-31 review: halts are reached with an egress lag, and recovered from
+        // Halts are reached with an egress lag, and recovered from
         CHECK(g_stats.haltsWithLag > 0);
         CHECK(g_stats.recoveredGap > 0);
         CHECK(g_stats.recoveredSchema > 0);
         CHECK(g_stats.recoveredEpoch > 0);
         CHECK(g_stats.recoveredRefused > 0);
-        // S10' 5.3 (C5): recoveries by an in-place successor, by the R2 step back and by the R0 schema re-scan ran
+        // Recoveries by an in-place successor, by the R2 step back and by the R0 schema re-scan ran
         CHECK(g_stats.successorAttaches > 0);
         CHECK(g_stats.stepBacks > 0);
         CHECK(g_stats.schemaRescanRecoveries > 0);
@@ -1202,11 +1202,11 @@ TEST_CASE("BridgeDomainPropertyTest.everyRecordOnceInOrderOrALoudHaltAcrossRando
 
 TEST_CASE("BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan")
 {
-    // S10' lane A (W9 item 3): the four S9b seeds (bases 31337, 99999999, 555000, 8675309) that fail the halt-time check
-    // "halt ... although a memo-free read delivers it" on 2039454 and on the S10' tree. Cause (pre-halt, S9b 8.3 row 3,
+    // The four seeds (bases 31337, 99999999, 555000, 8675309) that fail the halt-time check
+    // "halt ... although a memo-free read delivers it" on 2039454 and on the current tree. Cause (pre-halt, row 3,
     // not R0-R2): during hole_grace the domain parks on the first BEHIND source; another BEHIND source's successor
     // recording appears meanwhile and is never read, so the grace-expiry decision counts it HOLED-without-seen and
-    // halts SOURCE_SCHEMA / GAP. Carried (README lane A). Pinned here: with F-1 (R0 schema re-scan, R1 re-list) the halt
+    // halts SOURCE_SCHEMA / GAP. Carried as a known open defect. Pinned here: with (R0 schema re-scan, R1 re-list) the halt
     // is transient, the run completes with every record once and in order, and the halt is counted recovered.
     g_staleBehindHaltTolerated = true;
     g_staleBehindHalts = 0;
@@ -1230,7 +1230,7 @@ TEST_CASE("BridgeDomainPropertyTest.staleBehindHaltRecoversByTheReScan")
 
 TEST_CASE("BridgeDomainPropertyTest.taintRuleSeedsStayGreen")
 {
-    // review F1-TAINT-NO-RED: the six seeds that found the S10' 5.1 taint rule (README lane A, deviation 2) lie outside
+    // The six seeds that found the taint rule lie outside
     // the default seed range (0x5eedb41d + [0, 2000)); pinned here so they run on every build. The rule's own REDs are
     // HaltMachineTest.walkedBadRecordingIsVerifiedBeforeAForeignVerdict (TAINT_VERIFY_OFF) and
     // HaltMachineTest.taintedSourceDuringGapRescanNeverLatchesEpoch (TAINT_HALTED_EXEMPT)

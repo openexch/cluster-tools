@@ -1,5 +1,5 @@
-// The 4.2 recording validity table and the chain listing (RC2 S9a contract 9.1). Ports of
-// BridgeAgentEmptyRecordingTest (rows 1-3) plus the new MTU row and its N4 ordering.
+// The 4.2 recording validity table and the chain listing. Ports of
+// BridgeAgentEmptyRecordingTest (rows 1-3) plus the new MTU row and its ordering.
 #include "doctest/doctest.h"
 
 #include "SimArchive.h"
@@ -99,7 +99,7 @@ TEST_CASE("ChainModelTest.mtuMismatchRefusesTheSource")
 
 TEST_CASE("ChainModelTest.emptyOrDrainedNeverRefusesForMtu")
 {
-    // Review N4: a recording that needs no replay can never refuse a source.
+    // A recording that needs no replay can never refuse a source.
     CHECK(classifyRecording(stopped(0, 0, 0, 4096), 0, MTU) == RecordingVerdict::EMPTY);
     CHECK(classifyRecording(stopped(0, 0, 160, 4096), 160, MTU) == RecordingVerdict::DRAINED);
 }

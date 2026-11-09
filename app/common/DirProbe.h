@@ -7,8 +7,8 @@
 #include <functional>
 #include <string>
 
-// DirProbe - the file-system checks of the driver keys at the config parse (RC2 S10' 8.2, "one rule for both
-// processes"; review C13-3): <PROCESS>_DRIVER_DIR must be an existing, writable directory (embedded) and AERON_DIR an
+// DirProbe - the file-system checks of the driver keys at the config parse ("one rule for both
+// processes"): <PROCESS>_DRIVER_DIR must be an existing, writable directory (embedded) and AERON_DIR an
 // existing directory (external), refused with every other config problem (78) before the http bind and any Aeron
 // object. The config tests inject one; systemDirProbe() is stat(2) / access(2). The shape of ct-bridge's
 // bridge::DirProbe (BridgeConfig.h), which can become an alias of this one.

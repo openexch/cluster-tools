@@ -90,7 +90,7 @@ void HttpServer::run()
         }
         catch (...)
         {
-            ::close(fd); // the client sees EOF; the caller maps the exception to exit 70 (NOTE-5)
+            ::close(fd); // the client sees EOF; the caller maps the exception to exit 70
             m_finished.store(true, std::memory_order_release);
             throw;
         }
@@ -124,7 +124,7 @@ void HttpServer::serve(int fd)
     ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-    // Review FIX-2: ONE deadline for the whole request, not a per-recv timeout: a client trickling a byte every 1.5 s
+    // ONE deadline for the whole request, not a per-recv timeout: a client trickling a byte every 1.5 s
     // must not hold the only fwd-http thread (and with it /health and /ready).
     const std::int64_t deadline = monotonicMs() + SOCKET_TIMEOUT_MS;
     char buf[4096];

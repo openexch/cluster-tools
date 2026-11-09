@@ -8,7 +8,7 @@
 # -DME_JOURNAL_SCHEMA=<out>/me-journal-schema.xml
 #
 # The ME settlement journal (schemaId 4) lives in the match repo and is taken at its own pin,
-# me_journal_schema_ref (RC2 S9a contract 2.2; today the same commit as match_schema_ref).
+# me_journal_schema_ref (today the same commit as match_schema_ref).
 #
 # A newer schema is taken by bumping *_ref and *_sha256 in the lock, or by pointing
 # -DMONEY_SCHEMA / -DMATCH_SCHEMA at the file directly: the CMake configure check validates their

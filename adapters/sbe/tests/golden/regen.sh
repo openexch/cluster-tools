@@ -3,9 +3,9 @@
 # bump (money v7, order v12) with jars built from the commits dependencies.lock pins:
 #   adapters/sbe/tests/golden/regen.sh <assets-cluster.jar> <match-cluster.jar> [<assets-feed-harness.jar> [<e1-dir>]]
 #
-# RC2 S9h 4.1 (S9a 9.4): with the third argument, the S9h harness jar (pinned by feed_harness_sha256 in
+# With the third argument, the harness jar (pinned by feed_harness_sha256 in
 # dependencies.lock) also writes the ONLY expected bytes the C++ translator is compared with:
-#   - adapters/sbe/tests/golden/feed_frames.inc: every named case of S9h 4.2 (`fixtures` on the six committed
+#   - adapters/sbe/tests/golden/feed_frames.inc: every named case (`fixtures` on the six committed
 #     ME journal fixtures), NAME_IN = the case's FJR1 file bytes, NAME_OUT = its FFR1 file bytes, plus the
 #     FEED_FRAME_CASES table; the header names the harness commit and jar sha256 and pins every case by hash;
 #   - domain/bridge/tests/fixtures/e1/: the `e1` output (per scenario and member .fjr, .ffr, .refused.txt, e1.pin,
@@ -15,8 +15,8 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../../.." && pwd)
-# the engines' single-file golden printers run on the engine jars and need the agrona opens as flags; the S9h harness
-# jar carries Add-Opens in its manifest and is run with plain `java -jar` (review FIX-2), as every consumer runs it
+# the engines' single-file golden printers run on the engine jars and need the agrona opens as flags; the harness
+# jar carries Add-Opens in its manifest and is run with plain `java -jar`, as every consumer runs it
 JAVA_OPTS=(--add-opens java.base/jdk.internal.misc=ALL-UNNAMED)
 
 if [ $# -lt 2 ] || [ $# -gt 4 ]; then

@@ -11,7 +11,7 @@
 #                           resources/sbe/order-schema.xml)
 #   e2e/money-schema.xml    the core money-schema at dependencies.lock money_schema_ref
 #                           (scripts/fetch-schemas.sh writes it; the build needs it
-#                           since RC2 S11 even though the proof does not use it)
+#                           even though the proof does not use it)
 #   DEPS_DIR env            the verified dependency cache of scripts/fetch-deps.sh
 #                           (aeron-1.53.1.tar.gz, sbe-tool-1.40.1.jar, agrona-2.5.0.jar)
 #   docker                  with the poc builder image buildable (poc/Dockerfile.builder)

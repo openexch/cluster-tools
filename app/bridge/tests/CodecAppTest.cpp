@@ -1,4 +1,4 @@
-// RC2 S9c 12.2 forwardLatencyAndAckLatency (O3 / O4, 5.4): the agent reads the trade id and the ME timestamp of every
+// forwardLatencyAndAckLatency (O3 / O4, 5.4): the agent reads the trade id and the ME timestamp of every
 // 61 / 62 its port offered OK through the codec's getter (metrics only), arms the ack map, and closes the sample at the
 // SettlementApplied 13; a future timestamp is a clock anomaly and records nothing; an ack for an unknown trade is a skip.
 #include "doctest/doctest.h"
