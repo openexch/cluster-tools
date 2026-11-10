@@ -18,7 +18,7 @@ on:
 
 jobs:
   publish:
-    # Opt-in per repo, the same switch match/assets/cloud-console use. Publishing
+    # Opt-in per repo, the same switch match/core/cloud-console use. Publishing
     # needs an S3 bucket and an OIDC role that do not exist in a fresh clone or a
     # fork, and a workflow that hard-fails on absent infrastructure turns main red
     # for a reason unrelated to the code. Turn it on with:
@@ -91,9 +91,9 @@ jobs:
       - name: Fetch and verify the pinned dependencies
         id: deps
         env:
-          # The harness jar is published as a GitHub release asset of openexch/assets
-          # (releases/download/feed-harness/assets-feed-harness-<sha>.jar, the lock's feed_harness_url); its sha256 is pinned.
-          CT_ARTIFACT_BASE_URL: https://github.com/openexch/assets
+          # The harness jar is published as a GitHub release asset of openexch/core
+          # (releases/download/feed-harness/core-feed-harness-<sha>.jar, the lock's feed_harness_url); its sha256 is pinned.
+          CT_ARTIFACT_BASE_URL: https://github.com/openexch/core
         run: |
           set -euo pipefail
           # --harness: WITH_BRIDGE (ct-bridge) requires the feed harness jar the lock pins (feed_harness_url)
@@ -110,13 +110,13 @@ jobs:
 
       # The engine wire schemas the tools speak, at the commits the lock pins (never a branch
       # tip, never vendored: two copies of a wire schema drift).
-      - name: Check out assets at the money-schema pin
+      - name: Check out core at the money-schema pin
         uses: actions/checkout@v4
         with:
-          repository: openexch/assets
+          repository: openexch/core
           ref: ${{ steps.pins.outputs.money_ref }}
-          path: pinned/assets
-          sparse-checkout: assets-common/src/main/resources/sbe
+          path: pinned/core
+          sparse-checkout: core-common/src/main/resources/sbe
           sparse-checkout-cone-mode: false
 
       - name: Check out match at the order-schema pin
@@ -132,7 +132,7 @@ jobs:
         id: schemas
         run: |
           set -euo pipefail
-          scripts/fetch-schemas.sh "${RUNNER_TEMP}/schemas" pinned/assets pinned/match > schemas.args
+          scripts/fetch-schemas.sh "${RUNNER_TEMP}/schemas" pinned/core pinned/match > schemas.args
           echo "args=$(tr '\n' ' ' < schemas.args)" >> "$GITHUB_OUTPUT"
 
       # Release because these binaries are what the box runs, not a test build.

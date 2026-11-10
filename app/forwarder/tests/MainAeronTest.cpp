@@ -246,7 +246,7 @@ std::map<std::string, std::string> forwarderEnv(const std::string &mode, const s
     std::map<std::string, std::string> env{
         { "FWD_CORE_INGRESS", "0=127.0.0.1:47302" },
         { "FWD_CORE_RESPONSE_CHANNEL", "aeron:udp?endpoint=127.0.0.1:0" },
-        { "AE_AUTH_CREDENTIAL", "6:FORWARDER:" + SECRET },
+        { "CORE_AUTH_CREDENTIAL", "6:FORWARDER:" + SECRET },
         { "FWD_ME_INGRESS", "0=127.0.0.1:47402" },
         { "FWD_ME_RESPONSE_CHANNEL", "aeron:udp?endpoint=127.0.0.1:0" },
         { "ME_AUTH_CREDENTIAL", "7:FORWARDER:" + SECRET },

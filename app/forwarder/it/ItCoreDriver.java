@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// The core half of the T1 driver. A single-file Java program run against the assets
-// jar (java -cp assets-cluster.jar ItCoreDriver.java ...): the AE and ME jars pin different Aeron versions
-// (assets 1.53.0, match 1.53.1), so the driver is split into this core driver and
+// The core half of the T1 driver. A single-file Java program run against the core
+// jar (java -cp core-cluster.jar ItCoreDriver.java ...): the core and ME jars each bundle their own Aeron
+// and never share one classpath, so the driver is split into this core driver and
 // ItMeDriver.java.
 //
 //   genesis <aeronDir> <ingress> <genesisId> <ledgerCapacity> <users>
@@ -45,36 +45,36 @@
 // Credentials come from the environment: T1_ADMIN_KEY, T1_BRIDGE_KEY, T1_TOOL_KEY, T1_GATEWAY_KEY, T1_TAP_KEY
 // (keyId:CLASS:secretHex). Exit 0 = done, 1 = the step failed (a message says why).
 
-import com.openexchange.assets.domain.Asset;
-import com.openexchange.assets.domain.FixedPoint;
-import com.openexchange.assets.domain.Market;
-import com.openexchange.assets.infrastructure.generated.AdminAckDecoder;
-import com.openexchange.assets.infrastructure.generated.BoolFlag;
-import com.openexchange.assets.infrastructure.generated.ConfigDecision;
-import com.openexchange.assets.infrastructure.generated.CoreConfigEncoder;
-import com.openexchange.assets.infrastructure.generated.CoreRejectReason;
-import com.openexchange.assets.infrastructure.generated.CreateOrderEncoder;
-import com.openexchange.assets.infrastructure.generated.DepositEncoder;
-import com.openexchange.assets.infrastructure.generated.EventKind;
-import com.openexchange.assets.infrastructure.generated.GateReason;
-import com.openexchange.assets.infrastructure.generated.GateState;
-import com.openexchange.assets.infrastructure.generated.MeDispatchBatchDecoder;
-import com.openexchange.assets.infrastructure.generated.MeDispatchDecoder;
-import com.openexchange.assets.infrastructure.generated.MeEngineConfigEncoder;
-import com.openexchange.assets.infrastructure.generated.MessageHeaderDecoder;
-import com.openexchange.assets.infrastructure.generated.MessageHeaderEncoder;
-import com.openexchange.assets.infrastructure.generated.OrderEntryGateEncoder;
-import com.openexchange.assets.infrastructure.generated.OrderEventBatchDecoder;
-import com.openexchange.assets.infrastructure.generated.OrderEventDecoder;
-import com.openexchange.assets.infrastructure.generated.OrderStatus;
-import com.openexchange.assets.infrastructure.generated.OrderRejectDecoder;
-import com.openexchange.assets.infrastructure.generated.OrderType;
-import com.openexchange.assets.infrastructure.generated.PendingDispatchEndDecoder;
-import com.openexchange.assets.infrastructure.generated.RegisterSessionEncoder;
-import com.openexchange.assets.infrastructure.generated.RequestPendingDispatchEncoder;
-import com.openexchange.assets.infrastructure.generated.SessionClass;
-import com.openexchange.assets.infrastructure.generated.Side;
-import com.openexchange.assets.infrastructure.generated.TimeInForce;
+import com.openexchange.core.domain.Asset;
+import com.openexchange.core.domain.FixedPoint;
+import com.openexchange.core.domain.Market;
+import com.openexchange.core.infrastructure.generated.AdminAckDecoder;
+import com.openexchange.core.infrastructure.generated.BoolFlag;
+import com.openexchange.core.infrastructure.generated.ConfigDecision;
+import com.openexchange.core.infrastructure.generated.CoreConfigEncoder;
+import com.openexchange.core.infrastructure.generated.CoreRejectReason;
+import com.openexchange.core.infrastructure.generated.CreateOrderEncoder;
+import com.openexchange.core.infrastructure.generated.DepositEncoder;
+import com.openexchange.core.infrastructure.generated.EventKind;
+import com.openexchange.core.infrastructure.generated.GateReason;
+import com.openexchange.core.infrastructure.generated.GateState;
+import com.openexchange.core.infrastructure.generated.MeDispatchBatchDecoder;
+import com.openexchange.core.infrastructure.generated.MeDispatchDecoder;
+import com.openexchange.core.infrastructure.generated.MeEngineConfigEncoder;
+import com.openexchange.core.infrastructure.generated.MessageHeaderDecoder;
+import com.openexchange.core.infrastructure.generated.MessageHeaderEncoder;
+import com.openexchange.core.infrastructure.generated.OrderEntryGateEncoder;
+import com.openexchange.core.infrastructure.generated.OrderEventBatchDecoder;
+import com.openexchange.core.infrastructure.generated.OrderEventDecoder;
+import com.openexchange.core.infrastructure.generated.OrderStatus;
+import com.openexchange.core.infrastructure.generated.OrderRejectDecoder;
+import com.openexchange.core.infrastructure.generated.OrderType;
+import com.openexchange.core.infrastructure.generated.PendingDispatchEndDecoder;
+import com.openexchange.core.infrastructure.generated.RegisterSessionEncoder;
+import com.openexchange.core.infrastructure.generated.RequestPendingDispatchEncoder;
+import com.openexchange.core.infrastructure.generated.SessionClass;
+import com.openexchange.core.infrastructure.generated.Side;
+import com.openexchange.core.infrastructure.generated.TimeInForce;
 import com.openexchange.cluster.auth.ClusterCredentials;
 import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.EgressListener;
@@ -482,11 +482,11 @@ public final class ItCoreDriver {
 
     /**
      * An AdminAck reason by name. The domain vocabulary first (it carries the AdminAck-only codes,
-     * 44 DUPLICATE_IDENTITY and, from the assets jar on, 45 HALT_HOLDER_PENDING), then the money-schema enum,
+     * 44 DUPLICATE_IDENTITY and, from the core jar on, 45 HALT_HOLDER_PENDING), then the money-schema enum,
      * else UNKNOWN_<raw>.
      */
     static String adminReasonName(final int raw) {
-        for (final com.openexchange.assets.domain.CoreRejectReason r : com.openexchange.assets.domain.CoreRejectReason.values()) {
+        for (final com.openexchange.core.domain.CoreRejectReason r : com.openexchange.core.domain.CoreRejectReason.values()) {
             if (r.code() == raw) {
                 return r.name();
             }

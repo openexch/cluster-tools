@@ -14,12 +14,13 @@ namespace cluster_tools { namespace app { namespace bridge { namespace app_seams
 enum class Rule : unsigned
 {
     // 12.1 config, render, ack map
-    CONFIG_DEFAULTS,            // a default fills BRIDGE_AE_PORT_BASE
+    CONFIG_DEFAULTS,            // a default fills BRIDGE_CORE_PORT_BASE
     CONFIG_HALT_ON_GAP_IGNORED, // BRIDGE_HALT_ON_GAP is not looked at
     CONFIG_CLASS_CHECK_OFF,     // a non-BRIDGE credential passes
     CONFIG_DRIVER_MODE_DEFAULT, // a missing BRIDGE_DRIVER_MODE becomes embedded
     CONFIG_PORT_FORMULA,        // the ingress port formula without the client-facing offset (+2)
     CONFIG_MTU_DEFAULT,         // the ingress channel without mtu=8192 (the 2026-09-02 B shape)
+    CONFIG_RETIRED_NAMES_IGNORED, // a retired name (AE_AUTH_CREDENTIAL, BRIDGE_AE_*) is not looked at
     HEALTH_HALTED_FROM_STATE,   // /health halted from the state (DOWN with a kept halt reads false)
     ACKMAP_UNBOUNDED,           // the ack map grows without the 1M bound
     // 12.2 the agent

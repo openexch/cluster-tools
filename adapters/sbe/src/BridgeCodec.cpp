@@ -11,24 +11,24 @@
 #include "com_match_infrastructure_mejournal_generated/MessageHeader.h"
 #include "com_match_infrastructure_mejournal_generated/Terminal.h"
 #include "com_match_infrastructure_mejournal_generated/Trade.h"
-#include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
-#include "com_openexchange_assets_infrastructure_generated/FeedHalt.h"
-#include "com_openexchange_assets_infrastructure_generated/FeedPositionReport.h"
-#include "com_openexchange_assets_infrastructure_generated/MeCommandOutcome.h"
-#include "com_openexchange_assets_infrastructure_generated/MeCommandRelease.h"
-#include "com_openexchange_assets_infrastructure_generated/MeEngineConfig.h"
-#include "com_openexchange_assets_infrastructure_generated/MeJournalTerminal.h"
-#include "com_openexchange_assets_infrastructure_generated/MeJournalTrade.h"
-#include "com_openexchange_assets_infrastructure_generated/MeJournalTradeBatch.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
-#include "com_openexchange_assets_infrastructure_generated/QueryFeedPosition.h"
-#include "com_openexchange_assets_infrastructure_generated/SettleRejected.h"
-#include "com_openexchange_assets_infrastructure_generated/SettlementApplied.h"
+#include "com_openexchange_core_infrastructure_generated/AdminAck.h"
+#include "com_openexchange_core_infrastructure_generated/FeedHalt.h"
+#include "com_openexchange_core_infrastructure_generated/FeedPositionReport.h"
+#include "com_openexchange_core_infrastructure_generated/MeCommandOutcome.h"
+#include "com_openexchange_core_infrastructure_generated/MeCommandRelease.h"
+#include "com_openexchange_core_infrastructure_generated/MeEngineConfig.h"
+#include "com_openexchange_core_infrastructure_generated/MeJournalTerminal.h"
+#include "com_openexchange_core_infrastructure_generated/MeJournalTrade.h"
+#include "com_openexchange_core_infrastructure_generated/MeJournalTradeBatch.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/OrderReject.h"
+#include "com_openexchange_core_infrastructure_generated/QueryFeedPosition.h"
+#include "com_openexchange_core_infrastructure_generated/SettleRejected.h"
+#include "com_openexchange_core_infrastructure_generated/SettlementApplied.h"
 
 namespace cluster_tools { namespace sbe_adapter { namespace bridge_codec {
 
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 namespace jr = com::match::infrastructure::mejournal::generated;
 namespace bridge = domain::bridge;
 using bridge::test_seams::Rule;

@@ -3,7 +3,7 @@
 # against the lock's sha256. Never vendored into this repo (two copies of a wire schema
 # drift); never taken from a branch tip (a moving ref is how a stale schema gets in).
 #
-# Usage: scripts/fetch-schemas.sh <out-dir> <assets-checkout> <match-checkout>
+# Usage: scripts/fetch-schemas.sh <out-dir> <core-checkout> <match-checkout>
 # Prints the cmake arguments: -DMONEY_SCHEMA=<out>/money-schema.xml -DMATCH_SCHEMA=<out>/order-schema.xml
 # -DME_JOURNAL_SCHEMA=<out>/me-journal-schema.xml
 #
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
-    echo "usage: $0 <out-dir> <assets-checkout> <match-checkout>" >&2
+    echo "usage: $0 <out-dir> <core-checkout> <match-checkout>" >&2
     exit 64
 fi
 HERE=$(cd "$(dirname "$0")/.." && pwd)

@@ -21,6 +21,7 @@ enum class Rule : unsigned
     STORAGE_STARVED_EXIT_OFF,     // A publication starved of storage space never ends the process (alive forever)
     EMBEDDED_LIVE_CHECK,          // no live-driver check: a LIVE driver dir without a held lock is read as stale and deleted
     DRIVER_START_STORAGE_78,      // a storage-starved embedded driver start is a 78 at once (the bridge's shape)
+    RETIRED_NAMES_IGNORED,        // a retired name (AE_AUTH_CREDENTIAL) is not looked at
     COUNT
 };
 

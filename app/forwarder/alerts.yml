@@ -1,5 +1,5 @@
 # Prometheus alert rules for ct-forwarder. Scrape: GET /metrics on FWD_HTTP_BIND.
-# The pending-oldest signal lives at the core, where the pending set is (assets grafana/alerts.yml DispatchStuck,
+# The pending-oldest signal lives at the core, where the pending set is (core grafana/alerts.yml DispatchStuck,
 # A-3): a forwarder cannot see a dispatch it never received.
 groups:
   - name: forwarder

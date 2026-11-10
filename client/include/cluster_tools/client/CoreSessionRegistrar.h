@@ -8,9 +8,9 @@
 #include "cluster_tools/client/ClusterClient.h"
 #include "cluster_tools/client/Credentials.h"
 
-#include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
+#include "com_openexchange_core_infrastructure_generated/AdminAck.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/RegisterSession.h"
 
 // CoreSessionRegistrar - RegisterSession (money-schema template 80) for a core session, with
 // the AdminAck wait the specs require:
@@ -212,7 +212,7 @@ public:
     // True when the message was an AdminAck for this registrar's RegisterSession.
     bool onEgress(const EgressMessage &message)
     {
-        namespace money = com::openexchange::assets::infrastructure::generated;
+        namespace money = com::openexchange::core::infrastructure::generated;
         if (message.length < money::MessageHeader::encodedLength())
         {
             return false;
@@ -316,7 +316,7 @@ public:
 private:
     std::size_t encode()
     {
-        namespace money = com::openexchange::assets::infrastructure::generated;
+        namespace money = com::openexchange::core::infrastructure::generated;
         money::RegisterSession encoder;
         encoder.wrapAndApplyHeader(reinterpret_cast<char *>(m_frame), 0, sizeof(m_frame))
             .correlationId(m_correlationId)

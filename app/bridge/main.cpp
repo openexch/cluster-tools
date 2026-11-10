@@ -1,5 +1,5 @@
 // ct-bridge - the production C++ settlement bridge: a stateless C++20 process with
-// one resumable BRIDGE session on the core (the Assets Engine cluster) and one ME journal archive source attached at a
+// one resumable BRIDGE session on the core cluster and one ME journal archive source attached at a
 // time. Every journal record is fed to the core exactly once and in order, or the bridge halts loudly; the domain
 // decides, this process wires. Nothing is written to disk.
 //

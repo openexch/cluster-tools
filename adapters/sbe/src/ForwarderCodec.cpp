@@ -3,14 +3,14 @@
 #include <cstring>
 #include <exception>
 
-#include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
-#include "com_openexchange_assets_infrastructure_generated/MeDispatch.h"
-#include "com_openexchange_assets_infrastructure_generated/MarketTick.h"
-#include "com_openexchange_assets_infrastructure_generated/MeDispatchBatch.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
-#include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
-#include "com_openexchange_assets_infrastructure_generated/RequestPendingDispatch.h"
+#include "com_openexchange_core_infrastructure_generated/AdmissionState.h"
+#include "com_openexchange_core_infrastructure_generated/MeDispatch.h"
+#include "com_openexchange_core_infrastructure_generated/MarketTick.h"
+#include "com_openexchange_core_infrastructure_generated/MeDispatchBatch.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/OrderReject.h"
+#include "com_openexchange_core_infrastructure_generated/PendingDispatchEnd.h"
+#include "com_openexchange_core_infrastructure_generated/RequestPendingDispatch.h"
 #include "com_match_infrastructure_generated/BookDelta.h"
 #include "com_match_infrastructure_generated/BookSnapshot.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
@@ -24,7 +24,7 @@
 
 namespace cluster_tools { namespace sbe_adapter { namespace forwarder_codec {
 
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 namespace me = com::match::infrastructure::generated;
 
 // The schemas this codec was written against. A schema change that moves a field fails

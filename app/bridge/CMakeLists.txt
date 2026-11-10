@@ -181,19 +181,19 @@ if(WITH_AERON AND WITH_BRIDGE)
                 ENVIRONMENT "CT_BRIDGE_E3_APP_STORIES=10")
         endif()
 
-        # 12.7 E4 parity: every Java bridge @Test has a PARITY.md row (needs the assets tree at the money pin)
-        set(CT_PARITY_ASSETS_TREE "" CACHE PATH "assets checkout at money_schema_ref (bridge.parity reads assets-bridge/src/test)")
-        if(EXISTS "${CT_PARITY_ASSETS_TREE}/assets-bridge/src/test")
+        # 12.7 E4 parity: every Java bridge @Test has a PARITY.md row (needs the core tree at the money pin)
+        set(CT_PARITY_CORE_TREE "" CACHE PATH "core checkout at money_schema_ref (bridge.parity reads core-bridge/src/test)")
+        if(EXISTS "${CT_PARITY_CORE_TREE}/core-bridge/src/test")
             add_test(NAME bridge.parity COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/parity-check.sh"
-                "${CT_PARITY_ASSETS_TREE}" "${PROJECT_SOURCE_DIR}/domain/bridge/tests/PARITY.md"
+                "${CT_PARITY_CORE_TREE}" "${PROJECT_SOURCE_DIR}/domain/bridge/tests/PARITY.md"
                 "${PROJECT_SOURCE_DIR}/archive/tests/PARITY.md")
         endif()
     endif()
 
     # 12.4 T1-BR: the drills on real clusters (the runner is also run drill by drill on the build box)
-    if(CT_INTEGRATION_TESTS AND CT_BRIDGE_TEST_BUILDS AND EXISTS "${CT_IT_ASSETS_JAR}" AND CT_HAVE_FEED_HARNESS)
+    if(CT_INTEGRATION_TESTS AND CT_BRIDGE_TEST_BUILDS AND EXISTS "${CT_IT_CORE_JAR}" AND CT_HAVE_FEED_HARNESS)
         add_test(NAME bridge.integration
-            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/run-bridge-it.sh" "${CMAKE_BINARY_DIR}" "${CT_IT_ASSETS_JAR}"
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/run-bridge-it.sh" "${CMAKE_BINARY_DIR}" "${CT_IT_CORE_JAR}"
                 "${CT_FEED_HARNESS_JAR}" all)
         set_tests_properties(bridge.integration PROPERTIES TIMEOUT 14400 RUN_SERIAL TRUE)
     endif()

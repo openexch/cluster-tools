@@ -25,13 +25,13 @@ set(AERON_TARBALL "" CACHE FILEPATH
 set(SBE_CLASSPATH "" CACHE STRING
     "sbe-tool + agrona jars at the dependencies.lock versions, ':'-separated (scripts/fetch-deps.sh) - required when WITH_CODECS=ON or WITH_AERON=ON")
 set(MONEY_SCHEMA "" CACHE FILEPATH
-    "assets money-schema.xml (scripts/fetch-schemas.sh) - required when WITH_CODECS=ON or WITH_AERON=ON")
+    "core money-schema.xml (scripts/fetch-schemas.sh) - required when WITH_CODECS=ON or WITH_AERON=ON")
 set(MATCH_SCHEMA "" CACHE FILEPATH
     "match order-schema.xml (scripts/fetch-schemas.sh) - required when WITH_CODECS=ON or WITH_AERON=ON")
 set(ME_JOURNAL_SCHEMA "" CACHE FILEPATH
     "match me-journal-schema.xml, schemaId 4 (scripts/fetch-schemas.sh) - required when WITH_CODECS=ON or WITH_AERON=ON")
 option(CT_BUILD_MEDIA_DRIVER "Build aeronmd from the verified Aeron tarball (integration tests and the published artifact need it)" ON)
-option(CT_INTEGRATION_TESTS "Register the real-cluster integration test (java + CT_IT_ASSETS_JAR + CT_IT_MATCH_JAR, see client/it/run-it.sh)" OFF)
+option(CT_INTEGRATION_TESTS "Register the real-cluster integration test (java + CT_IT_CORE_JAR + CT_IT_MATCH_JAR, see client/it/run-it.sh)" OFF)
 # The bridge's negative-control and test-corruption binaries (ct_bridge_nc_*, ct_bridge_negctl, ct_bridge_tc_*).
 # Never published: publish.yml refuses them.
 option(CT_BRIDGE_TEST_BUILDS "Build the never-published ct_bridge_nc_* / ct_bridge_negctl / ct_bridge_tc_* binaries (integration drills)" OFF)
@@ -40,6 +40,19 @@ option(CT_BRIDGE_TEST_BUILDS "Build the never-published ct_bridge_nc_* / ct_brid
 option(CT_FORWARDER_TEST_BUILDS "Build the never-published ct_forwarder_nc_* / ct_forwarder_tc_* binaries (T1 negative controls)" OFF)
 
 include(CTest)
+
+# Cache variables retired by the rename of the engine to core. A configure that still sets one was written for the
+# old names: it is refused, naming the new name; the old name is never read (an empty value, the default an older
+# build directory carries in its cache, is not a setting). scripts/check-configure-gate.sh pins the refusal.
+foreach(_ct_retired IN ITEMS "CT_IT_ASSETS_JAR=CT_IT_CORE_JAR" "CT_PARITY_ASSETS_TREE=CT_PARITY_CORE_TREE")
+    string(REPLACE "=" ";" _ct_pair "${_ct_retired}")
+    list(GET _ct_pair 0 _ct_old)
+    list(GET _ct_pair 1 _ct_new)
+    if(DEFINED ${_ct_old} AND NOT "${${_ct_old}}" STREQUAL "")
+        message(FATAL_ERROR "the cache variable ${_ct_old} is retired; it is now ${_ct_new} "
+            "(rename the setting; the old name is never read)")
+    endif()
+endforeach()
 
 if(WITH_BRIDGE AND NOT WITH_AERON)
     message(FATAL_ERROR "WITH_BRIDGE=ON requires WITH_AERON=ON (the archive client links the verified Aeron tree)")

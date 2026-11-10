@@ -22,6 +22,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::STORAGE_STARVED_EXIT_OFF: return "STORAGE_STARVED_EXIT_OFF";
         case Rule::EMBEDDED_LIVE_CHECK: return "EMBEDDED_LIVE_CHECK";
         case Rule::DRIVER_START_STORAGE_78: return "DRIVER_START_STORAGE_78";
+        case Rule::RETIRED_NAMES_IGNORED: return "RETIRED_NAMES_IGNORED";
         case Rule::COUNT: break;
     }
     return "?";

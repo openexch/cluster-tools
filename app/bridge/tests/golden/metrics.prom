@@ -4,9 +4,9 @@ bridge_info{identity="7",version="s9c-test",me_epoch="169552957"} 1
 # HELP bridge_driver_mode The media driver mode in force (external: the host aeronmd; embedded: dev/demo)
 # TYPE bridge_driver_mode gauge
 bridge_driver_mode{mode="external"} 1
-# HELP bridge_ae_connected 1 while the core session is CONNECTED (the Java meaning)
-# TYPE bridge_ae_connected gauge
-bridge_ae_connected 1
+# HELP bridge_core_connected 1 while the core session is CONNECTED (the Java meaning)
+# TYPE bridge_core_connected gauge
+bridge_core_connected 1
 # HELP bridge_registered 1 while registered in this session and term (C3)
 # TYPE bridge_registered gauge
 bridge_registered 1

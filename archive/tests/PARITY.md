@@ -1,7 +1,7 @@
 # Java bridge parity: the archive side (ChainResumeMemoTest)
 
-The C++ settlement bridge replaces the Java bridge in openexch/assets
-(`assets-bridge/src/test/java/com/openexchange/assets/bridge/`, read at `money_schema_ref` in
+The C++ settlement bridge replaces the Java bridge in openexch/core
+(`core-bridge/src/test/java/com/openexchange/core/bridge/`, read at `money_schema_ref` in
 `dependencies.lock`). Every Java test has a row in this file or in
 [`domain/bridge/tests/PARITY.md`](../../domain/bridge/tests/PARITY.md), with one verdict:
 
@@ -11,7 +11,7 @@ The C++ settlement bridge replaces the Java bridge in openexch/assets
 
 This file holds `ChainResumeMemoTest`, the per-source resume memo. The other Java tests are in the domain
 file. The check is `app/bridge/it/parity-check.sh` (ctest `bridge.parity`, registered when
-`CT_PARITY_ASSETS_TREE` points at an assets checkout): it fails when a Java `@Test` method name appears in
+`CT_PARITY_CORE_TREE` points at a core checkout): it fails when a Java `@Test` method name appears in
 neither file.
 
 C++ names: `archive/tests/*Test.cpp` (pure, `ct_archive_tests`); "IT" means a scenario of

@@ -174,11 +174,11 @@ std::string renderHealthJson(const BridgeSnapshot &s, const HttpExtras &x)
     const char *status = x.stalled ? "STALLED" : (halted ? "HALTED" : "UP");
     char body[1024];
     std::snprintf(body, sizeof(body),
-        "{\"halted\":%s,\"aeConnected\":%s,\"haltReason\":\"%s\",\"meEpoch\":%" PRId64 ",\"cursor\":%" PRId64
+        "{\"halted\":%s,\"coreConnected\":%s,\"haltReason\":\"%s\",\"meEpoch\":%" PRId64 ",\"cursor\":%" PRId64
         ",\"status\":\"%s\",\"state\":\"%s\",\"coreHaltReason\":\"%s\",\"expected\":%" PRId64 ",\"last\":%" PRId64
         ",\"attachedSource\":%zu,\"degraded\":%u,\"registered\":%s,\"reportThisTerm\":%s,\"identity\":%" PRId64
         ",\"ready\":%s,\"relistsSinceHalt\":%llu,\"haltDetail\":\"%s\",\"laneAheadFences\":%llu,\"build\":\"%s\"}",
-        halted ? "true" : "false", s.aeConnected ? "true" : "false", db::bridgeHaltName(s.view.halt), s.view.syncEpoch,
+        halted ? "true" : "false", s.coreConnected ? "true" : "false", db::bridgeHaltName(s.view.halt), s.view.syncEpoch,
         s.view.cursor, status, db::stateName(s.view.state), db::haltReasonName(s.view.coreMirror), s.view.expected,
         s.view.last, s.view.attached, s.view.degraded, s.registered ? "true" : "false",
         s.view.reportThisTerm ? "true" : "false", s.identity, 0 == readyBits(s, x) ? "true" : "false",
@@ -315,7 +315,7 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
         "\",me_epoch=\"" + std::to_string(s.view.syncEpoch) + "\"", 1);
     p.family("bridge_driver_mode", "gauge", "The media driver mode in force (external: the host aeronmd; embedded: dev/demo)");
     p.labelled("bridge_driver_mode", label("mode", x.driverMode), 1);
-    p.gauge("bridge_ae_connected", "1 while the core session is CONNECTED (the Java meaning)", s.aeConnected ? 1 : 0);
+    p.gauge("bridge_core_connected", "1 while the core session is CONNECTED (the Java meaning)", s.coreConnected ? 1 : 0);
     p.gauge("bridge_registered", "1 while registered in this session and term (C3)", s.registered ? 1 : 0);
     p.gauge("bridge_ready", "1 when /ready answers 200", 0 == bits ? 1 : 0);
     p.gauge("bridge_not_ready_bits", "The /ready conjunction bitmask (contract 4.3)", static_cast<std::int64_t>(bits));

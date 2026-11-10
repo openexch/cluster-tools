@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "common/DriverTimeout.h"
+#include "common/RetiredSettings.h"
 
 #include "AppSeams.h"
 
@@ -45,11 +46,11 @@ const std::vector<std::string> &configKeys()
         "AERON_DIR",
         "BRIDGE_DRIVER_DIR",
         "BRIDGE_DRIVER_TIMEOUT_MS",
-        "BRIDGE_AE_CLUSTER_ADDRESSES",
-        "BRIDGE_AE_PORT_BASE",
+        "BRIDGE_CORE_CLUSTER_ADDRESSES",
+        "BRIDGE_CORE_PORT_BASE",
         "CLUSTER_PORT_STRIDE",
-        "BRIDGE_AE_EGRESS_ENDPOINT",
-        "AE_AUTH_CREDENTIAL",
+        "BRIDGE_CORE_EGRESS_ENDPOINT",
+        "CORE_AUTH_CREDENTIAL",
         "BRIDGE_INSTANCE_ID",
         "BRIDGE_HTTP_BIND",
         "BRIDGE_HALT_ON_GAP",
@@ -219,6 +220,15 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
 {
     ConfigResult result;
     BridgeConfig &c = result.config;
+    // ---- the names retired by the rename to core first: one still set refuses the start before any setting is read
+    if (!disabled(Rule::CONFIG_RETIRED_NAMES_IGNORED))
+    {
+        result.errors = common::retiredSettingRefusals(getenv);
+        if (!result.errors.empty())
+        {
+            return result;
+        }
+    }
     Problems problems;
     auto present = [&](const char *key) { return nullptr != getenv(key); };
     auto value = [&](const char *key) { return trimmed(getenv(key)); };
@@ -329,7 +339,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
     }
 
     // ---- the core cluster
-    if (const std::string list = required("BRIDGE_AE_CLUSTER_ADDRESSES"); !list.empty())
+    if (const std::string list = required("BRIDGE_CORE_CLUSTER_ADDRESSES"); !list.empty())
     {
         std::size_t start = 0;
         while (start <= list.size())
@@ -338,8 +348,8 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
             const std::string host = trimmed(list.substr(start, comma == std::string::npos ? std::string::npos : comma - start).c_str());
             if (host.empty() || std::string::npos != host.find(':') || std::string::npos != host.find('='))
             {
-                problems.add("BRIDGE_AE_CLUSTER_ADDRESSES", "BRIDGE_AE_CLUSTER_ADDRESSES entry '" + host +
-                    "' must be a host (the port comes from BRIDGE_AE_PORT_BASE and CLUSTER_PORT_STRIDE)");
+                problems.add("BRIDGE_CORE_CLUSTER_ADDRESSES", "BRIDGE_CORE_CLUSTER_ADDRESSES entry '" + host +
+                    "' must be a host (the port comes from BRIDGE_CORE_PORT_BASE and CLUSTER_PORT_STRIDE)");
             }
             c.coreHosts.push_back(host);
             if (comma == std::string::npos)
@@ -350,23 +360,23 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
         }
         if (c.coreHosts.empty() || c.coreHosts.size() > 16)
         {
-            problems.add("BRIDGE_AE_CLUSTER_ADDRESSES", "BRIDGE_AE_CLUSTER_ADDRESSES must list 1..16 members, got " +
+            problems.add("BRIDGE_CORE_CLUSTER_ADDRESSES", "BRIDGE_CORE_CLUSTER_ADDRESSES must list 1..16 members, got " +
                 std::to_string(c.coreHosts.size()));
         }
     }
     {
-        std::string base = value("BRIDGE_AE_PORT_BASE");
+        std::string base = value("BRIDGE_CORE_PORT_BASE");
         if (base.empty() && disabled(Rule::CONFIG_DEFAULTS))
         {
             base = "9000"; // RED shape: a default fills the port base
         }
         if (base.empty())
         {
-            problems.add("BRIDGE_AE_PORT_BASE", "BRIDGE_AE_PORT_BASE is required (no default)");
+            problems.add("BRIDGE_CORE_PORT_BASE", "BRIDGE_CORE_PORT_BASE is required (no default)");
         }
         else if (const auto v = parseInteger<std::int32_t>(base); !v || *v < 1 || *v > 65535)
         {
-            problems.add("BRIDGE_AE_PORT_BASE", "BRIDGE_AE_PORT_BASE must be 1..65535, got '" + base + "'");
+            problems.add("BRIDGE_CORE_PORT_BASE", "BRIDGE_CORE_PORT_BASE must be 1..65535, got '" + base + "'");
         }
         else
         {
@@ -384,7 +394,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
             c.portStride = *v;
         }
     }
-    if (!problems.has("BRIDGE_AE_CLUSTER_ADDRESSES") && !problems.has("BRIDGE_AE_PORT_BASE") &&
+    if (!problems.has("BRIDGE_CORE_CLUSTER_ADDRESSES") && !problems.has("BRIDGE_CORE_PORT_BASE") &&
         !problems.has("CLUSTER_PORT_STRIDE") && 0 != c.corePortBase && !c.coreHosts.empty())
     {
         std::string endpoints;
@@ -395,7 +405,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
             if (port < 1 || port > 65535)
             {
                 problems.add("CLUSTER_PORT_STRIDE", "member " + std::to_string(i) + " ingress port " + std::to_string(port) +
-                    " (BRIDGE_AE_PORT_BASE + i * CLUSTER_PORT_STRIDE + 2) is outside 1..65535");
+                    " (BRIDGE_CORE_PORT_BASE + i * CLUSTER_PORT_STRIDE + 2) is outside 1..65535");
                 continue;
             }
             const std::string canonical = archive::canonicalHost(c.coreHosts[i]);
@@ -412,19 +422,19 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
         }
         c.ingressEndpoints = endpoints;
     }
-    if (const std::string ep = required("BRIDGE_AE_EGRESS_ENDPOINT"); !ep.empty())
+    if (const std::string ep = required("BRIDGE_CORE_EGRESS_ENDPOINT"); !ep.empty())
     {
         const std::size_t colon = ep.rfind(':');
         const std::string host = std::string::npos == colon ? std::string() : ep.substr(0, colon);
         const auto port = std::string::npos == colon ? std::nullopt : parseInteger<std::int32_t>(ep.substr(colon + 1));
         if (host.empty() || !port || *port < 0 || *port > 65535)
         {
-            problems.add("BRIDGE_AE_EGRESS_ENDPOINT", "BRIDGE_AE_EGRESS_ENDPOINT must be host:port (port 0..65535), got '" + ep + "'");
+            problems.add("BRIDGE_CORE_EGRESS_ENDPOINT", "BRIDGE_CORE_EGRESS_ENDPOINT must be host:port (port 0..65535), got '" + ep + "'");
         }
         else if ("0.0.0.0" == host)
         {
-            problems.add("BRIDGE_AE_EGRESS_ENDPOINT",
-                "BRIDGE_AE_EGRESS_ENDPOINT host 0.0.0.0 is not routable from the cluster (name this host's address)");
+            problems.add("BRIDGE_CORE_EGRESS_ENDPOINT",
+                "BRIDGE_CORE_EGRESS_ENDPOINT host 0.0.0.0 is not routable from the cluster (name this host's address)");
         }
         else if (archive::isLoopbackHost(host))
         {
@@ -432,7 +442,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
             {
                 if (!core.empty() && !archive::isLoopbackHost(core))
                 {
-                    problems.add("BRIDGE_AE_EGRESS_ENDPOINT", "BRIDGE_AE_EGRESS_ENDPOINT " + ep + " is loopback but core member " +
+                    problems.add("BRIDGE_CORE_EGRESS_ENDPOINT", "BRIDGE_CORE_EGRESS_ENDPOINT " + ep + " is loopback but core member " +
                         core + " is not: the core would send this session's egress to itself");
                     break;
                 }
@@ -440,20 +450,20 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
         }
         c.egressEndpoint = ep;
     }
-    if (const std::string spec = value("AE_AUTH_CREDENTIAL"); spec.empty())
+    if (const std::string spec = value("CORE_AUTH_CREDENTIAL"); spec.empty())
     {
-        problems.add("AE_AUTH_CREDENTIAL", "AE_AUTH_CREDENTIAL is required (keyId:BRIDGE:secretHex)");
+        problems.add("CORE_AUTH_CREDENTIAL", "CORE_AUTH_CREDENTIAL is required (keyId:BRIDGE:secretHex)");
     }
     else
     {
         const client::CredentialsResult parsed = client::parseCoreCredentials(spec);
         if (!parsed.ok())
         {
-            problems.add("AE_AUTH_CREDENTIAL", "AE_AUTH_CREDENTIAL: " + parsed.error);
+            problems.add("CORE_AUTH_CREDENTIAL", "CORE_AUTH_CREDENTIAL: " + parsed.error);
         }
         else if (client::SessionClass::BRIDGE != parsed.credentials.sessionClass && !disabled(Rule::CONFIG_CLASS_CHECK_OFF))
         {
-            problems.add("AE_AUTH_CREDENTIAL", std::string("AE_AUTH_CREDENTIAL is a ") +
+            problems.add("CORE_AUTH_CREDENTIAL", std::string("CORE_AUTH_CREDENTIAL is a ") +
                 client::nameOf(parsed.credentials.sessionClass) + " credential; ct-bridge needs BRIDGE");
         }
         else
@@ -498,7 +508,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
     {
         if (const std::string error = client::validate(coreClientSettings(c)); !error.empty())
         {
-            problems.add("BRIDGE_AE_EGRESS_ENDPOINT", "core session settings: " + error);
+            problems.add("BRIDGE_CORE_EGRESS_ENDPOINT", "core session settings: " + error);
         }
     }
     result.errors = problems.sorted();

@@ -7,10 +7,10 @@
 #include <string_view>
 #include <vector>
 
-// Core credentials v1, byte-compatible with assets
-// com.openexchange.assets.auth.CoreCredentials: [u8 version=1][u8 class][i32 keyId LE]
+// Core credentials v1, byte-compatible with core
+// com.openexchange.core.auth.CoreCredentials: [u8 version=1][u8 class][i32 keyId LE]
 // [32 bytes secret] = 38 bytes; spec string "keyId:class:secretHex" with the class by name
-// (case-insensitive) or numeric code; env AE_AUTH_CREDENTIAL. Strict, pure.
+// (case-insensitive) or numeric code; env CORE_AUTH_CREDENTIAL. Strict, pure.
 
 namespace cluster_tools { namespace client {
 
@@ -32,7 +32,7 @@ struct CoreCredentials
     static constexpr std::uint8_t VERSION = 1;
     static constexpr std::size_t SECRET_LENGTH = 32;
     static constexpr std::size_t ENCODED_LENGTH = 1 + 1 + 4 + SECRET_LENGTH;
-    static constexpr const char *ENV = "AE_AUTH_CREDENTIAL";
+    static constexpr const char *ENV = "CORE_AUTH_CREDENTIAL";
 
     SessionClass sessionClass = SessionClass::UNSET;
     std::int32_t keyId = 0;
@@ -50,7 +50,7 @@ struct CredentialsResult
 
 CredentialsResult parseCoreCredentials(std::string_view spec);
 
-// Reads the spec from the environment variable (default AE_AUTH_CREDENTIAL) and, when
+// Reads the spec from the environment variable (default CORE_AUTH_CREDENTIAL) and, when
 // requiredClass is not UNSET, asserts the class (a FORWARDER binary started with a BRIDGE key
 // is a config error, refused at start like AeFeedClient does). Missing or empty = error.
 CredentialsResult credentialsFromEnvironment(
