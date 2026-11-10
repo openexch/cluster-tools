@@ -105,6 +105,14 @@ add_subdirectory(adapters/json)   # no transport dependency - builds and tests e
 add_subdirectory(client)          # the pure parts build everywhere; the transport parts need WITH_AERON
 add_subdirectory(archive)         # pure archive core everywhere; archive/aeron with WITH_BRIDGE
 add_subdirectory(domain/bridge)   # The bridge domain (pure, every configuration; needs ct_archive_core)
+
+# The external media driver's properties ship in the artifact set (publish.yml): driver.properties
+# at the lock's pin, sha256-verified, and the deploy/media-driver overlays, key-checked. The gate's
+# refusals are proven in every configuration (bash, git and python3 only).
+if(BUILD_TESTING)
+    add_test(NAME driver_properties.stage_gate
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-stage-driver-properties.sh")
+endif()
 find_package(Threads REQUIRED)
 
 if(WITH_AERON)

@@ -239,8 +239,17 @@ with engine jars at the new commits.
 ## Artifacts
 
 `publish.yml` builds on arm64 Linux, runs the tests, and publishes `switch-behavior`, `ct-forwarder`,
-`ct-bridge`, `aeronmd`, `libaeron_driver.so`, `libaeron.so` and a `manifest.json` with per-file sha256 under
-the commit sha (or the tag). Run them with `LD_LIBRARY_PATH` pointing at the artifact directory.
+`ct-bridge`, `aeronmd`, `libaeron_driver.so`, `libaeron.so`, the external media driver's `driver.properties`,
+`driver-dev.properties` and `driver-prod.properties`, and a `manifest.json` with per-file sha256 under the
+commit sha (or the tag). Run them with `LD_LIBRARY_PATH` pointing at the artifact directory; run a driver as
+`aeronmd driver.properties driver-<dev|prod>.properties`.
+
+`driver.properties` is match's `deploy/media-driver/driver.properties` at the commit `dependencies.lock`
+pins (`driver_properties_ref`), verified against `driver_properties_sha256` by
+`scripts/stage-driver-properties.sh`; it is never copied into this repo. The two overlays live in
+`deploy/media-driver/` and may set only the threading mode and idle strategies (dev: SHARED + backoff,
+prod: DEDICATED + noop). Take a newer `driver.properties` by bumping the ref and sha256 in the lock.
+`scripts/check-stage-driver-properties.sh` (ctest `driver_properties.stage_gate`) proves every refusal.
 
 ## License
 

@@ -54,7 +54,14 @@ jobs:
       # ct-forwarder, the production forwarder (exit 78 on a missing env is its start smoke below).
       # ct-bridge, the production settlement bridge (the embedded driver mode links aeron_driver_static from the
       # same verified tree: no new shared library; the same start smoke).
-      FILES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so
+      BINARIES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so
+      # The external media driver's launch files: driver.properties (match's file at the commit the
+      # lock pins, sha256-verified by scripts/stage-driver-properties.sh) and this repo's two profile
+      # overlays. The console launches every external driver as
+      # `aeronmd driver.properties driver-<dev|prod>.properties` from this set; nothing on the box
+      # reads a match checkout.
+      DRIVER_FILES: driver.properties driver-dev.properties driver-prod.properties
+      FILES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so driver.properties driver-dev.properties driver-prod.properties
       # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
       # scripts/fetch-deps.sh + scripts/fetch-schemas.sh fetch and sha256-verify them.
       CMAKE_VERSION: 3.31.6
@@ -107,6 +114,9 @@ jobs:
           lock() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' dependencies.lock "$1"; }
           echo "money_ref=$(lock money_schema_ref)" >> "$GITHUB_OUTPUT"
           echo "match_ref=$(lock match_schema_ref)" >> "$GITHUB_OUTPUT"
+          echo "driver_props_ref=$(lock driver_properties_ref)" >> "$GITHUB_OUTPUT"
+          # FILES is BINARIES + DRIVER_FILES, in that order: one list is uploaded, two are checked
+          [ "${FILES}" = "${BINARIES} ${DRIVER_FILES}" ] || { echo "::error::FILES is not BINARIES + DRIVER_FILES"; exit 1; }
 
       # The engine wire schemas the tools speak, at the commits the lock pins (never a branch
       # tip, never vendored: two copies of a wire schema drift).
@@ -126,6 +136,15 @@ jobs:
           ref: ${{ steps.pins.outputs.match_ref }}
           path: pinned/match
           sparse-checkout: match-common/src/main/resources/sbe
+          sparse-checkout-cone-mode: false
+
+      - name: Check out match at the driver-properties pin
+        uses: actions/checkout@v4
+        with:
+          repository: openexch/match
+          ref: ${{ steps.pins.outputs.driver_props_ref }}
+          path: pinned/match-driver
+          sparse-checkout: deploy/media-driver
           sparse-checkout-cone-mode: false
 
       - name: Extract and verify the schemas
@@ -202,6 +221,8 @@ jobs:
           # --strip-unneeded for the shared libraries: keep the dynamic symbols
           # the loader resolves against, drop the rest.
           strip --strip-unneeded dist/libaeron_driver.so dist/libaeron.so
+          # driver.properties at the lock's pin (sha256-verified) and the two overlays (key-checked)
+          scripts/stage-driver-properties.sh dist pinned/match-driver
           ls -la dist/
 
       # The moral equivalent of match's "verify every jar carries its sha": prove
@@ -214,7 +235,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for f in ${FILES}; do
+          for f in ${BINARIES}; do
             echo "== $f"
             LD_LIBRARY_PATH=. ldd "$f"
             if LD_LIBRARY_PATH=. ldd "$f" | grep -q 'not found'; then
@@ -243,10 +264,21 @@ jobs:
           [ "$rc" -eq 78 ] || { echo "::error::ct-bridge without env exited $rc, expected 78"; exit 1; }
           grep -q "BRIDGE_DRIVER_MODE is required" bridge-smoke.txt || { echo "::error::ct-bridge did not name its config errors"; exit 1; }
           # aeronmd runs until killed; surviving the 2s timeout (rc 124) IS the
-          # pass — an instant exit would be a load or boot failure.
+          # pass: an instant exit would be a load or boot failure. Run it the way the
+          # console launches it, on the shipped properties and each overlay, so a value
+          # or token this aeronmd rejects fails here, not on the box.
           rc=0
           AERON_DIR=$(mktemp -d) LD_LIBRARY_PATH=. timeout 2 ./aeronmd >/dev/null 2>&1 || rc=$?
           [ "$rc" -eq 124 ] || { echo "::error::aeronmd did not stay up (rc=$rc)"; exit 1; }
+          # driver.properties asks for 4 MB socket buffers; the box raises the kernel limits to
+          # fit them (match deploy/tuning/system-tuning.sh), so the runner does the same first.
+          sudo sysctl -q -w net.core.rmem_max=4194304 net.core.wmem_max=4194304
+          for overlay in driver-dev.properties driver-prod.properties; do
+            rc=0
+            AERON_DIR=$(mktemp -u -p /dev/shm aeron-publish-XXXXXX) LD_LIBRARY_PATH=. \
+              timeout 2 ./aeronmd driver.properties "$overlay" > "aeronmd-${overlay}.log" 2>&1 || rc=$?
+            [ "$rc" -eq 124 ] || { cat "aeronmd-${overlay}.log"; echo "::error::aeronmd on driver.properties + $overlay did not stay up (rc=$rc)"; exit 1; }
+          done
           echo "bare-box closure verified"
 
       # Where this build belongs. A branch push is addressed by commit sha and is
