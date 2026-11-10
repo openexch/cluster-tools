@@ -42,5 +42,9 @@
   "feed_harness_main_diff_empty_vs": "7ad15265f36a5a7c922099138d9cae9ecfa33939",
   "me_journal_e1_match_ref": "ed984774007ccb7bac49218048749452ee7001dc",
   "me_journal_e1_sums_sha256": "a77d4e9fd31f753f58841e127000c2510c6cafc2164c7666c239a716b281370d",
-  "me_journal_e1_fixtures_sha256sums_sha256": "769473339e6de557a127a6947e81b2f70e5bce53974d765db81de88cd6d8012e"
+  "me_journal_e1_fixtures_sha256sums_sha256": "769473339e6de557a127a6947e81b2f70e5bce53974d765db81de88cd6d8012e",
+  "driver_properties_repo": "openexch/match",
+  "driver_properties_ref": "99b6e51a4475b396a2d7e3dcd879772fa663b299",
+  "driver_properties_path": "deploy/media-driver/driver.properties",
+  "driver_properties_sha256": "246ac150f5fb880f566ae4290786c47f83abe15a42024e0479e5b78bb57978ec"
 }
