@@ -48,13 +48,13 @@ jobs:
           lock() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' dependencies.lock "$1"; }
           echo "money_ref=$(lock money_schema_ref)" >> "$GITHUB_OUTPUT"
           echo "match_ref=$(lock match_schema_ref)" >> "$GITHUB_OUTPUT"
-      - name: Check out assets at the money-schema pin
+      - name: Check out core at the money-schema pin
         uses: actions/checkout@v4
         with:
-          repository: openexch/assets
+          repository: openexch/core
           ref: ${{ steps.pins.outputs.money_ref }}
-          path: pinned/assets
-          sparse-checkout: assets-common/src/main/resources/sbe
+          path: pinned/core
+          sparse-checkout: core-common/src/main/resources/sbe
           sparse-checkout-cone-mode: false
       - name: Check out match at the order-schema pin
         uses: actions/checkout@v4
@@ -68,7 +68,7 @@ jobs:
         id: schemas
         run: |
           set -euo pipefail
-          scripts/fetch-schemas.sh "${RUNNER_TEMP}/schemas" pinned/assets pinned/match > schemas.args
+          scripts/fetch-schemas.sh "${RUNNER_TEMP}/schemas" pinned/core pinned/match > schemas.args
           echo "args=$(tr '\n' ' ' < schemas.args)" >> "$GITHUB_OUTPUT"
       - name: configure
         run: |

@@ -46,7 +46,7 @@ struct ForwarderConfig
 {
     std::string coreIngress;          // FWD_CORE_INGRESS  id=host:port,...
     std::string coreResponseChannel;  // FWD_CORE_RESPONSE_CHANNEL
-    client::CoreCredentials coreCredentials; // AE_AUTH_CREDENTIAL keyId:FORWARDER:secretHex
+    client::CoreCredentials coreCredentials; // CORE_AUTH_CREDENTIAL keyId:FORWARDER:secretHex
     std::string meIngress;            // FWD_ME_INGRESS
     std::string meResponseChannel;    // FWD_ME_RESPONSE_CHANNEL
     client::CoreCredentials meCredentials;   // ME_AUTH_CREDENTIAL keyId:FORWARDER:secretHex (S6 11)

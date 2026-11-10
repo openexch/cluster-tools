@@ -1,5 +1,5 @@
 // The pure client parts: ingress endpoint parsing, core credentials (byte-compatible with
-// assets CoreCredentials), backoff, settings validation. Runs in the no-aeron build.
+// core CoreCredentials), backoff, settings validation. Runs in the no-aeron build.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest/doctest.h"
 
@@ -45,9 +45,9 @@ TEST_CASE("ingress channel: endpoint appended per member, base validated")
     CHECK_FALSE(validateIngressBaseChannel("aeron:udp?endpoint=h:1").empty());
 }
 
-TEST_CASE("core credentials: byte-identical to assets CoreCredentials.encode()")
+TEST_CASE("core credentials: byte-identical to core CoreCredentials.encode()")
 {
-    // TestAuth FORWARDER key: "6:FORWARDER:" + "66" x 32 (assets TestAuth.java).
+    // TestAuth FORWARDER key: "6:FORWARDER:" + "66" x 32 (core TestAuth.java).
     const CredentialsResult r = parseCoreCredentials("6:FORWARDER:" + std::string(64, '6'));
     REQUIRE(r.ok());
     const std::vector<std::uint8_t> bytes = r.credentials.encode();

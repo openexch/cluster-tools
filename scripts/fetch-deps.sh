@@ -7,7 +7,7 @@
 # Usage: scripts/fetch-deps.sh <cache-dir> [--it] [--harness]
 #        --it also fetches the aeron-all jar the archive integration fixture runs on
 #        (archive/it) and prints -DCT_IT_AERON_ALL_JAR=...
-#        --harness also provides the feed harness jar (assets test scope: the reference translator, serve,
+#        --harness also provides the feed harness jar (core test scope: the reference translator, serve,
 #        story, t1-journal, t1-core) and prints -DCT_FEED_HARNESS_JAR=...; it is downloaded from
 #        $CT_ARTIFACT_BASE_URL/<feed_harness_url>, or a local build named by CT_FEED_HARNESS_JAR is accepted when its
 #        sha256 equals feed_harness_sha256 (the lock pins the jar by hash: one core, one jar)
@@ -89,11 +89,11 @@ if [ "$WANT_HARNESS" = "1" ]; then
         echo "verified local $(basename "$CT_FEED_HARNESS_JAR") $got" >&2
         echo "-DCT_FEED_HARNESS_JAR=$CT_FEED_HARNESS_JAR"
     else
-        if [ -z "${CT_ARTIFACT_BASE_URL:-}" ] && [ ! -f "$CACHE/assets-feed-harness-$HARNESS_WANT.jar" ]; then
+        if [ -z "${CT_ARTIFACT_BASE_URL:-}" ] && [ ! -f "$CACHE/core-feed-harness-$HARNESS_WANT.jar" ]; then
             echo "FATAL: --harness needs CT_FEED_HARNESS_JAR (a local build) or CT_ARTIFACT_BASE_URL (the artifact channel)" >&2
             exit 1
         fi
-        HARNESS="$CACHE/assets-feed-harness-$HARNESS_WANT.jar"
+        HARNESS="$CACHE/core-feed-harness-$HARNESS_WANT.jar"
         fetch_verified "${CT_ARTIFACT_BASE_URL:-}/$(lock feed_harness_url)" "$HARNESS_WANT" "$HARNESS"
         echo "-DCT_FEED_HARNESS_JAR=$HARNESS"
     fi

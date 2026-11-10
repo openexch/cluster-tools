@@ -1,7 +1,7 @@
 # The RED column of ct_bridge_config_tests (light method: re-proved on every run). Each line: test case | rule | why |
 # expected text; run by archive/tests/run-negative-controls.sh against ct_bridge_config_tests (linked with
 # ct_bridge_pure_seamed): the test must FAIL with CT_TEST_DISABLE_<rule>=1, for the stated reason, and pass without it.
-BridgeConfigTest.everyKeyMissingIsRefusedAndNamed|CONFIG_DEFAULTS|a default fills BRIDGE_AE_PORT_BASE|CHECK( refused )
+BridgeConfigTest.everyKeyMissingIsRefusedAndNamed|CONFIG_DEFAULTS|a default fills BRIDGE_CORE_PORT_BASE|CHECK( refused )
 BridgeConfigTest.haltOnGapPresentIsRefused|CONFIG_HALT_ON_GAP_IGNORED|BRIDGE_HALT_ON_GAP present is not refused|CHECK( haltOnGapRefused )
 BridgeConfigTest.credentialClassMustBeBridge|CONFIG_CLASS_CHECK_OFF|the FORWARDER key passes|CHECK( classRefused )
 BridgeConfigTest.driverModeIsStrict|CONFIG_DRIVER_MODE_DEFAULT|a missing BRIDGE_DRIVER_MODE becomes embedded (C13)|CHECK( missingRefused )
@@ -12,3 +12,4 @@ MetricsRenderTest.readyBitsRule|READY_IGNORES_REPORT_AGE|no report-age bit: a 31
 MetricsRenderTest.readyBitsRule|READY_COUNTS_FORWARDS_ONLY|a skip walk (consumed position moving, no forward) reads not ready|CHECK( skipWalkReady )
 AckMapTest.boundedOverwriteCountedClearedOnSessionDown|ACKMAP_UNBOUNDED|the map grows past 2^20|CHECK( bounded )
 AckMapTest.forwardLatencyAnomalyBounds|LATENCY_RECORDS_GARBAGE|a future timestamp is recorded|CHECK( futureRefused )
+BridgeConfigTest.retiredNamesAreRefusedNamingTheNewOne|CONFIG_RETIRED_NAMES_IGNORED|a retired name (AE_AUTH_CREDENTIAL, BRIDGE_AE_*) set next to the new one is not refused|CHECK( refusedWithNewName )

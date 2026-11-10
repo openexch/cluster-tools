@@ -42,12 +42,12 @@ struct BridgeConfig
     std::string aeronDir;                 // AERON_DIR (external only)
     std::string driverDir;                // BRIDGE_DRIVER_DIR (embedded only)
     std::int64_t driverTimeoutMs = 0;     // BRIDGE_DRIVER_TIMEOUT_MS (required, no default)
-    std::vector<std::string> coreHosts;   // BRIDGE_AE_CLUSTER_ADDRESSES, member order
-    std::int32_t corePortBase = 0;        // BRIDGE_AE_PORT_BASE
+    std::vector<std::string> coreHosts;   // BRIDGE_CORE_CLUSTER_ADDRESSES, member order
+    std::int32_t corePortBase = 0;        // BRIDGE_CORE_PORT_BASE
     std::int32_t portStride = 0;          // CLUSTER_PORT_STRIDE
     std::string ingressEndpoints;         // "0=h0:p0,1=h1:p1,..." (derived, ClusterPorts.port)
-    std::string egressEndpoint;           // BRIDGE_AE_EGRESS_ENDPOINT host:port
-    client::CoreCredentials credentials;  // AE_AUTH_CREDENTIAL keyId:BRIDGE:secretHex
+    std::string egressEndpoint;           // BRIDGE_CORE_EGRESS_ENDPOINT host:port
+    client::CoreCredentials credentials;  // CORE_AUTH_CREDENTIAL keyId:BRIDGE:secretHex
     std::int64_t instanceId = 0;          // BRIDGE_INSTANCE_ID 1..INT64_MAX
     std::string httpHost;                 // BRIDGE_HTTP_BIND host:port
     std::uint16_t httpPort = 0;

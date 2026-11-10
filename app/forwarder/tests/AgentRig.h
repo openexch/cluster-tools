@@ -20,18 +20,18 @@
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/TradeExecutionBatch.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
-#include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
-#include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
-#include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
-#include "com_openexchange_assets_infrastructure_generated/RequestPendingDispatch.h"
+#include "com_openexchange_core_infrastructure_generated/AdminAck.h"
+#include "com_openexchange_core_infrastructure_generated/AdmissionState.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/OrderReject.h"
+#include "com_openexchange_core_infrastructure_generated/PendingDispatchEnd.h"
+#include "com_openexchange_core_infrastructure_generated/RegisterSession.h"
+#include "com_openexchange_core_infrastructure_generated/RequestPendingDispatch.h"
 
 namespace cluster_tools { namespace app { namespace forwarder { namespace test {
 
 namespace cc = io::aeron::cluster::codecs;
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 namespace me = com::match::infrastructure::generated;
 using client::test::FakeTransport;
 using Bytes = std::vector<std::uint8_t>;

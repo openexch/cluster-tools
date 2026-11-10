@@ -11,16 +11,16 @@
 
 #include "cluster_tools/build_info.h"
 
-#include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
-#include "com_openexchange_assets_infrastructure_generated/MeDispatchBatch.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/PendingDispatchEnd.h"
-#include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
-#include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
-#include "com_openexchange_assets_infrastructure_generated/MarketTick.h"
-#include "com_openexchange_assets_infrastructure_generated/MeDispatch.h"
-#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
-#include "com_openexchange_assets_infrastructure_generated/RequestPendingDispatch.h"
+#include "com_openexchange_core_infrastructure_generated/AdminAck.h"
+#include "com_openexchange_core_infrastructure_generated/MeDispatchBatch.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/PendingDispatchEnd.h"
+#include "com_openexchange_core_infrastructure_generated/RegisterSession.h"
+#include "com_openexchange_core_infrastructure_generated/AdmissionState.h"
+#include "com_openexchange_core_infrastructure_generated/MarketTick.h"
+#include "com_openexchange_core_infrastructure_generated/MeDispatch.h"
+#include "com_openexchange_core_infrastructure_generated/OrderReject.h"
+#include "com_openexchange_core_infrastructure_generated/RequestPendingDispatch.h"
 #include "com_match_infrastructure_generated/BookDelta.h"
 #include "com_match_infrastructure_generated/BookSnapshot.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
@@ -35,7 +35,7 @@
 
 #include "golden/golden_frames.inc"
 
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 namespace me = com::match::infrastructure::generated;
 namespace journal = com::match::infrastructure::mejournal::generated;
 

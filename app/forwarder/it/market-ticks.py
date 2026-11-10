@@ -9,8 +9,8 @@
 #       request start and end on CLOCK_MONOTONIC (the forwarder's log stamps are steady_clock ms, the same clock).
 #       Kept series: forwarder_book_{state,version,frames_total,chain_breaks_total,recoveries_total,broken_age_ms,
 #       version_regressions_total}, forwarder_tick_{offered_total,last_offered_version,pending_age_ms,suppressed_total},
-#       forwarder_ticks_ready, forwarder_trade_last_id, forwarder_session_new_leader_total, assets_ticks_*,
-#       assets_market_{best_bid,best_ask,book_version,last_trade_id}, match_cluster_role, match_engine_effective_impl, match_dropped_market_msgs_total,
+#       forwarder_ticks_ready, forwarder_trade_last_id, forwarder_session_new_leader_total, core_ticks_*,
+#       core_market_{best_bid,best_ask,book_version,last_trade_id}, match_cluster_role, match_engine_effective_impl, match_dropped_market_msgs_total,
 #       match_egress_drain_capped_total, match_follower_egress_skipped_total.
 #   oracle <spec.json>
 #       O-T1 after the barrier (the runner's tick_oracle): prints one line per check and "O-T1 PASS" or
@@ -48,7 +48,7 @@ import urllib.request
 KEEP = re.compile(r"^(forwarder_book_(state|version|frames_total|chain_breaks_total|recoveries_total|broken_age_ms|"
                   r"version_regressions_total)\{|forwarder_tick_(offered_total|last_offered_version|pending_age_ms|"
                   r"suppressed_total)\{|forwarder_ticks_ready|forwarder_trade_last_id|forwarder_session_new_leader_total|"
-                  r"assets_ticks_|assets_market_(best_bid|best_ask|book_version|last_trade_id)|match_cluster_role|"
+                  r"core_ticks_|core_market_(best_bid|best_ask|book_version|last_trade_id)|match_cluster_role|"
                   r"match_engine_effective_impl|"
                   r"match_dropped_market_msgs_total|match_egress_drain_capped_total|match_follower_egress_skipped_total)")
 
@@ -177,35 +177,35 @@ def oracle(spec_path):
         if v is None:
             continue
         ver, bid, ask = v
-        cb = leader.get('assets_market_best_bid{market="%d"}' % m)
-        ca = leader.get('assets_market_best_ask{market="%d"}' % m)
-        cv = leader.get('assets_market_book_version{market="%d"}' % m)
+        cb = leader.get('core_market_best_bid{market="%d"}' % m)
+        ca = leader.get('core_market_best_ask{market="%d"}' % m)
+        cv = leader.get('core_market_book_version{market="%d"}' % m)
         check(cb is not None and int(cb) == bid and ca is not None and int(ca) == ask,
               "market %d core quote == ME's: core bid %s ask %s, ME bid %d ask %d" % (m, cb, ca, bid, ask))
         lo = max([e.get('forwarder_tick_last_offered_version{market="%d"}' % m, 0) for _, e, _ in fwd.values()] or [0])
         check(cv is not None and int(cv) <= ver and int(cv) == int(lo),
               "market %d core version %s <= ME's %d and == max forwarder last offered %d" % (m, cv, ver, lo))
     d = lambda n: fam(mend, n) - fam(mstart, n)
-    for n in ("assets_ticks_invalid_total", "assets_ticks_epoch_drop_total"):
+    for n in ("core_ticks_invalid_total", "core_ticks_epoch_drop_total"):
         check(d(n) == 0, "%s delta 0 (member %s): %d" % (n, spec["ae_member"], d(n)))
     for p, (s, e, up) in sorted(fwd.items()):
         r = fam(e, "forwarder_tick_refused_total") - fam(s, "forwarder_tick_refused_total")
         check(r == 0, "fwd %s forwarder_tick_refused_total delta 0: %d" % (p, r))
     # unbound: judged only from the first rise of applied (the core is bound from then on, 7.1 / RC-F2)
     rows = snapshots(load_sampler(spec["sampler"]), spec["ae_member_name"])
-    a0, u0 = fam(mstart, "assets_ticks_applied_total"), fam(mstart, "assets_ticks_unbound_total")
-    first = next((snap for snap in rows if snap[2].get("assets_ticks_applied_total", 0) > a0), None)
-    uend = fam(mend, "assets_ticks_unbound_total")
+    a0, u0 = fam(mstart, "core_ticks_applied_total"), fam(mstart, "core_ticks_unbound_total")
+    first = next((snap for snap in rows if snap[2].get("core_ticks_applied_total", 0) > a0), None)
+    uend = fam(mend, "core_ticks_unbound_total")
     if first is None:
-        lines.append("INFO assets_ticks_applied_total did not rise over the row (member %s): unbound delta %d printed, not judged"
+        lines.append("INFO core_ticks_applied_total did not rise over the row (member %s): unbound delta %d printed, not judged"
                      % (spec["ae_member"], uend - u0))
     else:
-        u1 = first[2].get("assets_ticks_unbound_total", 0)
-        lines.append("INFO assets_ticks_unbound_total before the first applied tick: +%d (printed, not judged)" % (u1 - u0))
-        check(uend - u1 == 0, "assets_ticks_unbound_total delta 0 from the first applied tick to the end: %d" % (uend - u1))
+        u1 = first[2].get("core_ticks_unbound_total", 0)
+        lines.append("INFO core_ticks_unbound_total before the first applied tick: +%d (printed, not judged)" % (u1 - u0))
+        check(uend - u1 == 0, "core_ticks_unbound_total delta 0 from the first applied tick to the end: %d" % (uend - u1))
     lines.append("INFO core member %s deltas: applied %d stale %d invalid %d epoch_drop %d unbound %d" % (
-        spec["ae_member"], d("assets_ticks_applied_total"), d("assets_ticks_stale_total"), d("assets_ticks_invalid_total"),
-        d("assets_ticks_epoch_drop_total"), d("assets_ticks_unbound_total")))
+        spec["ae_member"], d("core_ticks_applied_total"), d("core_ticks_stale_total"), d("core_ticks_invalid_total"),
+        d("core_ticks_epoch_drop_total"), d("core_ticks_unbound_total")))
     for p, (s, e, up) in sorted(fwd.items()):
         dd = lambda **kw: fam(e, "forwarder_tick_offered_total", **kw) - fam(s, "forwarder_tick_offered_total", **kw)
         off, ro, rt = dd(market="1"), dd(market="1", edge="reoffer"), dd(market="1", edge="retry")

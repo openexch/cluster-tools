@@ -1,13 +1,13 @@
 # Java bridge parity: domain, translation and process wiring
 
-The C++ settlement bridge replaces the Java bridge in openexch/assets
-(`assets-bridge/src/test/java/com/openexchange/assets/bridge/`, read at `money_schema_ref` in
+The C++ settlement bridge replaces the Java bridge in openexch/core
+(`core-bridge/src/test/java/com/openexchange/core/bridge/`, read at `money_schema_ref` in
 `dependencies.lock`). Every Java test maps to a C++ test that carries its intent, or is retired with the
 reason. `ChainResumeMemoTest` (the archive resume memo) is in
 [`archive/tests/PARITY.md`](../../../archive/tests/PARITY.md); every other Java test class is here.
 
-The check is `app/bridge/it/parity-check.sh` (ctest `bridge.parity`, registered when `CT_PARITY_ASSETS_TREE`
-points at an assets checkout): it fails when a Java `@Test` method name appears in neither file.
+The check is `app/bridge/it/parity-check.sh` (ctest `bridge.parity`, registered when `CT_PARITY_CORE_TREE`
+points at a core checkout): it fails when a Java `@Test` method name appears in neither file.
 
 Names: C++ tests are doctest cases under `domain/bridge/tests`, `archive/tests` and `app/bridge/tests`
 (`.name` repeats the class of the previous entry). A drill is a scenario of `app/bridge/it/run-bridge-it.sh`

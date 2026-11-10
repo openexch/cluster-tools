@@ -140,12 +140,12 @@ if(WITH_AERON)
         set_tests_properties(forwarder.main_aeron_negative_controls PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
     endif()
 
-    # The integration run: 3 AE + 3 ME + 2 forwarders on this host, serial. Needs the match jar with the epoch
+    # The integration run: 3 core + 3 ME + 2 forwarders on this host, serial. Needs the match jar with the epoch
     # hello (a busy ME otherwise never shows a new session its epoch) and the negative-control binaries.
     set(CT_IT_FORWARDER_MATCH_JAR "" CACHE FILEPATH "match-cluster.jar with the ME epoch hello (the forwarder integration run)")
     if(CT_INTEGRATION_TESTS AND CT_FORWARDER_TEST_BUILDS AND EXISTS "${CT_IT_FORWARDER_MATCH_JAR}")
         add_test(NAME forwarder.integration
-            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/run-forwarder-it.sh" "${CMAKE_BINARY_DIR}" "${CT_IT_ASSETS_JAR}"
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/run-forwarder-it.sh" "${CMAKE_BINARY_DIR}" "${CT_IT_CORE_JAR}"
                 "${CT_IT_FORWARDER_MATCH_JAR}")
         set_tests_properties(forwarder.integration PROPERTIES TIMEOUT 2400 RUN_SERIAL TRUE)
     endif()

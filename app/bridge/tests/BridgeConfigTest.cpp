@@ -2,11 +2,13 @@
 // table order, the driver mode strict in both directions, the port formula and the channels the Java bridge used).
 #include "doctest/doctest.h"
 
+#include <algorithm>
 #include <map>
 #include <set>
 #include <string>
 
 #include "BridgeConfig.h"
+#include "common/RetiredSettings.h"
 
 using namespace cluster_tools::app::bridge;
 
@@ -29,11 +31,11 @@ Env external()
         { "BRIDGE_DRIVER_MODE", "external" },
         { "AERON_DIR", "/dev/shm/aeron-host" },
         { "BRIDGE_DRIVER_TIMEOUT_MS", "5000" },
-        { "BRIDGE_AE_CLUSTER_ADDRESSES", "10.0.1.1,10.0.1.2,10.0.1.3" },
-        { "BRIDGE_AE_PORT_BASE", "19300" },
+        { "BRIDGE_CORE_CLUSTER_ADDRESSES", "10.0.1.1,10.0.1.2,10.0.1.3" },
+        { "BRIDGE_CORE_PORT_BASE", "19300" },
         { "CLUSTER_PORT_STRIDE", "100" },
-        { "BRIDGE_AE_EGRESS_ENDPOINT", "10.0.0.9:0" },
-        { "AE_AUTH_CREDENTIAL", "3:BRIDGE:" + SECRET },
+        { "BRIDGE_CORE_EGRESS_ENDPOINT", "10.0.0.9:0" },
+        { "CORE_AUTH_CREDENTIAL", "3:BRIDGE:" + SECRET },
         { "BRIDGE_INSTANCE_ID", "1" },
         { "BRIDGE_HTTP_BIND", "127.0.0.1:9600" },
     };
@@ -108,7 +110,7 @@ TEST_CASE("BridgeConfigTest.everyKeyMissingIsRefusedAndNamed")
             const ConfigResult missing = parse(env);
             CAPTURE(all(missing));
             const bool refused = !missing.ok();
-            CHECK(refused); // CONFIG_DEFAULTS RED: BRIDGE_AE_PORT_BASE is filled by a default
+            CHECK(refused); // CONFIG_DEFAULTS RED: BRIDGE_CORE_PORT_BASE is filled by a default
             CHECK(missing.errors.size() == 1);
             CHECK(mentions(missing, key));
         }
@@ -129,6 +131,44 @@ TEST_CASE("BridgeConfigTest.everyKeyMissingIsRefusedAndNamed")
     CHECK(c.httpPort == 9600);
     CHECK(c.credentials.sessionClass == cluster_tools::client::SessionClass::BRIDGE);
     CHECK(configKeys().size() == 19);
+}
+
+TEST_CASE("BridgeConfigTest.retiredNamesAreRefusedNamingTheNewOne")
+{
+    using cluster_tools::app::common::RETIRED_SETTINGS;
+    const Env good = external();
+    REQUIRE(parse(good).ok()); // the control: the new names alone start
+    for (const auto &s : RETIRED_SETTINGS)
+    {
+        CAPTURE(s.retired);
+        CHECK(std::find(configKeys().begin(), configKeys().end(), s.replacement) != configKeys().end());
+        const std::string line = std::string("the environment variable ") + s.retired + " is retired; it is now " +
+            s.replacement;
+        for (const std::string &value : { good.at(s.replacement), std::string() })
+        {
+            CAPTURE(value);
+            Env env = good;
+            env[s.retired] = value; // set next to the new name, or empty: present is refused either way
+            const ConfigResult r = parse(env);
+            CAPTURE(all(r));
+            const bool refusedWithNewName = !r.ok() && 1 == r.errors.size() && mentions(r, line);
+            CHECK(refusedWithNewName); // CONFIG_RETIRED_NAMES_IGNORED RED: the old name is not looked at
+        }
+    }
+    // A deployment written only for the old names: refused for each old name, and the old values are never read
+    Env old = good;
+    for (const auto &s : RETIRED_SETTINGS)
+    {
+        old[s.retired] = good.at(s.replacement);
+        old.erase(s.replacement);
+    }
+    const ConfigResult r = parse(old);
+    CAPTURE(all(r));
+    CHECK(r.errors.size() == RETIRED_SETTINGS.size());
+    CHECK_FALSE(mentions(r, "is required"));
+    CHECK(r.config.coreHosts.empty());
+    CHECK(r.config.corePortBase == 0);
+    CHECK(r.config.egressEndpoint.empty());
 }
 
 TEST_CASE("BridgeConfigTest.haltOnGapPresentIsRefused")
@@ -152,19 +192,19 @@ TEST_CASE("BridgeConfigTest.loopbackLocalHostWithRemoteArchiveRefused")
     CHECK_FALSE(r.ok());
     CHECK(mentions(r, "BRIDGE_LOCAL_HOST 127.0.0.1 is loopback"));
     env["BRIDGE_ME_JOURNAL_ARCHIVES"] = "localhost:9010,127.0.0.1:9110";
-    env["BRIDGE_AE_CLUSTER_ADDRESSES"] = "localhost";
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "localhost:0";
+    env["BRIDGE_CORE_CLUSTER_ADDRESSES"] = "localhost";
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "localhost:0";
     CHECK(parse(env).ok()); // an all-loopback deployment is fine
 }
 
 TEST_CASE("BridgeConfigTest.loopbackEgressEndpointWithRemoteCoreRefused")
 {
     Env env = external();
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "127.0.0.1:0";
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "127.0.0.1:0";
     const ConfigResult r = parse(env);
     CHECK_FALSE(r.ok());
-    CHECK(mentions(r, "BRIDGE_AE_EGRESS_ENDPOINT 127.0.0.1:0 is loopback but core member 10.0.1.1 is not"));
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "localhost:40123";
+    CHECK(mentions(r, "BRIDGE_CORE_EGRESS_ENDPOINT 127.0.0.1:0 is loopback but core member 10.0.1.1 is not"));
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "localhost:40123";
     CHECK(mentions(parse(env), "is loopback but core member"));
 }
 
@@ -189,26 +229,26 @@ TEST_CASE("BridgeConfigTest.instanceIdRange")
 TEST_CASE("BridgeConfigTest.credentialClassMustBeBridge")
 {
     Env env = external();
-    env["AE_AUTH_CREDENTIAL"] = "6:FORWARDER:" + SECRET;
+    env["CORE_AUTH_CREDENTIAL"] = "6:FORWARDER:" + SECRET;
     const ConfigResult r = parse(env);
     const bool classRefused = !r.ok() && mentions(r, "is a FORWARDER credential; ct-bridge needs BRIDGE");
     CHECK(classRefused); // CONFIG_CLASS_CHECK_OFF RED: the FORWARDER key passes
-    env["AE_AUTH_CREDENTIAL"] = "3:BRIDGE";
-    CHECK(mentions(parse(env), "AE_AUTH_CREDENTIAL: credential spec must be keyId:class:secretHex"));
+    env["CORE_AUTH_CREDENTIAL"] = "3:BRIDGE";
+    CHECK(mentions(parse(env), "CORE_AUTH_CREDENTIAL: credential spec must be keyId:class:secretHex"));
 }
 
 TEST_CASE("BridgeConfigTest.egressEndpointNotWildcard")
 {
     Env env = external();
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "0.0.0.0:0";
-    CHECK(mentions(parse(env), "BRIDGE_AE_EGRESS_ENDPOINT host 0.0.0.0 is not routable"));
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "0.0.0.0:0";
+    CHECK(mentions(parse(env), "BRIDGE_CORE_EGRESS_ENDPOINT host 0.0.0.0 is not routable"));
     for (const char *bad : { "10.0.0.9", "10.0.0.9:", ":40000", "10.0.0.9:70000", "10.0.0.9:-1" })
     {
         CAPTURE(bad);
-        env["BRIDGE_AE_EGRESS_ENDPOINT"] = bad;
-        CHECK(mentions(parse(env), "BRIDGE_AE_EGRESS_ENDPOINT must be host:port"));
+        env["BRIDGE_CORE_EGRESS_ENDPOINT"] = bad;
+        CHECK(mentions(parse(env), "BRIDGE_CORE_EGRESS_ENDPOINT must be host:port"));
     }
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "10.0.0.9:40123";
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "10.0.0.9:40123";
     CHECK(parse(env).ok());
 }
 
@@ -304,8 +344,8 @@ TEST_CASE("BridgeConfigTest.driverTimeoutIsStrict")
 TEST_CASE("BridgeConfigTest.ingressEndpointsEqualJava")
 {
     Env env = external();
-    env["BRIDGE_AE_CLUSTER_ADDRESSES"] = "a,b,c";
-    env["BRIDGE_AE_PORT_BASE"] = "19300";
+    env["BRIDGE_CORE_CLUSTER_ADDRESSES"] = "a,b,c";
+    env["BRIDGE_CORE_PORT_BASE"] = "19300";
     env["CLUSTER_PORT_STRIDE"] = "100";
     const ConfigResult r = parse(env);
     CAPTURE(all(r));
@@ -316,14 +356,14 @@ TEST_CASE("BridgeConfigTest.ingressEndpointsEqualJava")
     const ConfigResult distinctHosts = parse(env);
     REQUIRE(distinctHosts.ok()); // stride 0 is fine on distinct hosts
     CHECK(distinctHosts.config.ingressEndpoints == "0=a:19302,1=b:19302,2=c:19302");
-    env["BRIDGE_AE_CLUSTER_ADDRESSES"] = "a,a";
+    env["BRIDGE_CORE_CLUSTER_ADDRESSES"] = "a,a";
     CHECK(mentions(parse(env), "members share the ingress endpoint a:19302"));
-    env["BRIDGE_AE_CLUSTER_ADDRESSES"] = "localhost,127.0.0.1";
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "localhost:0";
+    env["BRIDGE_CORE_CLUSTER_ADDRESSES"] = "localhost,127.0.0.1";
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "localhost:0";
     CHECK(mentions(parse(env), "members share the ingress endpoint"));
-    env["BRIDGE_AE_CLUSTER_ADDRESSES"] = "a,b";
-    env["BRIDGE_AE_EGRESS_ENDPOINT"] = "10.0.0.9:0";
-    env["BRIDGE_AE_PORT_BASE"] = "65534";
+    env["BRIDGE_CORE_CLUSTER_ADDRESSES"] = "a,b";
+    env["BRIDGE_CORE_EGRESS_ENDPOINT"] = "10.0.0.9:0";
+    env["BRIDGE_CORE_PORT_BASE"] = "65534";
     env["CLUSTER_PORT_STRIDE"] = "10";
     CHECK(mentions(parse(env), "is outside 1..65535"));
 }

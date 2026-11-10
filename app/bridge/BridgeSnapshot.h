@@ -247,7 +247,7 @@ struct BridgeSnapshot
     std::uint8_t coreLink = 0;   // CoreLink
     std::uint8_t clientState = 0;
     std::uint8_t closeReason = 0;
-    bool aeConnected = false;    // the client is CONNECTED (the Java meaning)
+    bool coreConnected = false;  // the client is CONNECTED (the Java meaning)
     bool registered = false;     // C3
     bool stopping = false;
     std::uint32_t notReady = 0;  // bits 0..13 (bit 14 is main's, added by the route)

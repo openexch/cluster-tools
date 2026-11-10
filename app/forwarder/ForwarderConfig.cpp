@@ -6,6 +6,7 @@
 #include <random>
 
 #include "common/DriverTimeout.h"
+#include "common/RetiredSettings.h"
 
 #include "AppSeams.h"
 
@@ -153,9 +154,18 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProb
     ConfigResult r;
     ForwarderConfig &c = r.config;
     std::vector<std::string> &e = r.errors;
+    // the names retired by the rename to core first: one still set refuses the start before any setting is read
+    if (!app_seams::disabled(app_seams::Rule::RETIRED_NAMES_IGNORED))
+    {
+        e = common::retiredSettingRefusals(getenv);
+        if (!e.empty())
+        {
+            return r;
+        }
+    }
     c.coreIngress = required(getenv, "FWD_CORE_INGRESS", e);
     c.coreResponseChannel = required(getenv, "FWD_CORE_RESPONSE_CHANNEL", e);
-    c.coreCredentials = credential(getenv, "AE_AUTH_CREDENTIAL", e);
+    c.coreCredentials = credential(getenv, "CORE_AUTH_CREDENTIAL", e);
     c.meIngress = required(getenv, "FWD_ME_INGRESS", e);
     c.meResponseChannel = required(getenv, "FWD_ME_RESPONSE_CHANNEL", e);
     c.meCredentials = credential(getenv, "ME_AUTH_CREDENTIAL", e);

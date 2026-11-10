@@ -1,4 +1,4 @@
-# The feed harness jar guard. The harness jar (assets test scope: the Java reference
+# The feed harness jar guard. The harness jar (core test scope: the Java reference
 # translator, serve, story, t1-*) is the only source of the expected bytes the C++ bridge is graded against, so a
 # configure that is given one (CT_FEED_HARNESS_JAR) refuses it unless
 #   (a) the money schema sha256 the jar carries (META-INF/feed-harness.properties) equals the lock's money_schema_sha256,

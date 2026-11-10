@@ -67,6 +67,13 @@ printf 'x' >> "$WORK/agrona-other.jar"
 expect_refused unpinned-jar "is not a jar dependencies.lock pins" -DAERON_TARBALL="$TARBALL" \
     -DSBE_CLASSPATH="$SBE_JAR:$WORK/agrona-other.jar" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
 
+# 4b. Cache variables retired by the rename of the engine to core: refused naming the new name (the positive
+# control below configures without them).
+expect_refused retired-it-jar "the cache variable CT_IT_ASSETS_JAR is retired; it is now CT_IT_CORE_JAR" \
+    "${GOOD[@]}" -DCT_IT_ASSETS_JAR="$MONEY"
+expect_refused retired-parity-tree "the cache variable CT_PARITY_ASSETS_TREE is retired; it is now CT_PARITY_CORE_TREE" \
+    "${GOOD[@]}" -DCT_PARITY_ASSETS_TREE="$WORK"
+
 # 5-7. Schemas: missing, below the floor, required template removed. The negatives the
 # pin rules name: the v11 order schema, a money-schema v6, an ME journal whose hash differs,
 # a v12 order schema whose template 9 lost timeInForce.
@@ -128,7 +135,7 @@ if [ -n "$AERON_ALL" ]; then
     cp "$AERON_ALL" "$WORK/aeron-all-other.jar"
     printf 'x' >> "$WORK/aeron-all-other.jar"
     expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" "${BRIDGE[@]}" -DCT_INTEGRATION_TESTS=ON \
-        -DCT_IT_ASSETS_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
+        -DCT_IT_CORE_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
 fi
 # ct-bridge links aeron_driver_static (the embedded driver mode), so WITH_BRIDGE needs the driver built
 expect_refused bridge-without-driver "needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}" "${BRIDGE[@]}"

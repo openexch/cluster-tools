@@ -10,14 +10,14 @@
 #include "cluster_tools/client/CoreSessionRegistrar.h"
 #include "FakeTransport.h"
 
-#include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
+#include "com_openexchange_core_infrastructure_generated/AdminAck.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/RegisterSession.h"
 
 using namespace cluster_tools::client;
 using cluster_tools::client::test::FakeTransport;
 namespace cc = io::aeron::cluster::codecs;
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 
 namespace
 {

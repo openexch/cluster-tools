@@ -32,7 +32,7 @@ std::map<std::string, std::string> env()
     return {
         { "FWD_CORE_INGRESS", CORE_ENDPOINTS },
         { "FWD_CORE_RESPONSE_CHANNEL", "aeron:udp?endpoint=127.0.0.1:0" },
-        { "AE_AUTH_CREDENTIAL", "6:FORWARDER:" + SECRET },
+        { "CORE_AUTH_CREDENTIAL", "6:FORWARDER:" + SECRET },
         { "FWD_ME_INGRESS", ME_ENDPOINTS },
         { "FWD_ME_RESPONSE_CHANNEL", "aeron:udp?endpoint=127.0.0.1:0" },
         { "ME_AUTH_CREDENTIAL", "7:FORWARDER:" + SECRET },

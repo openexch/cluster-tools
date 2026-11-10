@@ -19,6 +19,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::CONFIG_DRIVER_MODE_DEFAULT: return "CONFIG_DRIVER_MODE_DEFAULT";
         case Rule::CONFIG_PORT_FORMULA: return "CONFIG_PORT_FORMULA";
         case Rule::CONFIG_MTU_DEFAULT: return "CONFIG_MTU_DEFAULT";
+        case Rule::CONFIG_RETIRED_NAMES_IGNORED: return "CONFIG_RETIRED_NAMES_IGNORED";
         case Rule::HEALTH_HALTED_FROM_STATE: return "HEALTH_HALTED_FROM_STATE";
         case Rule::ACKMAP_UNBOUNDED: return "ACKMAP_UNBOUNDED";
         case Rule::REGISTRATION_GATE_OFF: return "REGISTRATION_GATE_OFF";

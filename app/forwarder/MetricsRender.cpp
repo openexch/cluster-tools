@@ -306,7 +306,7 @@ std::string renderHealthJson(const ForwarderSnapshot &s, bool stalled)
     }
     std::string out;
     line(out,
-        "{\"status\":\"%s\",\"aeConnected\":%s,\"meConnected\":%s,\"registered\":%s,\"meEpoch\":%" PRId64
+        "{\"status\":\"%s\",\"coreConnected\":%s,\"meConnected\":%s,\"registered\":%s,\"meEpoch\":%" PRId64
         ",\"mode\":\"%s\",\"lastDispatchSeq\":%" PRId64 ",\"lastSentSeq\":%" PRId64 ",\"coreHead\":%" PRId64
         ",\"resyncs\":%" PRIu64 ",\"lastResyncEndSeq\":%" PRId64 ",\"ringDepth\":%" PRIu64 ",\"invalidDispatches\":%" PRIu64
         ",\"identity\":%" PRId64 ",\"driverMode\":\"%s\",\"ready\":%s,\"build\":\"%s\"}",

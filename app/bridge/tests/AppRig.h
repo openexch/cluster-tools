@@ -33,13 +33,13 @@
 #include "BridgeAgent.h"
 #include "BridgeMetricsRender.h"
 
-#include "com_openexchange_assets_infrastructure_generated/AdminAck.h"
-#include "com_openexchange_assets_infrastructure_generated/FeedPositionReport.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/OrderReject.h"
-#include "com_openexchange_assets_infrastructure_generated/RegisterSession.h"
-#include "com_openexchange_assets_infrastructure_generated/SettleRejected.h"
-#include "com_openexchange_assets_infrastructure_generated/SettlementApplied.h"
+#include "com_openexchange_core_infrastructure_generated/AdminAck.h"
+#include "com_openexchange_core_infrastructure_generated/FeedPositionReport.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/OrderReject.h"
+#include "com_openexchange_core_infrastructure_generated/RegisterSession.h"
+#include "com_openexchange_core_infrastructure_generated/SettleRejected.h"
+#include "com_openexchange_core_infrastructure_generated/SettlementApplied.h"
 #include "io_aeron_cluster_codecs/SessionMessageHeader.h"
 
 namespace ct_bridge_app_test {
@@ -49,7 +49,7 @@ namespace app = cluster_tools::app::bridge;
 namespace common = cluster_tools::app::common;
 namespace cl = cluster_tools::client;
 namespace cc = io::aeron::cluster::codecs;
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 using cl::test::FakeTransport;
 
 inline constexpr std::int64_t MS = 1'000'000LL;

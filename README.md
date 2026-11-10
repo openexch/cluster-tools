@@ -11,7 +11,7 @@ User documentation (architecture, configuration, operations): https://openexchan
 v1 is two Java Aeron clusters plus the processes around them:
 
 - [match](https://github.com/openexch/match): the matching engine (ME).
-- [assets](https://github.com/openexch/assets): the order and ledger core (order lifecycle, risk, holds,
+- [core](https://github.com/openexch/core): the order and ledger core (order lifecycle, risk, holds,
   ledger). Called "the core" below.
 - [cluster-kit](https://github.com/openexch/cluster-kit): cluster machinery shared by both engines.
 - cluster-tools (this repo): the C++ cluster client and the processes that connect the two clusters.
@@ -58,7 +58,7 @@ third_party/doctest/ vendored test framework (MIT)
 
 Every pinned input is in `dependencies.lock` (Aeron 1.53.1, sbe-tool 1.40.1, agrona 2.5.0, the three wire
 schemas by commit and sha256). `scripts/fetch-deps.sh` downloads and verifies the jars and the Aeron
-tarball; `scripts/fetch-schemas.sh` extracts the schemas from assets and match checkouts and verifies their
+tarball; `scripts/fetch-schemas.sh` extracts the schemas from core and match checkouts and verifies their
 sha256, so the checkouts must be at `money_schema_ref` and `match_schema_ref`. Configure re-verifies
 everything.
 
@@ -75,11 +75,11 @@ cmake -S . -B build -DWITH_AERON=OFF
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 
-# full build (what aeron.yml runs). The harness jar comes from the assets releases,
+# full build (what aeron.yml runs). The harness jar comes from the core releases,
 # or from a local build named by CT_FEED_HARNESS_JAR (its sha256 must match the lock).
-CT_ARTIFACT_BASE_URL=https://github.com/openexch/assets \
+CT_ARTIFACT_BASE_URL=https://github.com/openexch/core \
     scripts/fetch-deps.sh ~/.cache/ct-deps --harness > deps.args
-scripts/fetch-schemas.sh ~/.cache/ct-schemas /path/to/assets /path/to/match > schemas.args
+scripts/fetch-schemas.sh ~/.cache/ct-schemas /path/to/core /path/to/match > schemas.args
 cmake -S . -B build-full -DWITH_AERON=ON -DWITH_BRIDGE=ON \
     -DCT_BRIDGE_TEST_BUILDS=ON -DCT_FORWARDER_TEST_BUILDS=ON $(cat deps.args schemas.args)
 cmake --build build-full -j
@@ -93,14 +93,14 @@ inputs.
 Integration runs are local (they need engine jars built at the pinned commits):
 
 ```bash
-client/it/run-it.sh <build> <assets-cluster.jar> <match-cluster.jar>                  # cluster client
+client/it/run-it.sh <build> <core-cluster.jar> <match-cluster.jar>                    # cluster client
 scripts/fetch-deps.sh ~/.cache/ct-deps --it                                            # prints -DCT_IT_AERON_ALL_JAR=...
 archive/it/run-it.sh <build> <aeron-all.jar> [scenario...]                             # archive side, real Java archive
-app/forwarder/it/run-forwarder-it.sh <build> <assets-cluster.jar> <match-cluster.jar>  # 3 core + 3 ME + 2 forwarders
-app/bridge/it/run-bridge-it.sh <build> <assets-cluster.jar> <harness.jar> <drill|all>  # bridge drills
+app/forwarder/it/run-forwarder-it.sh <build> <core-cluster.jar> <match-cluster.jar>    # 3 core + 3 ME + 2 forwarders
+app/bridge/it/run-bridge-it.sh <build> <core-cluster.jar> <harness.jar> <drill|all>    # bridge drills
 ```
 
-`bridge.parity` (registered when `-DCT_PARITY_ASSETS_TREE` points at an assets checkout) checks that every
+`bridge.parity` (registered when `-DCT_PARITY_CORE_TREE` points at a core checkout) checks that every
 Java bridge test has a row in `archive/tests/PARITY.md` or `domain/bridge/tests/PARITY.md`.
 
 ## Binaries
@@ -129,7 +129,7 @@ or `POST /resync`. Nothing is written to disk; a restart is a cold start.
 ```bash
 env FWD_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron FWD_DRIVER_TIMEOUT_MS=5000 FWD_INSTANCE_ID=1 \
     FWD_CORE_INGRESS=0=10.0.0.1:9002,1=10.0.0.2:9002,2=10.0.0.3:9002 \
-    FWD_CORE_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' AE_AUTH_CREDENTIAL=6:FORWARDER:<64 hex> \
+    FWD_CORE_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' CORE_AUTH_CREDENTIAL=6:FORWARDER:<64 hex> \
     FWD_ME_INGRESS=0=10.0.1.1:9002,1=10.0.1.2:9002,2=10.0.1.3:9002 \
     FWD_ME_RESPONSE_CHANNEL='aeron:udp?endpoint=10.0.0.9:0' ME_AUTH_CREDENTIAL=7:FORWARDER:<64 hex> \
     FWD_INGRESS_CHANNEL='aeron:udp?term-length=4m|mtu=8192' FWD_HTTP_BIND=127.0.0.1:9600 \
@@ -145,7 +145,7 @@ env FWD_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron FWD_DRIVER_TIMEOUT_MS=5000
 | `FWD_INSTANCE_ID` | 1..INT64_MAX: the identity on both cluster sessions; keep it fixed per forwarder |
 | `FWD_CORE_INGRESS`, `FWD_ME_INGRESS` | `id=host:port,...` of each cluster's members |
 | `FWD_CORE_RESPONSE_CHANNEL`, `FWD_ME_RESPONSE_CHANNEL` | `aeron:udp?endpoint=host:port` (port 0 = driver-assigned), never `0.0.0.0`; two equal fixed ports exit 78 |
-| `AE_AUTH_CREDENTIAL`, `ME_AUTH_CREDENTIAL` | `keyId:FORWARDER:secretHex` |
+| `CORE_AUTH_CREDENTIAL`, `ME_AUTH_CREDENTIAL` | `keyId:FORWARDER:secretHex` |
 | `FWD_INGRESS_CHANNEL` | the base ingress channel of both clusters |
 | `FWD_HTTP_BIND` | `host:port`; port 0 refused |
 
@@ -170,8 +170,8 @@ core's `lastAppliedJournalSeq` is the only cursor; nothing is written to disk.
 env BRIDGE_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron BRIDGE_DRIVER_TIMEOUT_MS=5000 \
     BRIDGE_ME_JOURNAL_ARCHIVES=10.0.1.1:9010,10.0.1.2:9110,10.0.1.3:9210 BRIDGE_JOURNAL_CONTROL_STREAM=4010 \
     BRIDGE_JOURNAL_STREAM=4001 BRIDGE_JOURNAL_CHANNEL=aeron:ipc BRIDGE_REPLAY_STREAM=9101 BRIDGE_JOURNAL_MTU=1408 \
-    BRIDGE_LOCAL_HOST=10.0.0.9 BRIDGE_AE_CLUSTER_ADDRESSES=10.0.0.1,10.0.0.2,10.0.0.3 BRIDGE_AE_PORT_BASE=9000 \
-    CLUSTER_PORT_STRIDE=100 BRIDGE_AE_EGRESS_ENDPOINT=10.0.0.9:0 AE_AUTH_CREDENTIAL=3:BRIDGE:<64 hex> \
+    BRIDGE_LOCAL_HOST=10.0.0.9 BRIDGE_CORE_CLUSTER_ADDRESSES=10.0.0.1,10.0.0.2,10.0.0.3 BRIDGE_CORE_PORT_BASE=9000 \
+    CLUSTER_PORT_STRIDE=100 BRIDGE_CORE_EGRESS_ENDPOINT=10.0.0.9:0 CORE_AUTH_CREDENTIAL=3:BRIDGE:<64 hex> \
     BRIDGE_INSTANCE_ID=1 BRIDGE_HTTP_BIND=10.0.0.9:9600 ct-bridge
 ```
 
@@ -185,9 +185,9 @@ env BRIDGE_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron BRIDGE_DRIVER_TIMEOUT_M
 | `BRIDGE_JOURNAL_CONTROL_STREAM`, `BRIDGE_JOURNAL_STREAM`, `BRIDGE_JOURNAL_CHANNEL`, `BRIDGE_REPLAY_STREAM` | the ME archive's streams and channel |
 | `BRIDGE_JOURNAL_MTU` | multiple of 32, 1144..65504; must match the recording |
 | `BRIDGE_LOCAL_HOST` | this host's address for replays (loopback only with loopback archives) |
-| `BRIDGE_AE_CLUSTER_ADDRESSES`, `BRIDGE_AE_PORT_BASE`, `CLUSTER_PORT_STRIDE` | core member hosts (1..16); ingress port is `base + i * stride + 2` |
-| `BRIDGE_AE_EGRESS_ENDPOINT` | `host:port` (port 0 = driver-assigned), never `0.0.0.0` |
-| `AE_AUTH_CREDENTIAL` | `keyId:BRIDGE:secretHex` |
+| `BRIDGE_CORE_CLUSTER_ADDRESSES`, `BRIDGE_CORE_PORT_BASE`, `CLUSTER_PORT_STRIDE` | core member hosts (1..16); ingress port is `base + i * stride + 2` |
+| `BRIDGE_CORE_EGRESS_ENDPOINT` | `host:port` (port 0 = driver-assigned), never `0.0.0.0` |
+| `CORE_AUTH_CREDENTIAL` | `keyId:BRIDGE:secretHex` |
 | `BRIDGE_INSTANCE_ID` | 1..INT64_MAX |
 | `BRIDGE_HTTP_BIND` | `ipv4:port` |
 | `BRIDGE_HALT_ON_GAP` | refused if present (the core enforces density) |
@@ -231,7 +231,7 @@ against a dockerized config-mode match cluster.
 
 ## Wire schema pins
 
-`dependencies.lock` pins money-schema v7 (assets), order-schema v12 and ME journal schema 4 (match), and the
+`dependencies.lock` pins money-schema v7 (core), order-schema v12 and ME journal schema 4 (match), and the
 ME journal golden fixtures in `archive/tests/fixtures/mejournal`. To take a newer schema, bump the
 `*_ref`/`*_sha256` pins; the codec goldens then fail until `adapters/sbe/tests/golden/regen.sh` is re-run
 with engine jars at the new commits.

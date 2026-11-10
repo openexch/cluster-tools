@@ -471,7 +471,7 @@ public:
         s.coreLink = static_cast<std::uint8_t>(m_link);
         s.clientState = static_cast<std::uint8_t>(m_client.state());
         s.closeReason = static_cast<std::uint8_t>(m_client.closeReason());
-        s.aeConnected = client::ClientState::CONNECTED == m_client.state();
+        s.coreConnected = client::ClientState::CONNECTED == m_client.state();
         s.registered = CoreLink::C3_REGISTERED == m_link;
         s.stopping = m_stopRequested || m_stop.set();
         s.view = m_domain.view();
@@ -617,7 +617,7 @@ private:
     // is the legacy translator: trades (1) and terminals (2) translate, the outcome (3) is "lost". The record
     // still goes through the domain, so the cursor, density and offer accounting see an intact feed (a hole would latch
     // the core with FEED_GAP); only its command id is replaced by one the core never issued, so
-    // the core counts a stale outcome (assets_order_stale_outcomes_total, Table D U7) and no order ever hears of it.
+    // the core counts a stale outcome (core_order_stale_outcomes_total, Table D U7) and no order ever hears of it.
     class NegctlSink final : public archive::FrameSink
     {
     public:

@@ -6,3 +6,4 @@ ForwarderConfigTest.driverModeIsStrict|DRIVER_MODE_DEFAULT_EXTERNAL|a missing FW
 ForwarderConfigTest.driverTimeoutUsesTheSharedParser|TIMEOUT_CONSTANT|a missing FWD_DRIVER_TIMEOUT_MS falls back to the former constant 5000|5000 used while the key is missing
 ForwarderConfigTest.identityIsTheInstanceIdInBothClientNames|IDENTITY_RANDOM|a random identity per start (the earlier shape) instead of FWD_INSTANCE_ID|CHECK( forwarderIdentity(r.config) == 7 )
 DriverStartTest.storageStarvedStartIsRetriedThen70|DRIVER_START_STORAGE_78|a storage-starved embedded driver start exits 78 at once (the bridge's shape): RestartPreventExitStatus=78 keeps it down after a passing tmpfs squeeze|a storage-starved start refused 78 at once
+ForwarderConfigTest.retiredNamesAreRefusedNamingTheNewOne|RETIRED_NAMES_IGNORED|a retired name (AE_AUTH_CREDENTIAL) set next to the new one is not refused|CHECK( refusedWithNewName )

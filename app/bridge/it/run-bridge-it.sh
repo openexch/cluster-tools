@@ -1,7 +1,7 @@
 #!/bin/bash
 # The bridge integration drills on real processes, one host, serial, each drill on a fresh
 # topology so a failure is attributable:
-#   - 1 or 3 PRODUCTION AE processes (assets-cluster.jar), the T1 key table (`::users=*`),
+#   - 1 or 3 PRODUCTION core processes (core-cluster.jar), the T1 key table (`::users=*`),
 #   - one `t1-journal` JVM (the harness) hosting K scripted ME journal archives, controlled through a fifo that
 #     `t1-core run --journal-ctl` writes to as well,
 #   - `t1-core` one-shots (genesis, run, barrier, report, gate, oracle, latch-clear, open, deposit, withdraw),
@@ -10,7 +10,7 @@
 # Every drill writes evidence/<drill>/ (bridge logs, metrics before/after, oracle and report outputs) and one result
 # line: PASS, FAIL, INCONCLUSIVE (a RED that did not fail, a precondition not met) or NOT RUN (no sudo, no input).
 #
-# Usage: app/bridge/it/run-bridge-it.sh <cmake-build-dir> <assets-cluster.jar> <harness.jar> <drill|all> [drill ...]
+# Usage: app/bridge/it/run-bridge-it.sh <cmake-build-dir> <core-cluster.jar> <harness.jar> <drill|all> [drill ...]
 # Drills: rk0-external rk0-embedded tmpfs-min rk1 rk1-embedded rk2-external rk2-embedded rk2-nc rk3 rk4 rk5 rk6
 #         rk8 rk9 rk9-nc rk10 rk11 rk11b rk12 rk12b rk12c rk12c-both rk13c rk13a rk13b rk13d-external rk13d-embedded
 #         (`all`: this batch). T1-N2 (`n2`): rk14-smoke-external rk14-smoke-embedded rk14-smoke-red rk14-stop;
@@ -23,11 +23,11 @@
 set -uo pipefail
 
 if [ $# -lt 4 ]; then
-    echo "usage: $0 <cmake-build-dir> <assets-cluster.jar> <harness.jar> <drill|all> [drill ...]" >&2
+    echo "usage: $0 <cmake-build-dir> <core-cluster.jar> <harness.jar> <drill|all> [drill ...]" >&2
     exit 64
 fi
 BUILD=$(cd "$1" && pwd)
-AE_JAR=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
+CORE_JAR=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
 HARNESS=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
 shift 3
 ALL=(rk0-external rk0-embedded rk1 rk1-embedded rk2-external rk2-embedded rk2-nc rk3 rk4 rk5 rk6 rk8 rk9 rk9-nc
@@ -58,9 +58,9 @@ AERONMD=$(find "$BUILD/aeron" -name aeronmd -type f | head -1)
 HEAD_SHA=$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)
 
 hex() { printf "$1%.0s" $(seq 1 32); }
-AE_KEYS="1:ADMIN:$(hex 11)::users=*;2:TOOL:$(hex 22)::users=*;3:BRIDGE:$(hex 33)::users=*;10:BRIDGE:$(hex aa)::users=*;11:BRIDGE:$(hex bb)::users=*;5:GATEWAY:$(hex 55)::users=*;6:FORWARDER:$(hex 66)::users=*;9:TREASURY:$(hex 99)::users=*"
+CORE_KEYS="1:ADMIN:$(hex 11)::users=*;2:TOOL:$(hex 22)::users=*;3:BRIDGE:$(hex 33)::users=*;10:BRIDGE:$(hex aa)::users=*;11:BRIDGE:$(hex bb)::users=*;5:GATEWAY:$(hex 55)::users=*;6:FORWARDER:$(hex 66)::users=*;9:TREASURY:$(hex 99)::users=*"
 BRIDGE_KEY="3:BRIDGE:$(hex 33)"
-AE_BASE=24000
+CORE_BASE=24000
 J_BASE=25000
 BPORT=26080
 JAVA_OPTS=(--add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xms128m -Xmx1g -XX:+UseZGC)
@@ -71,12 +71,12 @@ log() { echo "[$(date +%H:%M:%S)] $*"; }
 RESULTS="$EVID/results.txt"
 {
     echo "# run-bridge-it.sh $(date -u +%Y-%m-%dT%H:%M:%SZ) host $(hostname) $(uname -m) nproc $(nproc) head $HEAD_SHA"
-    echo "# ct-bridge sha256 $(sha256sum "$BRIDGE" | cut -c1-64) assets $(sha256sum "$AE_JAR" | cut -c1-16) harness $(sha256sum "$HARNESS" | cut -c1-16)"
+    echo "# ct-bridge sha256 $(sha256sum "$BRIDGE" | cut -c1-64) core $(sha256sum "$CORE_JAR" | cut -c1-16) harness $(sha256sum "$HARNESS" | cut -c1-16)"
 } >> "$RESULTS"
 
 # ------------------------------------------------------------------ per-drill topology
 declare -A PID
-D=""; SHM=""; STORY=""; N=0; NAE=1; K=1; MODE=external; JOUT=""; TOOLDRV=""; BRDRV=""; JLINES=0
+D=""; SHM=""; STORY=""; N=0; NCORE=1; K=1; MODE=external; JOUT=""; TOOLDRV=""; BRDRV=""; JLINES=0
 teardown() {
     exec 7>&- 2>/dev/null || true
     for name in "${!PID[@]}"; do
@@ -105,15 +105,15 @@ start_driver() { # dir log name
     return 1
 }
 
-ae_addresses() { local a=localhost; for _ in $(seq 2 "$NAE"); do a="$a,localhost"; done; echo "$a"; }
-ae_ingress() { local s=""; for i in $(seq 0 $((NAE - 1))); do s="$s${s:+,}$i=localhost:$((AE_BASE + 100 * i + 2))"; done; echo "$s"; }
+ae_addresses() { local a=localhost; for _ in $(seq 2 "$NCORE"); do a="$a,localhost"; done; echo "$a"; }
+ae_ingress() { local s=""; for i in $(seq 0 $((NCORE - 1))); do s="$s${s:+,}$i=localhost:$((CORE_BASE + 100 * i + 2))"; done; echo "$s"; }
 
 start_ae() { # node
     local i=$1
     mkdir -p "$D/ae$i"
-    env "${NODE_ENV[@]}" CLUSTER_NODE="$i" CLUSTER_ADDRESSES="$(ae_addresses)" CLUSTER_PORT_BASE=$AE_BASE \
-        CLUSTER_PORT_STRIDE=100 BASE_DIR="$D/ae$i" ASSETS_AUTH_KEYS="$AE_KEYS" ASSETS_NODE_PORT=$((AE_BASE + 90 + i)) \
-        java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/ae$i" -jar "$AE_JAR" >> "$D/ae$i.log" 2>&1 &
+    env "${NODE_ENV[@]}" CLUSTER_NODE="$i" CLUSTER_ADDRESSES="$(ae_addresses)" CLUSTER_PORT_BASE=$CORE_BASE \
+        CLUSTER_PORT_STRIDE=100 BASE_DIR="$D/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$((CORE_BASE + 90 + i)) \
+        java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/ae$i" -jar "$CORE_JAR" >> "$D/ae$i.log" 2>&1 &
     PID[ae$i]=$!
 }
 
@@ -152,12 +152,12 @@ live_slots() {
     done
 }
 leader_of() {
-    for i in $(seq 0 $((NAE - 1))); do
-        [ "$(metric "http://127.0.0.1:$((AE_BASE + 90 + i))/metrics" assets_cluster_role)" = "2" ] && { echo "$i"; return 0; }
+    for i in $(seq 0 $((NCORE - 1))); do
+        [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + i))/metrics" core_cluster_role)" = "2" ] && { echo "$i"; return 0; }
     done
     return 1
 }
-ae_metric() { local l; l=$(leader_of) || { echo ""; return; }; metric "http://127.0.0.1:$((AE_BASE + 90 + l))/metrics" "$1"; }
+ae_metric() { local l; l=$(leader_of) || { echo ""; return; }; metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" "$1"; }
 wait_leader() { for _ in $(seq 1 600); do leader_of > /dev/null && return 0; sleep 0.1; done; return 1; }
 
 T1ENV=()
@@ -210,9 +210,9 @@ now_s() { date +%s.%N; }
 elapsed() { python3 -I -c "import sys; print(f'{float(sys.argv[2]) - float(sys.argv[1]):.2f}')" "$1" "$2"; }
 fle() { python3 -I -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$1" "$2"; }
 
-# setup <drill> <K sources> <AE nodes> <story args...>
+# setup <drill> <K sources> <core nodes> <story args...>
 setup() {
-    local drill=$1; K=$2; NAE=$3; shift 3
+    local drill=$1; K=$2; NCORE=$3; shift 3
     D=$(mktemp -d -t "ct-bridge-it-$drill.XXXXXX")
     SHM=$(mktemp -d "/dev/shm/ct-bridge-it-$drill.XXXXXX")
     mkdir -p "$D/ev"
@@ -225,8 +225,8 @@ setup() {
     T1ENV=(T1_CORE_INGRESS="$(ae_ingress)" T1_AERON_DIR="$TOOLDRV" T1_ADMIN_KEY="1:ADMIN:$(hex 11)" T1_TOOL_KEY="2:TOOL:$(hex 22)"
         T1_GATEWAY_KEY="5:GATEWAY:$(hex 55)" T1_TREASURY_KEY="9:TREASURY:$(hex 99)" T1_FORWARDER_KEY="6:FORWARDER:$(hex 66)"
         T1_BRIDGE_KEY="$BRIDGE_KEY" T1_JOURNAL_DIR="$D/journal")
-    for i in $(seq 0 $((NAE - 1))); do start_ae "$i"; done
-    wait_leader || { log "no AE leader"; return 1; }
+    for i in $(seq 0 $((NCORE - 1))); do start_ae "$i"; done
+    wait_leader || { log "no core leader"; return 1; }
     mkfifo "$D/jctl"
     JOUT="$D/journal.out"
     : > "$JOUT"
@@ -236,7 +236,7 @@ setup() {
     jctl 60 SOURCES "$K" "$J_BASE" > "$D/ev/sources.txt" || return 1
     jctl 120 LOAD "$STORY/journal.fjr" >> "$D/ev/sources.txt" || return 1
     t1core genesis --story "$STORY" > "$D/ev/genesis.txt" 2>&1 || { log "genesis failed: $(tail -3 "$D/ev/genesis.txt")"; return 1; }
-    log "setup $drill: K=$K AE=$NAE N=$N story $*"
+    log "setup $drill: K=$K core=$NCORE N=$N story $*"
 }
 
 archives() { local s=""; for k in $(seq 0 $((K - 1))); do s="$s${s:+,}localhost:$((J_BASE + 100 * k))"; done; echo "$s"; }
@@ -277,9 +277,9 @@ start_bridge() {
     fi
     env -i PATH="$PATH" BRIDGE_ME_JOURNAL_ARCHIVES="$arch" BRIDGE_JOURNAL_CONTROL_STREAM=4010 BRIDGE_JOURNAL_STREAM=4001 \
         BRIDGE_JOURNAL_CHANNEL=aeron:ipc BRIDGE_REPLAY_STREAM=9101 BRIDGE_JOURNAL_MTU=1408 BRIDGE_LOCAL_HOST=localhost \
-        BRIDGE_DRIVER_MODE="$mode" "$driverEnv" BRIDGE_DRIVER_TIMEOUT_MS=5000 BRIDGE_AE_CLUSTER_ADDRESSES="$(ae_addresses)" \
-        BRIDGE_AE_PORT_BASE=$AE_BASE CLUSTER_PORT_STRIDE=100 BRIDGE_AE_EGRESS_ENDPOINT=127.0.0.1:0 \
-        AE_AUTH_CREDENTIAL="${SLOT_KEY[$slot]}" BRIDGE_INSTANCE_ID="${SLOT_ID[$slot]}" \
+        BRIDGE_DRIVER_MODE="$mode" "$driverEnv" BRIDGE_DRIVER_TIMEOUT_MS=5000 BRIDGE_CORE_CLUSTER_ADDRESSES="$(ae_addresses)" \
+        BRIDGE_CORE_PORT_BASE=$CORE_BASE CLUSTER_PORT_STRIDE=100 BRIDGE_CORE_EGRESS_ENDPOINT=127.0.0.1:0 \
+        CORE_AUTH_CREDENTIAL="${SLOT_KEY[$slot]}" BRIDGE_INSTANCE_ID="${SLOT_ID[$slot]}" \
         BRIDGE_HTTP_BIND="127.0.0.1:$(port_of "$slot")" "${extra[@]}" "$binary" >> "$D/ev/$name.log" 2>&1 &
     PID[$pidkey]=$!
     tl "start $name pid ${PID[$pidkey]} mode $mode sources $arch ${extra[*]:-}"
@@ -339,11 +339,11 @@ common_checks() { # appends to FAILS the shared lines of every drill, per live b
     # at N = 2 duplicates are recorded, never asserted zero (15c); a mismatch is a defect in every drill
     # An unreadable counter (no leader, a scrape timeout) is a failure, never a silent 0; one
     # retry after wait_leader covers a leader change at the scrape
-    local mm; mm=$(ae_metric assets_feed_duplicate_mismatch_total)
-    [ -n "$mm" ] || { wait_leader; mm=$(ae_metric assets_feed_duplicate_mismatch_total); }
+    local mm; mm=$(ae_metric core_feed_duplicate_mismatch_total)
+    [ -n "$mm" ] || { wait_leader; mm=$(ae_metric core_feed_duplicate_mismatch_total); }
     if [ -z "$mm" ]; then FAILS+=("core duplicate mismatch counter unreadable (no leader or no sample)")
     elif [ "$mm" != "0" ]; then FAILS+=("core duplicate mismatches $mm"); fi
-    echo "core feed_duplicate_mismatch ${mm:-?} unverified $(ae_metric assets_feed_duplicate_unverified_total)" >> "$D/ev/core.txt"
+    echo "core feed_duplicate_mismatch ${mm:-?} unverified $(ae_metric core_feed_duplicate_unverified_total)" >> "$D/ev/core.txt"
 }
 FAILS=()
 NOTES=()
@@ -446,7 +446,7 @@ drill_rk1() {
     quiescent "$end1" 120000 || FAILS+=("quiescence at $end1")
     [ "$(bm_sum bridge_settle_rejected_total)" = "0" ] || FAILS+=("SettleRejected after the restart")
     oracle_ok upto-round1 --upto "$end1" || FAILS+=("oracle --upto $end1")
-    NOTES+=("duplicates (recorded, not asserted): $(ae_metric assets_feed_duplicate_unverified_total) unverified")
+    NOTES+=("duplicates (recorded, not asserted): $(ae_metric core_feed_duplicate_unverified_total) unverified")
     common_checks
     scrape rk1-end
     local rk1fails=("${FAILS[@]}")
@@ -901,7 +901,7 @@ drill_rk12() { # variant: all one poison poison-both
     esac
     start_bridge bridge external || FAILS+=("start")
     wait_registered 30 || FAILS+=("registered")
-    local dr0; dr0=$(ae_metric assets_ingress_decode_rejects_total)
+    local dr0; dr0=$(ae_metric core_ingress_decode_rejects_total)
     if [ "$variant" = one ] || [ "$variant" = poison ]; then
         if [ "$variant" = poison ]; then
             # the core's SOURCE_SCHEMA latch suspends GLOBAL (BRIDGE_HALT) until ADMIN OPEN: round r runs to its barrier
@@ -923,7 +923,7 @@ drill_rk12() { # variant: all one poison poison-both
             [ "$(bm0 bridge_source_failovers_total)" -ge 1 ] || FAILS+=("no failover")
         fi
         oracle_ok final || FAILS+=("oracle")
-        NOTES+=("record $s; decode rejects at the core $(( $(ae_metric assets_ingress_decode_rejects_total) - ${dr0:-0} ))")
+        NOTES+=("record $s; decode rejects at the core $(( $(ae_metric core_ingress_decode_rejects_total) - ${dr0:-0} ))")
         common_checks
         finish "$drill" "$(verdict)"
         return
@@ -945,7 +945,7 @@ drill_rk12() { # variant: all one poison poison-both
         [ "$(bm0 bridge_halted)" = "1" ] || FAILS+=("the bridge left the halt without a valid s")
     else
         [ "$(bm0 bridge_halt_reason)" = "4" ] || FAILS+=("halt reason $(bm0 bridge_halt_reason) (want 4 CORE_REFUSED)")
-        local offers; offers=$(( $(ae_metric assets_ingress_decode_rejects_total) - ${dr0:-0} ))
+        local offers; offers=$(( $(ae_metric core_ingress_decode_rejects_total) - ${dr0:-0} ))
         [ "$offers" -le 4 ] || FAILS+=("the refused seq offered $offers times (> stormFences 2 x 2 sources)")
         NOTES+=("refused seq $s offered $offers times")
     fi
@@ -1058,7 +1058,7 @@ need_counter() { # name -> value; an absent counter FAILs unless IT_STAGE_A=1
     fi
     echo "$v"
 }
-core_cursor() { local v; v=$(ae_metric assets_feed_cursor); echo "${v:-0}"; }
+core_cursor() { local v; v=$(ae_metric core_feed_cursor); echo "${v:-0}"; }
 identities() { # slots -> the bridge_info identity labels, space separated
     local s; for s in "$@"; do
         curl -s --max-time 2 "http://127.0.0.1:$(port_of "$s")/metrics" 2>/dev/null | grep -o '^bridge_info{identity="[0-9]*"' | head -1 | grep -o '[0-9]*'
@@ -1108,15 +1108,15 @@ drill_rk14_smoke() { # mode [red]
     alive bridge1 && { wait_registered bridge1 30 || FAILS+=("bridge1 not registered in 30 s"); }
     local ids; ids=$(identities bridge0 bridge1)
     [[ " $ids " == *" 1 "* ]] && [[ " $ids " == *" 2 "* ]] || FAILS+=("identities $(echo "$ids" | wc -w): '$ids'")
-    local sess; sess=$(need_counter 'assets_sessions{class="BRIDGE"}')
+    local sess; sess=$(need_counter 'core_sessions{class="BRIDGE"}')
     [ "$sess" = absent ] || [ "$sess" = 2 ] || FAILS+=("BRIDGE sessions $sess != 2")
     run_story --timeout 120000 > "$D/ev/run.txt" 2>&1 || FAILS+=("run: $(tail -1 "$D/ev/run.txt")")
     quiescent "$N" 60000 || FAILS+=("quiescence at $N")
     n2_cursor_n
     oracle_ok final || FAILS+=("oracle: $(head -2 "$D/ev/oracle-final.txt" | tr '\n' ' ')")
-    local fwd dup; fwd=$(forwarded_sum $(live_slots)); dup=$(need_counter assets_feed_duplicate_total)
+    local fwd dup; fwd=$(forwarded_sum $(live_slots)); dup=$(need_counter core_feed_duplicate_total)
     [ $((fwd - N)) -ge 1 ] || FAILS+=("duplicates 0 (forwarded sum $fwd - N $N)")
-    [ "$dup" = absent ] || [ "$dup" -ge 1 ] || FAILS+=("duplicates 0 (assets_feed_duplicate_total $dup)")
+    [ "$dup" = absent ] || [ "$dup" -ge 1 ] || FAILS+=("duplicates 0 (core_feed_duplicate_total $dup)")
     [ "$dup" = absent ] || [ "$dup" = $((fwd - N)) ] || NOTES+=("duplicate counter $dup vs forwarded sum - N $((fwd - N)) differ")
     NOTES+=("identities '$ids'; BRIDGE sessions $sess; N $N forwarded sum $fwd (- N = $((fwd - N))); duplicate counter $dup")
     [ "$(bm0 bridge_halted)$(bm0 bridge1 bridge_halted)" = "00" ] || FAILS+=("halted")
@@ -1134,7 +1134,7 @@ drill_rk14_smoke() { # mode [red]
     finish "$drill" "$(verdict)"
 }
 
-# ----: the loss-producing fault: SIGSTOP the AE leader for 15 s under bridge load
+# ----: the loss-producing fault: SIGSTOP the core leader for 15 s under bridge load
 # member_back <node> -> 0 when the old member is a follower again within 60 s; MEMBER_BACK names how
 member_back() {
     local l=$1 t0; t0=$(now_s); MEMBER_BACK=""
@@ -1145,7 +1145,7 @@ member_back() {
             MEMBER_BACK="exited $rc after $(elapsed "$t0" "$(now_s)") s, restarted by the runner"
             break
         fi
-        if [ "$(metric "http://127.0.0.1:$((AE_BASE + 90 + l))/metrics" assets_cluster_role)" = "0" ]; then
+        if [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" core_cluster_role)" = "0" ]; then
             MEMBER_BACK="follower by itself after $(elapsed "$t0" "$(now_s)") s"
             return 0
         fi
@@ -1157,7 +1157,7 @@ member_back() {
     fi
     local left; left=$(python3 -I -c "import sys; print(max(1, int(60 - float(sys.argv[1]))))" "$(elapsed "$t0" "$(now_s)")")
     for _ in $(seq 1 $((left * 10 + 300))); do
-        [ "$(metric "http://127.0.0.1:$((AE_BASE + 90 + l))/metrics" assets_cluster_role)" = "0" ] && { MEMBER_BACK="$MEMBER_BACK; follower after $(elapsed "$t0" "$(now_s)") s"; return 0; }
+        [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" core_cluster_role)" = "0" ] && { MEMBER_BACK="$MEMBER_BACK; follower after $(elapsed "$t0" "$(now_s)") s"; return 0; }
         sleep 0.1
     done
     MEMBER_BACK="$MEMBER_BACK; NOT a follower after $(elapsed "$t0" "$(now_s)") s"
@@ -1191,9 +1191,9 @@ stop_leader_under_load() {
     local tk newl="" tnew="" i; tk=$(now_s)
     for _ in $(seq 1 300); do
         # the frozen member's /metrics does not answer: ask only the others
-        for i in $(seq 0 $((NAE - 1))); do
+        for i in $(seq 0 $((NCORE - 1))); do
             [ "$i" = "$l" ] && continue
-            [ "$(metric "http://127.0.0.1:$((AE_BASE + 90 + i))/metrics" assets_cluster_role)" = "2" ] && { newl=$i; break; }
+            [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + i))/metrics" core_cluster_role)" = "2" ] && { newl=$i; break; }
         done
         [ -n "$newl" ] && { tnew=$(now_s); break; }
         sleep 0.1
@@ -1237,11 +1237,11 @@ drill_rk2_stop() { # mode
         NOTES+=("try $tries: offers in ended terms +$STOP_INFLIGHT, fence ${FENCED_IN} s after the new leader served")
         [ "$FENCED_IN" != none ] && fle "$FENCED_IN" 5 || FAILS+=("no NEW_LEADER fence within 5 s of the new leader serving")
         [ "$(bm0 'bridge_settle_rejected_total{reason="6"}')" = "0" ] || FAILS+=("FEED_GAP rejects at the bridge")
-        local gr; gr=$(need_counter assets_feed_gap_rejects_total); [ "$gr" = absent ] || [ "$gr" = 0 ] || FAILS+=("core gap rejects $gr")
+        local gr; gr=$(need_counter core_feed_gap_rejects_total); [ "$gr" = absent ] || [ "$gr" = 0 ] || FAILS+=("core gap rejects $gr")
         t1core report > "$D/ev/report.json" 2>&1
         grep -q '"feedHalted":false' "$D/ev/report.json" || FAILS+=("core halted: $(cat "$D/ev/report.json")")
         oracle_ok final || FAILS+=("oracle")
-        NOTES+=("duplicates (recorded): forwarded $(bm_sum bridge_forwarded_records_total) - N $N; counter $(core_counter assets_feed_duplicate_total)")
+        NOTES+=("duplicates (recorded): forwarded $(bm_sum bridge_forwarded_records_total) - N $N; counter $(core_counter core_feed_duplicate_total)")
         common_checks
         if [ "$STOP_INFLIGHT" -gt 0 ] || [ $tries -ge 5 ] || [ ${#FAILS[@]} -gt 0 ]; then break; fi
         finish "$drill-try$tries" "$(verdict)"
@@ -1259,7 +1259,7 @@ drill_rk2_stop_nc() {
         stop_leader_under_load external "$nc" bridge0
         sleep 10
         local gaps; gaps=$(bm0 'bridge_settle_rejected_total{reason="6"}')
-        local cgr; cgr=$(core_counter assets_feed_gap_rejects_total)
+        local cgr; cgr=$(core_counter core_feed_gap_rejects_total)
         t1core report > "$D/ev/report.json" 2>&1
         oracle_ok final; local orc=$?
         NOTES+=("try $tries: in-flight +$STOP_INFLIGHT, FEED_GAP rejects bridge $gaps core $cgr, report $(tr -d '\n' < "$D/ev/report.json" | cut -c1-160), oracle rc $orc")
@@ -1290,7 +1290,7 @@ drill_rk14_stop() {
     grep -q '"feedHalted":false' "$D/ev/report.json" || FAILS+=("core halted")
     oracle_ok final || FAILS+=("oracle")
     local fwd; fwd=$(forwarded_sum bridge0 bridge1)
-    NOTES+=("offers in ended terms +$STOP_INFLIGHT; duplicates (recorded): forwarded sum - N $((fwd - N)), counter $(core_counter assets_feed_duplicate_total)")
+    NOTES+=("offers in ended terms +$STOP_INFLIGHT; duplicates (recorded): forwarded sum - N $((fwd - N)), counter $(core_counter core_feed_duplicate_total)")
     common_checks
     finish "$drill" "$(verdict)"
 }
@@ -1315,7 +1315,7 @@ caught_up() { # slot timeout_s: the lane offered past the core cursor of its sta
     echo none; return 1
 }
 dup_lines() { # the N = 2 duplicates line: the counter and the forwarded-sum substitute agree; mismatch 0
-    local fwd dup; fwd=$(forwarded_sum "$@"); dup=$(need_counter assets_feed_duplicate_total)
+    local fwd dup; fwd=$(forwarded_sum "$@"); dup=$(need_counter core_feed_duplicate_total)
     NOTES+=("duplicates: counter $dup, forwarded sum - N $((fwd - N))")
     [ "$dup" = absent ] || [ "$dup" -ge "${MIN_DUP:-1}" ] || FAILS+=("duplicates $dup < ${MIN_DUP:-1}")
     [ $((fwd - N)) -ge "${MIN_DUP:-1}" ] || FAILS+=("forwarded sum - N $((fwd - N)) < ${MIN_DUP:-1}")
@@ -1325,7 +1325,7 @@ dup_lines() { # the N = 2 duplicates line: the counter and the forwarded-sum sub
 # held per node), started after setup; cost_line prints one COST line: the core log position delta over the run, the
 # forwarded sums, the core's duplicates, the attaches (memo resumes) per bridge, the max concurrent images per node.
 cost_start() {
-    COST_LOG0=$(ae_metric assets_log_position); COST_DUP0=$(core_counter assets_feed_duplicate_total | sed 's/absent/0/')
+    COST_LOG0=$(ae_metric core_log_position); COST_DUP0=$(core_counter core_feed_duplicate_total | sed 's/absent/0/')
     ( while :; do
         local sl i line=""; for i in 0 1 2; do local n=0; for sl in $(live_slots); do
             [ "$(bm0 "$sl" "bridge_source_attached{source=\"$i\"}")" = 1 ] && n=$((n + 1)); done; line="$line $n"; done
@@ -1334,10 +1334,10 @@ cost_start() {
 }
 cost_line() { # label
     kill "${PID[costw]}" 2>/dev/null; wait "${PID[costw]}" 2>/dev/null; unset "PID[costw]"
-    local sl fw="" at="" log1; log1=$(ae_metric assets_log_position)
+    local sl fw="" at="" log1; log1=$(ae_metric core_log_position)
     for sl in $(live_slots); do fw="$fw $sl=$(bm_sum "$sl" bridge_forwarded_records_total)"; at="$at $sl=$(bm_sum "$sl" bridge_memo_resumes_total)"; done
     local maxn; maxn=$(awk '{ for (i = 1; i <= NF; i++) if ($i > m[i]) m[i] = $i } END { printf "%d/%d/%d", m[1], m[2], m[3] }' "$D/ev/cost-attached.txt")
-    local line="COST $1: log bytes $(( ${log1:-0} - ${COST_LOG0:-0} )); forwarded$fw; duplicates +$(( $(core_counter assets_feed_duplicate_total | sed 's/absent/0/') - COST_DUP0 )); attaches$at; max images per node src0/src1/src2 $maxn"
+    local line="COST $1: log bytes $(( ${log1:-0} - ${COST_LOG0:-0} )); forwarded$fw; duplicates +$(( $(core_counter core_feed_duplicate_total | sed 's/absent/0/') - COST_DUP0 )); attaches$at; max images per node src0/src1/src2 $maxn"
     echo "$line" >> "$D/ev/cost.txt"; NOTES+=("$line")
 }
 
@@ -1361,10 +1361,10 @@ drill_rk14_lag() { # mode
     start_bridge bridge0 "$mode" || FAILS+=("bridge0 start")
     start_bridge bridge1 "$mode" "$BRIDGE" SOURCES_OF=1 || FAILS+=("bridge1 start")
     wait_registered bridge0 30 || FAILS+=("bridge0 registered"); wait_registered bridge1 30 || FAILS+=("bridge1 registered")
-    local faults0; faults0=$(ae_metric assets_order_faults_total)
+    local faults0; faults0=$(ae_metric core_order_faults_total)
     cost_start
     run_story --to 0 --timeout 60000 > "$D/ev/run0.txt" 2>&1 || FAILS+=("round 0")
-    ( while :; do echo "$(ae_metric assets_feed_lanes_behind)"; sleep 1; done ) > "$D/ev/lanes-behind.txt" 2>&1 & PID[behind]=$!
+    ( while :; do echo "$(ae_metric core_feed_lanes_behind)"; sleep 1; done ) > "$D/ev/lanes-behind.txt" 2>&1 & PID[behind]=$!
     local a1 b1 lagto; read -r a1 b1 lagto < <(lag_round 1 1 10000)
     t1core barrier "$b1" 120000 > /dev/null 2>&1 || FAILS+=("barrier b_1")
     for _ in $(seq 1 600); do [ "$(bm0 bridge0 bridge_last_offered_seq)" = "$b1" ] && [ "$(bm0 bridge1 bridge_last_offered_seq)" -ge "$lagto" ] && break; sleep 0.1; done
@@ -1380,11 +1380,11 @@ drill_rk14_lag() { # mode
     n2_cursor_n
     oracle_ok final || FAILS+=("oracle: $(head -1 "$D/ev/oracle-final.txt")")
     MIN_DUP=10000 dup_lines bridge0 bridge1
-    [ "$(core_counter assets_feed_gap_rejects_total)" = 0 ] || FAILS+=("FEED_GAP rejects $(core_counter assets_feed_gap_rejects_total)")
-    [ "$(ae_metric assets_order_faults_total)" = "$faults0" ] || FAILS+=("order faults changed")
+    [ "$(core_counter core_feed_gap_rejects_total)" = 0 ] || FAILS+=("FEED_GAP rejects $(core_counter core_feed_gap_rejects_total)")
+    [ "$(ae_metric core_order_faults_total)" = "$faults0" ] || FAILS+=("order faults changed")
     [ "$(bm_sum bridge0 bridge_feed_halts_sent_total)$(bm_sum bridge1 bridge_feed_halts_sent_total)" = 00 ] || FAILS+=("a FeedHalt was sent")
     [ "$(bm0 bridge0 bridge_halted)$(bm0 bridge1 bridge_halted)" = 00 ] || FAILS+=("halted")
-    NOTES+=("lanes_behind > 0 samples $(grep -c '^[1-9]' "$D/ev/lanes-behind.txt") (recorded, node-local); bridge1 lane_ahead $(bm0 bridge1 'bridge_fences_total{trigger="lane_ahead"}'); core log position $(ae_metric assets_log_position)")
+    NOTES+=("lanes_behind > 0 samples $(grep -c '^[1-9]' "$D/ev/lanes-behind.txt") (recorded, node-local); bridge1 lane_ahead $(bm0 bridge1 'bridge_fences_total{trigger="lane_ahead"}'); core log position $(ae_metric core_log_position)")
     cost_line "two lanes ($mode, 10k lag)"
     common_checks
     finish "$drill" "$(verdict)"
@@ -1395,7 +1395,7 @@ drill_rk14_restart() { # restart|replace
     setup "$drill" 2 1 $((SEED_BASE + 1430)) "$ROUNDS" --long-round "${IT_RESTART_LONG:-1000000}" || { FAILS+=("setup"); finish "$drill" FAIL; return; }
     start_bridge bridge0 external || FAILS+=("bridge0 start"); start_bridge bridge1 external || FAILS+=("bridge1 start")
     wait_registered bridge0 30 || FAILS+=("bridge0 registered"); wait_registered bridge1 30 || FAILS+=("bridge1 registered")
-    [ "$v" = replace ] && { gate_watch_start 1800 || true; APPLIED0=$(core_counter assets_feed_halt_applied_total | sed 's/absent/0/'); }
+    [ "$v" = replace ] && { gate_watch_start 1800 || true; APPLIED0=$(core_counter core_feed_halt_applied_total | sed 's/absent/0/'); }
     run_story --to 0 --timeout 60000 > "$D/ev/run0.txt" 2>&1 || FAILS+=("round 0")
     # Only the replace variant runs a gate watch (restart has no gate line)
     local gmark=0; if [ "$v" = replace ]; then gmark=$(mark_after_open) || FAILS+=("$MARK_FAIL"); fi
@@ -1438,8 +1438,8 @@ drill_rk14_restart() { # restart|replace
     if [ "$v" = replace ]; then
         gate_watch_stop
         [ -z "$(gate_after "$gmark")" ] || FAILS+=("gate transition during the replace: $(gate_after "$gmark" | head -2 | tr '\n' ';')")
-        [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied during the replace")
-        NOTES+=("BRIDGE sessions now $(core_counter 'assets_sessions{class="BRIDGE"}'); identities seen: 1 2 3 (bridge0 / bridge1 / bridge_b keys)")
+        [ "$(counter_delta core_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied during the replace")
+        NOTES+=("BRIDGE sessions now $(core_counter 'core_sessions{class="BRIDGE"}'); identities seen: 1 2 3 (bridge0 / bridge1 / bridge_b keys)")
     fi
     common_checks
     finish "$drill" "$(verdict)"
@@ -1457,7 +1457,7 @@ drill_rk14_lanehole_ahead() { # binary drill
     start_bridge bridge0 external "$binary" SOURCES_OF=0 || FAILS+=("bridge0 start")
     wait_registered bridge0 30 || FAILS+=("bridge0 registered"); wait_registered bridge1 30 || FAILS+=("bridge1 registered")
     gate_watch_start 1800 || true
-    APPLIED0=$(core_counter assets_feed_halt_applied_total | sed 's/absent/0/'); STALE0=$(core_counter assets_feed_halt_stale_total | sed 's/absent/0/')
+    APPLIED0=$(core_counter core_feed_halt_applied_total | sed 's/absent/0/'); STALE0=$(core_counter core_feed_halt_stale_total | sed 's/absent/0/')
     ( while :; do echo "$(date +%s) $(http_code bridge0 ready) $(http_code bridge1 ready) $(bm0 bridge0 bridge_halted)"; sleep 1; done ) > "$D/ev/ready-1s.txt" 2>&1 & PID[ready]=$!
     run_story --to 0 --timeout 60000 > "$D/ev/run0.txt" 2>&1 || FAILS+=("round 0")
     local gmark; gmark=$(mark_after_open) || FAILS+=("$MARK_FAIL") # round 0 opens the gate: only later transitions count
@@ -1472,7 +1472,7 @@ drill_rk14_lanehole_ahead() { # binary drill
     quiescent "$N" 60000 || FAILS+=("quiescence")
     kill "${PID[ready]}" 2>/dev/null; wait "${PID[ready]}" 2>/dev/null; unset "PID[ready]"
     gate_watch_stop
-    local sent; sent=$(bm0 bridge0 'bridge_feed_halts_sent_total{reason="1"}'); local stale; stale=$(counter_delta assets_feed_halt_stale_total "$STALE0")
+    local sent; sent=$(bm0 bridge0 'bridge_feed_halts_sent_total{reason="1"}'); local stale; stale=$(counter_delta core_feed_halt_stale_total "$STALE0")
     if [ "$binary" != "$BRIDGE" ]; then
         # RED ct_bridge_nc_noconfirm (discriminator (b)): the nc build sends a FeedHalt the core acks stale
         NOTES+=("RED: FeedHalts sent $sent, halt_stale +$stale")
@@ -1484,7 +1484,7 @@ drill_rk14_lanehole_ahead() { # binary drill
     [ "$sent" = 0 ] || FAILS+=("a FeedHalt was sent ($sent)")
     awk '$4 == 1' "$D/ev/ready-1s.txt" | has_line && FAILS+=("bridge0 halted at some sample")
     [ -z "$(gate_after "$gmark")" ] || FAILS+=("gate transition: $(gate_after "$gmark" | head -1)")
-    [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied")
+    [ "$(counter_delta core_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied")
     local not200; not200=$(awk -v t="$tfirst" '$1 > t + 2 && ($2 != 200 || $3 != 200)' "$D/ev/ready-1s.txt" | wc -l)
     NOTES+=("/ready non-200 samples after the first forward (3.6): $not200")
     [ "$not200" = 0 ] || FAILS+=("/ready 503 during a confirm cycle ($not200 samples)")
@@ -1501,8 +1501,8 @@ drill_rk14_lanehole_behind() { # variant behind|dead|stale
     start_bridge bridge0 external "$b0bin" SOURCES_OF=0 || FAILS+=("bridge0 start")
     wait_registered bridge0 30 || FAILS+=("bridge0 registered"); wait_registered bridge1 30 || FAILS+=("bridge1 registered")
     gate_watch_start 1800 || true
-    APPLIED0=$(core_counter assets_feed_halt_applied_total | sed 's/absent/0/'); STALE0=$(core_counter assets_feed_halt_stale_total | sed 's/absent/0/')
-    REOPEN0=$(core_counter assets_gate_auto_reopen_total | sed 's/absent/0/'); AUTOCLR0=$(core_counter assets_feed_latch_auto_clear_total | sed 's/absent/0/')
+    APPLIED0=$(core_counter core_feed_halt_applied_total | sed 's/absent/0/'); STALE0=$(core_counter core_feed_halt_stale_total | sed 's/absent/0/')
+    REOPEN0=$(core_counter core_gate_auto_reopen_total | sed 's/absent/0/'); AUTOCLR0=$(core_counter core_feed_latch_auto_clear_total | sed 's/absent/0/')
     run_story --to 0 --timeout 60000 > "$D/ev/run0.txt" 2>&1 || FAILS+=("round 0")
     local gmark; gmark=$(mark_after_open) || FAILS+=("$MARK_FAIL")
     t1core round "$STORY" 1 > "$D/ev/round1.txt" 2>&1
@@ -1531,15 +1531,15 @@ drill_rk14_lanehole_behind() { # variant behind|dead|stale
     local sent; sent=$( [ "$v" = dead ] && echo 1 || bm0 bridge0 'bridge_feed_halts_sent_total{reason="1"}')
     [ "$sent" = 1 ] || FAILS+=("FeedHalts GAP $sent (want 1)")
     if [ "$v" = stale ]; then
-        [ "$(counter_delta assets_feed_halt_stale_total "$STALE0")" -ge 1 ] || FAILS+=("halt stale +0 (the tc build's FeedHalt was not stale)")
-        [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied +$(counter_delta assets_feed_halt_applied_total "$APPLIED0")")
+        [ "$(counter_delta core_feed_halt_stale_total "$STALE0")" -ge 1 ] || FAILS+=("halt stale +0 (the tc build's FeedHalt was not stale)")
+        [ "$(counter_delta core_feed_halt_applied_total "$APPLIED0")" = 0 ] || FAILS+=("halt applied +$(counter_delta core_feed_halt_applied_total "$APPLIED0")")
         [ -z "$(gate_after "$gmark")" ] || FAILS+=("gate transition: $(gate_after "$gmark" | head -1)")
     else
-        [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 1 ] || FAILS+=("halt applied +$(counter_delta assets_feed_halt_applied_total "$APPLIED0") (want +1)")
+        [ "$(counter_delta core_feed_halt_applied_total "$APPLIED0")" = 1 ] || FAILS+=("halt applied +$(counter_delta core_feed_halt_applied_total "$APPLIED0") (want +1)")
         local ack sus; ack=$(log_ms "$D/ev/bridge0.log" "FeedHalt AdminAck GAP"); sus=$(first_gate SUSPENDED BRIDGE_HALT 0)
         [ -n "$ack" ] && [ -n "$sus" ] && [ $(( sus > ack ? sus - ack : ack - sus )) -le 1000 ] || FAILS+=("SUSPENDED/BRIDGE_HALT not within 1 s of the AdminAck (${ack:-none} / ${sus:-none})")
-        [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
-        [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 1 ] || FAILS+=("auto reopen +$(counter_delta assets_gate_auto_reopen_total "$REOPEN0") (want +1)")
+        [ "$(counter_delta core_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
+        [ "$(counter_delta core_gate_auto_reopen_total "$REOPEN0")" = 1 ] || FAILS+=("auto reopen +$(counter_delta core_gate_auto_reopen_total "$REOPEN0") (want +1)")
         # The automatic OPEN is the first OPEN after this halt's SUSPENDED/BRIDGE_HALT
         # (after the mark too: the genesis OPEN never counts), within 1 s of the reach-clear. The reach-clear is not
         # stamped on a shared clock (bridge0's "halt left" comes about 5 s later), so the bound is taken from the release
@@ -1560,8 +1560,8 @@ drill_rk14_lanehole_behind() { # variant behind|dead|stale
     gate_watch_stop
     oracle_ok final || FAILS+=("oracle: $(head -1 "$D/ev/oracle-final.txt")")
     if [ "$v" = dead ]; then # the dead lane's session ends at the core's 10 s session timeout
-        for _ in $(seq 1 300); do [ "$(core_counter 'assets_sessions{class="BRIDGE"}')" = 1 ] && break; sleep 0.1; done
-        [ "$(core_counter 'assets_sessions{class="BRIDGE"}')" = 1 ] || FAILS+=("BRIDGE sessions $(core_counter 'assets_sessions{class="BRIDGE"}') (want 1 after the kill)")
+        for _ in $(seq 1 300); do [ "$(core_counter 'core_sessions{class="BRIDGE"}')" = 1 ] && break; sleep 0.1; done
+        [ "$(core_counter 'core_sessions{class="BRIDGE"}')" = 1 ] || FAILS+=("BRIDGE sessions $(core_counter 'core_sessions{class="BRIDGE"}') (want 1 after the kill)")
     fi
     NOTES+=("gate: $(gate_transitions | tr '\n' ';' | cut -c1-200)")
     common_checks
@@ -1576,37 +1576,37 @@ drill_rk14_twoholes() {
     start_bridge bridge1 external "$BRIDGE" SOURCES_OF=1 || FAILS+=("bridge1 start")
     wait_registered bridge0 30 || FAILS+=("bridge0 registered"); wait_registered bridge1 30 || FAILS+=("bridge1 registered")
     gate_watch_start 1800 || true
-    APPLIED0=$(core_counter assets_feed_halt_applied_total | sed 's/absent/0/'); REOPEN0=$(core_counter assets_gate_auto_reopen_total | sed 's/absent/0/')
-    AUTOCLR0=$(core_counter assets_feed_latch_auto_clear_total | sed 's/absent/0/')
+    APPLIED0=$(core_counter core_feed_halt_applied_total | sed 's/absent/0/'); REOPEN0=$(core_counter core_gate_auto_reopen_total | sed 's/absent/0/')
+    AUTOCLR0=$(core_counter core_feed_latch_auto_clear_total | sed 's/absent/0/')
     run_story --to 0 --timeout 60000 > "$D/ev/run0.txt" 2>&1 || FAILS+=("round 0")
     GMARK=$(mark_after_open) || FAILS+=("$MARK_FAIL")
     t1core round "$STORY" 1 > "$D/ev/round1.txt" 2>&1
     jctl 60 WRITE 0 "$A1" "$B1" >> "$D/ev/jctl.txt"; jctl 60 WRITE 1 "$A1" $((S1 - 1)) >> "$D/ev/jctl.txt"
     for _ in $(seq 1 300); do [ "$(bm0 bridge0 bridge_halted)" = 1 ] && break; sleep 0.1; done
     sleep 2
-    [ "$(core_counter assets_feed_lane_halts)" = 1 ] || FAILS+=("step 1: lane halts $(core_counter assets_feed_lane_halts)")
+    [ "$(core_counter core_feed_lane_halts)" = 1 ] || FAILS+=("step 1: lane halts $(core_counter core_feed_lane_halts)")
     first_gate SUSPENDED BRIDGE_HALT 0 | has_line || FAILS+=("step 1: no SUSPENDED/BRIDGE_HALT")
     # step 2 (setup fix: write through s2 + 1 so source 1 is HOLED at s2 with seen s2 + 1, not BEHIND)
     jctl 60 WRITE 1 "$S1" $((s2 + 1)) >> "$D/ev/jctl.txt"
     for _ in $(seq 1 300); do [ "$(bm0 bridge1 bridge_halted)" = 1 ] && break; sleep 0.1; done
     sleep 2
-    [ "$(core_counter assets_feed_lane_halts)" = 2 ] || FAILS+=("step 2: lane halts $(core_counter assets_feed_lane_halts) (want 2)")
-    [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 2 ] || FAILS+=("step 2: halt applied +$(counter_delta assets_feed_halt_applied_total "$APPLIED0") (want +2)")
+    [ "$(core_counter core_feed_lane_halts)" = 2 ] || FAILS+=("step 2: lane halts $(core_counter core_feed_lane_halts) (want 2)")
+    [ "$(counter_delta core_feed_halt_applied_total "$APPLIED0")" = 2 ] || FAILS+=("step 2: halt applied +$(counter_delta core_feed_halt_applied_total "$APPLIED0") (want +2)")
     # step 3: FILL 1 s2, WRITE 1 s2+1 s2+2: record B clears, record A stays; NO transition for at least 5 s
     local tB; tB=$(gate_transitions | tail -1 | awk '{print $1}')
     jctl 30 FILL 1 "$s2" >> "$D/ev/jctl.txt"; jctl 30 WRITE 1 $((s2 + 1)) $((s2 + 2)) >> "$D/ev/jctl.txt"
     for _ in $(seq 1 1200); do [ "$(core_cursor)" -ge $((s2 + 2)) ] && break; sleep 0.1; done
     [ "$(core_cursor)" -ge $((s2 + 2)) ] || FAILS+=("step 3: cursor $(core_cursor) < s2 + 2 (bridge1 never reached the FILL successor)")
     sleep 5
-    [ "$(core_counter assets_feed_lane_halts)" = 1 ] || FAILS+=("step 3: lane halts $(core_counter assets_feed_lane_halts) (want 1)")
+    [ "$(core_counter core_feed_lane_halts)" = 1 ] || FAILS+=("step 3: lane halts $(core_counter core_feed_lane_halts) (want 1)")
     local after3; after3=$(gate_transitions | awk -v a="${tB:-0}" '$1 > a')
     [ -z "$after3" ] || FAILS+=("transition during the 5 s hold: $(echo "$after3" | head -1)")
     # step 4
     jctl 60 WRITE 1 $((s2 + 3)) "$B1" >> "$D/ev/jctl.txt"
     t1core barrier "$B1" 60000 > /dev/null 2>&1 || FAILS+=("step 4: barrier b_1")
     sleep 3
-    [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 1 ] || FAILS+=("step 4: auto reopen +$(counter_delta assets_gate_auto_reopen_total "$REOPEN0") (want exactly 1)")
-    [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" = 2 ] || FAILS+=("step 4: latch auto-clear +$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0") (want +2)")
+    [ "$(counter_delta core_gate_auto_reopen_total "$REOPEN0")" = 1 ] || FAILS+=("step 4: auto reopen +$(counter_delta core_gate_auto_reopen_total "$REOPEN0") (want exactly 1)")
+    [ "$(counter_delta core_feed_latch_auto_clear_total "$AUTOCLR0")" = 2 ] || FAILS+=("step 4: latch auto-clear +$(counter_delta core_feed_latch_auto_clear_total "$AUTOCLR0") (want +2)")
     [ "$(gate_after "$GMARK" | awk '$2=="OPEN"' | wc -l)" = 1 ] || FAILS+=("OPEN lines $(gate_after "$GMARK" | awk '$2=="OPEN"' | wc -l) (want 1)")
     [ "$(bm0 bridge0 'bridge_halt_recovered_total{reason="GAP"}')" -ge 1 ] || FAILS+=("bridge0 no exit (a)")
     run_story --from 2 --timeout 120000 > "$D/ev/run2.txt" 2>&1 || FAILS+=("rounds 2..")
@@ -1659,7 +1659,7 @@ drill_rk14_lag_failover() { # binary drill
     run_story --from 2 --timeout 120000 > "$D/ev/run2.txt" 2>&1 || FAILS+=("rounds 2..")
     t1core barrier "$N" 120000 > /dev/null 2>&1 || FAILS+=("barrier N")
     oracle_ok final || FAILS+=("oracle: $(head -1 "$D/ev/oracle-final.txt")")
-    NOTES+=("forwarded bridge0 $(bm_sum bridge0 bridge_forwarded_records_total) bridge1 $(bm_sum bridge1 bridge_forwarded_records_total); core log position $(ae_metric assets_log_position) (3.7)")
+    NOTES+=("forwarded bridge0 $(bm_sum bridge0 bridge_forwarded_records_total) bridge1 $(bm_sum bridge1 bridge_forwarded_records_total); core log position $(ae_metric core_log_position) (3.7)")
     cost_line "two lanes, lag-failover ($drill)"
     if [ "$binary" != "$BRIDGE" ]; then
         # RED ct_bridge_nc_rotatepast (ROTATE_PAST_CURSOR). The precondition (the
@@ -1756,9 +1756,9 @@ halt_setup() { # drill seedOffset trade(yes|no) -> S, HR; HOLE all S, bridge0 ex
     start_bridge bridge0 external || FAILS+=("bridge0 start")
     wait_registered bridge0 30 || FAILS+=("registered")
     gate_watch_start 1800 || return 1
-    APPLIED0=$(core_counter assets_feed_halt_applied_total | sed 's/absent/0/')
-    REOPEN0=$(core_counter assets_gate_auto_reopen_total | sed 's/absent/0/')
-    AUTOCLR0=$(core_counter assets_feed_latch_auto_clear_total | sed 's/absent/0/')
+    APPLIED0=$(core_counter core_feed_halt_applied_total | sed 's/absent/0/')
+    REOPEN0=$(core_counter core_gate_auto_reopen_total | sed 's/absent/0/')
+    AUTOCLR0=$(core_counter core_feed_latch_auto_clear_total | sed 's/absent/0/')
     run_story --to "$HR" --timeout 20000 > "$D/ev/run-halt.txt" 2>&1 # stops at the hole: expected
     for _ in $(seq 1 900); do [ "$(bm0 bridge_halted)" = "1" ] && break; sleep 0.1; done
     sleep 2
@@ -1773,7 +1773,7 @@ halt_bound_check() { # the bound: SUSPENDED/BRIDGE_HALT within 1 s of the FeedHa
     local d=$(( sus > ack ? sus - ack : ack - sus ))
     NOTES+=("halt bound: SUSPENDED/BRIDGE_HALT ${d} ms from the FeedHalt AdminAck")
     [ "$d" -le 1000 ] || FAILS+=("SUSPENDED $d ms from the AdminAck (> 1000)")
-    [ "$(counter_delta assets_feed_halt_applied_total "$APPLIED0")" = 1 ] || FAILS+=("halt applied +$(counter_delta assets_feed_halt_applied_total "$APPLIED0") (want +1)")
+    [ "$(counter_delta core_feed_halt_applied_total "$APPLIED0")" = 1 ] || FAILS+=("halt applied +$(counter_delta core_feed_halt_applied_total "$APPLIED0") (want +1)")
 }
 reopen_check() { # 4R: OPEN by itself within 1 s of the bridge's "halt left", no `open` issued
     local left; left=$(log_ms "$D/ev/bridge0.log" "halt left")
@@ -1783,7 +1783,7 @@ reopen_check() { # 4R: OPEN by itself within 1 s of the bridge's "halt left", no
     local d=$(( open > left ? open - left : left - open ))
     NOTES+=("4R: OPEN ${d} ms from the reach-clear (bridge 'halt left')")
     [ "$d" -le 1000 ] || FAILS+=("auto OPEN $d ms from the reach-clear (> 1000)")
-    [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = "${1:-1}" ] || FAILS+=("auto reopen +$(counter_delta assets_gate_auto_reopen_total "$REOPEN0") (want +${1:-1})")
+    [ "$(counter_delta core_gate_auto_reopen_total "$REOPEN0")" = "${1:-1}" ] || FAILS+=("auto reopen +$(counter_delta core_gate_auto_reopen_total "$REOPEN0") (want +${1:-1})")
 }
 
 drill_rk10b() { # variant: b (-2, -4) | c (rule 4, withdraw between two engine events) | negctl (RED)
@@ -1835,7 +1835,7 @@ drill_rk10b() { # variant: b (-2, -4) | c (rule 4, withdraw between two engine e
     sleep 2
     [ -n "$resumed" ] || FAILS+=("not resumed within 150 s")
     [ "$v" = negctl ] || reopen_check 1
-    [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
+    [ "$(counter_delta core_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
     if [ "$v" = c ]; then
         oracle_ok after-fill --upto "$(barrier_of "$HR")" --extra "$D/ev/extra.flog" || FAILS+=("oracle --upto b_$HR --extra the withdraw")
         inv_ok after-fill
@@ -1875,7 +1875,7 @@ drill_rk10_opsuspend() {
     echo "$after" | grep -- ' OPEN ' > /dev/null && FAILS+=("OPEN while ADMIN holds")
     echo "$after" | awk '{print $3}' | grep -- 'ADMIN' > /dev/null || FAILS+=("no SUSPENDED/ADMIN line after the BRIDGE_HALT clear")
     echo "$after" | tail -1 | grep -- 'BRIDGE_HALT' > /dev/null && FAILS+=("BRIDGE_HALT still set after the reach-clear")
-    [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("auto reopen counted while ADMIN holds")
+    [ "$(counter_delta core_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("auto reopen counted while ADMIN holds")
     t1core probe-create 1 1 > "$D/ev/probe-create-after.txt" 2>&1
     grep -q 'OrderReject GATE_CLOSED' "$D/ev/probe-create-after.txt" || FAILS+=("probe-create after: $(cat "$D/ev/probe-create-after.txt")")
     t1core open > "$D/ev/open.txt" 2>&1; grep -q 'result=ACCEPTED' "$D/ev/open.txt" || FAILS+=("open: $(cat "$D/ev/open.txt")")
@@ -1899,7 +1899,7 @@ drill_rk11_regen() { # binary drill
     [ "$(bm0 bridge_halt_reason)" = "2" ] || FAILS+=("halt reason $(bm0 bridge_halt_reason) (want 2)")
     local c0; c0=$(bm0 bridge_core_cursor); sleep "${IT_RK11_FLAT_S:-120}"
     [ "$(bm0 bridge_core_cursor)" = "$c0" ] || FAILS+=("cursor moved while EPOCH_MISMATCH")
-    ( while :; do echo "$(date +%s.%N) latch=$(ae_metric assets_feed_latch_reason)"; sleep 0.5; done ) > "$D/ev/latch-0.5s.txt" 2>&1 &
+    ( while :; do echo "$(date +%s.%N) latch=$(ae_metric core_feed_latch_reason)"; sleep 0.5; done ) > "$D/ev/latch-0.5s.txt" 2>&1 &
     PID[latchw]=$!
     local f0; f0=$(( $(bm0 'bridge_fences_total{trigger="report_epoch_changed"}') + $(bm0 'bridge_fences_total{trigger="report_cursor_regressed"}') ))
     local k68; k68=$(bm0 'bridge_forwarded_records_total{kind="68"}')
@@ -2015,7 +2015,7 @@ drill_rk10_fill() { # variant fill|restart|twice ; binary
     jctl 30 HOLE all "$s1" >> "$D/ev/jctl.txt"; [ "$s2" -gt 0 ] && jctl 30 HOLE all "$s2" >> "$D/ev/jctl.txt"
     start_bridge bridge0 external "$binary" || FAILS+=("start"); wait_registered bridge0 30 || FAILS+=("registered")
     gate_watch_start 1800 || { finish "$drill" FAIL; return; }
-    REOPEN0=$(core_counter assets_gate_auto_reopen_total | sed 's/absent/0/')
+    REOPEN0=$(core_counter core_gate_auto_reopen_total | sed 's/absent/0/')
     run_story --to 4 --timeout 20000 > "$D/ev/run-halt.txt" 2>&1
     for _ in $(seq 1 900); do [ "$(bm0 bridge_halted)" = "1" ] && break; sleep 0.1; done
     GMARK=$(mono_ms)
@@ -2050,7 +2050,7 @@ drill_rk10_fill() { # variant fill|restart|twice ; binary
     gate_watch_stop
     local stepbacks; stepbacks=$(bm0 bridge_halt_stepbacks_total)
     local cold; cold=$(( $(bm0 'bridge_memo_resumes_total{kind="cold"}') - cold0 ))
-    NOTES+=("stepbacks $stepbacks, cold +$cold, relists src0 $(bm 'bridge_halt_relists_total{source="0"}'), opens $(counter_delta assets_gate_auto_reopen_total "$REOPEN0"), duplicates $(core_counter assets_feed_duplicate_total)")
+    NOTES+=("stepbacks $stepbacks, cold +$cold, relists src0 $(bm 'bridge_halt_relists_total{source="0"}'), opens $(counter_delta core_gate_auto_reopen_total "$REOPEN0"), duplicates $(core_counter core_feed_duplicate_total)")
     case $v in
         fill) [ "$stepbacks" = 1 ] || FAILS+=("stepbacks $stepbacks (want 1)") ;;
         restart) [ "$stepbacks" = 0 ] || FAILS+=("stepbacks $stepbacks (want 0)") ;;
@@ -2059,7 +2059,7 @@ drill_rk10_fill() { # variant fill|restart|twice ; binary
     esac
     local opens; opens=$(gate_after "$GMARK" | awk '$2=="OPEN"' | wc -l)
     [ "$opens" = "$([ "$v" = twice ] && echo 2 || echo 1)" ] || FAILS+=("automatic OPEN lines $opens")
-    [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = "$([ "$v" = twice ] && echo 2 || echo 1)" ] || FAILS+=("auto reopen counter +$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")")
+    [ "$(counter_delta core_gate_auto_reopen_total "$REOPEN0")" = "$([ "$v" = twice ] && echo 2 || echo 1)" ] || FAILS+=("auto reopen counter +$(counter_delta core_gate_auto_reopen_total "$REOPEN0")")
     oracle_ok final || FAILS+=("final oracle: $(head -1 "$D/ev/oracle-final.txt")")
     common_checks
     finish "$drill" "$(verdict)"
@@ -2073,8 +2073,8 @@ drill_rk12_fill() { # binary
     jctl 30 CORRUPT all "$s" schema3 >> "$D/ev/jctl.txt"
     start_bridge bridge0 external "$binary" || FAILS+=("start"); wait_registered bridge0 30 || FAILS+=("registered")
     gate_watch_start 1800 || { finish "$drill" FAIL; return; }
-    REOPEN0=$(core_counter assets_gate_auto_reopen_total | sed 's/absent/0/')
-    AUTOCLR0=$(core_counter assets_feed_latch_auto_clear_total | sed 's/absent/0/')
+    REOPEN0=$(core_counter core_gate_auto_reopen_total | sed 's/absent/0/')
+    AUTOCLR0=$(core_counter core_feed_latch_auto_clear_total | sed 's/absent/0/')
     run_story --to $((r - 1)) --timeout 60000 > "$D/ev/run0.txt" 2>&1
     run_story --from "$r" --to "$r" --timeout 20000 > "$D/ev/run-halt.txt" 2>&1
     for _ in $(seq 1 900); do [ "$(bm0 bridge_halted)" = "1" ] && break; sleep 0.1; done
@@ -2093,8 +2093,8 @@ drill_rk12_fill() { # binary
     [ -n "$resumed" ] || FAILS+=("still halted SOURCE_SCHEMA after 120 s")
     [ "$(bm0 'bridge_halt_recovered_total{reason="SOURCE_SCHEMA"}')" = 1 ] || FAILS+=("recovered SOURCE_SCHEMA $(bm0 'bridge_halt_recovered_total{reason="SOURCE_SCHEMA"}')")
     t1core barrier "$(barrier_of "$r")" 60000 > /dev/null 2>&1; sleep 2
-    [ "$(counter_delta assets_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
-    [ "$(counter_delta assets_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("an automatic OPEN after SOURCE_SCHEMA")
+    [ "$(counter_delta core_feed_latch_auto_clear_total "$AUTOCLR0")" -ge 1 ] || FAILS+=("latch auto-clear +0")
+    [ "$(counter_delta core_gate_auto_reopen_total "$REOPEN0")" = 0 ] || FAILS+=("an automatic OPEN after SOURCE_SCHEMA")
     gate_after "$GMARK" | awk '$2=="OPEN"' | has_line && FAILS+=("gate --watch shows an OPEN before the operator's open")
     # The SOURCE_SCHEMA reach-clear keeps NONGAP_AWAITING_OPEN, so the operator's open is the
     # acknowledgement form (OPEN GLOBAL reason BRIDGE_HALT; OPEN ADMIN is REJECTED 45 HALT_HOLDER_PENDING)

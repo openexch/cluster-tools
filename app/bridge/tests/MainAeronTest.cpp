@@ -233,11 +233,11 @@ std::map<std::string, std::string> bridgeEnv(const std::string &mode, const std:
         { "BRIDGE_LOCAL_HOST", "127.0.0.1" },
         { "BRIDGE_DRIVER_MODE", mode },
         { "BRIDGE_DRIVER_TIMEOUT_MS", std::to_string(timeoutMs) },
-        { "BRIDGE_AE_CLUSTER_ADDRESSES", "127.0.0.1" },
-        { "BRIDGE_AE_PORT_BASE", "47300" },
+        { "BRIDGE_CORE_CLUSTER_ADDRESSES", "127.0.0.1" },
+        { "BRIDGE_CORE_PORT_BASE", "47300" },
         { "CLUSTER_PORT_STRIDE", "100" },
-        { "BRIDGE_AE_EGRESS_ENDPOINT", "127.0.0.1:0" },
-        { "AE_AUTH_CREDENTIAL", "3:BRIDGE:" + SECRET },
+        { "BRIDGE_CORE_EGRESS_ENDPOINT", "127.0.0.1:0" },
+        { "CORE_AUTH_CREDENTIAL", "3:BRIDGE:" + SECRET },
         { "BRIDGE_INSTANCE_ID", "1" },
         { "BRIDGE_HTTP_BIND", "127.0.0.1:0" },
     };
@@ -298,7 +298,7 @@ TEST_CASE("MainAeronTest.startSequenceBothModes.externalOnAHostDriver")
     const std::string health = httpGet(port, "/health");
     const std::string metrics = httpGet(port, "/metrics");
     CHECK(health.rfind("HTTP/1.0 200", 0) == 0);
-    CHECK(health.find("\"aeConnected\":false") != std::string::npos);
+    CHECK(health.find("\"coreConnected\":false") != std::string::npos);
     CHECK(metrics.find("bridge_driver_mode{mode=\"external\"} 1") != std::string::npos);
     CHECK(httpGet(port, "/ready").rfind("HTTP/1.0 503", 0) == 0);
     ::kill(bridge.pid, SIGTERM);

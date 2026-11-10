@@ -12,7 +12,7 @@
 
 #include "cluster_tools/adapters/sbe/ForwarderCodec.h"
 
-#include "com_openexchange_assets_infrastructure_generated/MeDispatchBatch.h"
+#include "com_openexchange_core_infrastructure_generated/MeDispatchBatch.h"
 #include "cluster_tools/domain/forwarder/DispatchRules.h"
 #include "cluster_tools/domain/forwarder/SendRing.h"
 
@@ -153,7 +153,7 @@ TEST_CASE("ForwarderCodecTest.theGeneratedEnumGettersWouldThrowOnTheRawEnumGolde
 {
     // The hazard the raw reads avoid: the generated getter throws on a kind or scope the schema does not
     // name; an exception escaping the duty loop would be (exit 70) for a core defect the contract relays.
-    namespace money = com::openexchange::assets::infrastructure::generated;
+    namespace money = com::openexchange::core::infrastructure::generated;
     Bytes golden = JAVA_ME_DISPATCH_RAW_ENUMS;
     money::MeDispatchBatch batch(reinterpret_cast<char *>(golden.data()), 8, golden.size(), 0, 7);
     auto &entries = batch.dispatches();

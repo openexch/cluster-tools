@@ -1,5 +1,5 @@
 // Real-cluster integration scenarios for the C++ cluster client (RED list).
-// Driven by client/it/run-it.sh, which starts the media driver, a 3-node assets (core)
+// Driven by client/it/run-it.sh, which starts the media driver, a 3-node core
 // cluster and a 1-node match (ME) cluster from jars built at the dependencies.lock commits,
 // and does the killing. Each scenario prints PASS/FAIL lines and exits 0 only if all passed.
 //
@@ -30,9 +30,9 @@
 #include "cluster_tools/client/aeron/AeronTransport.h"
 #include "cluster_tools/client/aeron/FatalErrors.h"
 
-#include "com_openexchange_assets_infrastructure_generated/AdmissionState.h"
-#include "com_openexchange_assets_infrastructure_generated/MessageHeader.h"
-#include "com_openexchange_assets_infrastructure_generated/QueryFeedPosition.h"
+#include "com_openexchange_core_infrastructure_generated/AdmissionState.h"
+#include "com_openexchange_core_infrastructure_generated/MessageHeader.h"
+#include "com_openexchange_core_infrastructure_generated/QueryFeedPosition.h"
 #include "com_match_infrastructure_generated/ClusterHeartbeat.h"
 #include "com_match_infrastructure_generated/MessageHeader.h"
 
@@ -41,13 +41,13 @@ using cluster_tools::client::aeron_transport::AeronClientOptions;
 using cluster_tools::client::aeron_transport::AeronFatalMonitor;
 using cluster_tools::client::aeron_transport::AeronTransport;
 using cluster_tools::client::aeron_transport::connectAeron;
-namespace money = com::openexchange::assets::infrastructure::generated;
+namespace money = com::openexchange::core::infrastructure::generated;
 namespace me = com::match::infrastructure::generated;
 
 namespace
 {
 
-// assets TestAuth.java keys (the run script installs the same table on the core).
+// core TestAuth.java keys (the run script installs the same table on the core).
 // The ME authenticates every session since match S6 (ME_AUTH_KEYS in run-it.sh); the market-data
 // class presents this key (id 5, class GATEWAY, 32 bytes of 0x55).
 const std::string ME_GATEWAY_KEY = "5:GATEWAY:" + std::string(64, '5');

@@ -20,6 +20,7 @@
 #include <string>
 
 #include "ForwarderConfig.h"
+#include "common/RetiredSettings.h"
 
 using namespace cluster_tools::app::forwarder;
 
@@ -32,7 +33,7 @@ std::map<std::string, std::string> validEnv()
     return {
         { "FWD_CORE_INGRESS", "0=10.0.0.1:9002,1=10.0.0.2:9002,2=10.0.0.3:9002" },
         { "FWD_CORE_RESPONSE_CHANNEL", "aeron:udp?endpoint=10.0.0.5:0" },
-        { "AE_AUTH_CREDENTIAL", "6:FORWARDER:" + SECRET },
+        { "CORE_AUTH_CREDENTIAL", "6:FORWARDER:" + SECRET },
         { "FWD_ME_INGRESS", "0=10.0.1.1:9002,1=10.0.1.2:9002,2=10.0.1.3:9002" },
         { "FWD_ME_RESPONSE_CHANNEL", "aeron:udp?endpoint=10.0.0.5:0" },
         { "ME_AUTH_CREDENTIAL", "7:FORWARDER:" + SECRET },
@@ -115,13 +116,42 @@ TEST_CASE("ForwarderConfigTest.eachVariableMissingRefusesToStart")
     }
 }
 
+TEST_CASE("ForwarderConfigTest.retiredNamesAreRefusedNamingTheNewOne")
+{
+    using cluster_tools::app::common::RETIRED_SETTINGS;
+    REQUIRE(parse(validEnv()).ok()); // the control: the new names alone start
+    for (const auto &s : RETIRED_SETTINGS)
+    {
+        CAPTURE(s.retired);
+        const std::string line = std::string("the environment variable ") + s.retired + " is retired; it is now " +
+            s.replacement;
+        for (const std::string &value : { std::string("6:FORWARDER:") + SECRET, std::string() })
+        {
+            CAPTURE(value);
+            auto env = validEnv();
+            env[s.retired] = value; // set next to the new name, or empty: present is refused either way
+            const ConfigResult r = parse(env);
+            const bool refusedWithNewName = !r.ok() && 1 == r.errors.size() && mentions(r, line);
+            CHECK(refusedWithNewName); // RETIRED_NAMES_IGNORED RED: the old name is not looked at
+        }
+    }
+    // A deployment written for the old credential name only: refused naming the new one, the old value never read
+    auto env = validEnv();
+    env["AE_AUTH_CREDENTIAL"] = env.at("CORE_AUTH_CREDENTIAL");
+    env.erase("CORE_AUTH_CREDENTIAL");
+    const ConfigResult r = parse(env);
+    CHECK(r.errors.size() == 1);
+    CHECK(mentions(r, "AE_AUTH_CREDENTIAL is retired; it is now CORE_AUTH_CREDENTIAL"));
+    CHECK(0 == r.config.coreCredentials.keyId);
+}
+
 TEST_CASE("ForwarderConfigTest.aNonForwarderCredentialOnEitherClusterIsRefused")
 {
     auto env = validEnv();
-    env["AE_AUTH_CREDENTIAL"] = "3:BRIDGE:" + SECRET;
+    env["CORE_AUTH_CREDENTIAL"] = "3:BRIDGE:" + SECRET;
     ConfigResult r = parse(env);
     CHECK_FALSE(r.ok());
-    CHECK(mentions(r, "AE_AUTH_CREDENTIAL is a BRIDGE credential"));
+    CHECK(mentions(r, "CORE_AUTH_CREDENTIAL is a BRIDGE credential"));
     env = validEnv();
     env["ME_AUTH_CREDENTIAL"] = "5:GATEWAY:" + SECRET;
     r = parse(env);

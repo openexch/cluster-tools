@@ -49,7 +49,7 @@ FeedHaltFields feedHaltFor(BridgeHalt halt, std::int64_t e, std::int64_t seen, s
     std::int64_t foreignEpoch) noexcept;
 // The always-valid fallback after a REJECTED: SOURCE_SCHEMA {expected = e, seen = e} (its only rule: expected >= 1).
 FeedHaltFields fallbackFeedHalt(std::int64_t e, std::int64_t syncEpoch) noexcept;
-// The core's D3a field rules (AE applyFeedHalt): what the core would refuse as INVALID. The domain checks its own
+// The core's D3a field rules (core applyFeedHalt): what the core would refuse as INVALID. The domain checks its own
 // frames against it in the tests; it is not a runtime gate.
 bool feedHaltFieldsValid(const FeedHaltFields &f) noexcept;
 HaltReason wireReasonOf(BridgeHalt halt) noexcept;

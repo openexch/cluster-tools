@@ -28,7 +28,7 @@ BridgeSnapshot fixed()
     std::snprintf(s.build, sizeof(s.build), "%s", "0123456789abcdef0123456789abcdef01234567");
     s.driverMode = static_cast<std::uint8_t>(DriverMode::EXTERNAL);
     s.coreLink = static_cast<std::uint8_t>(CoreLink::C3_REGISTERED);
-    s.aeConnected = true;
+    s.coreConnected = true;
     s.registered = true;
     s.view.state = db::State::STREAMING;
     s.view.syncEpoch = 0x0A1B2C3D;
@@ -99,7 +99,7 @@ TEST_CASE("MetricsRenderTest.healthGolden")
     const BridgeSnapshot s = fixed();
     const std::string up = renderHealthJson(s, extras());
     CHECK(up == golden("health.json", up));
-    CHECK(up.rfind("{\"halted\":false,\"aeConnected\":true,\"haltReason\":\"NONE\",\"meEpoch\":169552957,\"cursor\":900,", 0) == 0);
+    CHECK(up.rfind("{\"halted\":false,\"coreConnected\":true,\"haltReason\":\"NONE\",\"meEpoch\":169552957,\"cursor\":900,", 0) == 0);
     CHECK(up.find("\"status\":\"UP\"") != std::string::npos);
     // /health.build is the binary's source_sha, additive and last (the 9.1 key order above is a prefix)
     CHECK(up.find(",\"build\":\"0123456789abcdef0123456789abcdef01234567\"}") != std::string::npos);
@@ -110,7 +110,7 @@ TEST_CASE("MetricsRenderTest.healthGolden")
     CHECK(renderHealthJson(s, stalled).find("\"halted\":false,") == 1);
     CHECK(healthStatus(s, stalled) == 503);
     // the key order of 9.1
-    const std::vector<std::string> keys = { "halted", "aeConnected", "haltReason", "meEpoch", "cursor", "status", "state",
+    const std::vector<std::string> keys = { "halted", "coreConnected", "haltReason", "meEpoch", "cursor", "status", "state",
         "coreHaltReason", "expected", "last", "attachedSource", "degraded", "registered", "reportThisTerm", "identity", "ready" };
     std::size_t at = 0;
     for (const std::string &k : keys)
@@ -128,7 +128,7 @@ TEST_CASE("MetricsRenderTest.haltedFollowsTheHaltRecord")
     BridgeSnapshot s = fixed();
     s.view.state = db::State::DOWN;
     s.view.halt = db::BridgeHalt::GAP;
-    s.aeConnected = false;
+    s.coreConnected = false;
     const std::string body = renderHealthJson(s, extras());
     const bool keptHaltReadsHalted = body.rfind("{\"halted\":true,", 0) == 0;
     CHECK(keptHaltReadsHalted); // HEALTH_HALTED_FROM_STATE RED: DOWN with a kept halt renders halted:false
