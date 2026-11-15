@@ -212,7 +212,7 @@ stops order dispatch.
 
 One resumable BRIDGE session on the core and one ME journal archive attached at a time (the configured
 archives in failover order). Every journal record is fed to the core exactly once and in order (money schema
-v7 templates 61 to 64, 67 and 68; trades batched up to 64 per 62), or the bridge halts with a FeedHalt. The
+v8 templates 61 to 64, 67 and 68; trades batched up to 64 per 62), or the bridge halts with a FeedHalt. The
 core's `lastAppliedJournalSeq` is the only cursor; nothing is written to disk.
 
 ```bash
@@ -280,10 +280,14 @@ against a dockerized config-mode match cluster.
 
 ## Wire schema pins
 
-`dependencies.lock` pins money-schema v7 (core), order-schema v12 and ME journal schema 4 (match), and the
+`dependencies.lock` pins money-schema v8 (core), order-schema v12 and ME journal schema 4 (match), and the
 ME journal golden fixtures in `archive/tests/fixtures/mejournal`. To take a newer schema, bump the
 `*_ref`/`*_sha256` pins; the codec goldens then fail until `adapters/sbe/tests/golden/regen.sh` is re-run
-with engine jars at the new commits.
+with engine jars built at the new commits (the script checks each jar's `Build-Sha`). A money-schema bump
+also moves the feed harness pin (`feed_harness_core_ref`, `feed_harness_url`, `feed_harness_sha256`,
+`feed_harness_main_diff_empty_vs`), and its regen run rewrites `domain/bridge/tests/fixtures/e1/`, whose
+`SHA256SUMS` hash is `me_journal_e1_fixtures_sha256sums_sha256`. Every pinned core commit carries a
+`money-schema-<sha>` tag in openexch/core so CI can always fetch it.
 
 ## Artifacts
 

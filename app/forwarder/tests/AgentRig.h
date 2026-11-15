@@ -67,7 +67,7 @@ inline AgentSettings agentSettings()
     return s;
 }
 
-// ---- core frames (money-schema v7)
+// ---- core frames (the money-schema version the codecs were generated from)
 inline Bytes rawDispatch(const Dispatch &d)
 {
     Bytes b(89);
@@ -101,7 +101,7 @@ inline Bytes header(std::uint16_t block, std::uint16_t templateId, std::uint16_t
     return b;
 }
 
-inline Bytes dispatchFrame(const Dispatch &d, std::uint16_t version = 7)
+inline Bytes dispatchFrame(const Dispatch &d, std::uint16_t version = money::MessageHeader::sbeSchemaVersion())
 {
     Bytes b = header(89, 104, 2, version);
     const Bytes body = rawDispatch(d);
@@ -111,7 +111,7 @@ inline Bytes dispatchFrame(const Dispatch &d, std::uint16_t version = 7)
 
 inline Bytes batchFrame(const std::vector<Dispatch> &entries)
 {
-    Bytes b = header(0, 105, 2, 7);
+    Bytes b = header(0, 105, 2, money::MessageHeader::sbeSchemaVersion());
     const std::uint16_t block = 89;
     const std::uint16_t n = static_cast<std::uint16_t>(entries.size());
     b.resize(12);
@@ -336,7 +336,7 @@ struct Register80
 inline Register80 decode80(const Bytes &payload)
 {
     money::RegisterSession d(const_cast<char *>(reinterpret_cast<const char *>(payload.data())), 8, payload.size(),
-        money::RegisterSession::sbeBlockLength(), 7);
+        money::RegisterSession::sbeBlockLength(), money::MessageHeader::sbeSchemaVersion());
     return Register80{ d.correlationId(), d.identity(), d.sourceEpoch() };
 }
 

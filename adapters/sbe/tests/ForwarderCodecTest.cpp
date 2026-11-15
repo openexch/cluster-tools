@@ -37,7 +37,7 @@ std::vector<Dispatch> decodeBatch(const Bytes &frame)
     std::vector<Dispatch> out;
     const codec::Header h = headerOf(frame);
     REQUIRE(h.schemaId == 2);
-    REQUIRE(h.version == 7);
+    REQUIRE(h.version == 8);
     REQUIRE(codec::decodeDispatchBatch(frame.data(), frame.size(), h,
         [](void *context, const Dispatch &d) { static_cast<std::vector<Dispatch> *>(context)->push_back(d); }, &out));
     return out;
@@ -155,7 +155,7 @@ TEST_CASE("ForwarderCodecTest.theGeneratedEnumGettersWouldThrowOnTheRawEnumGolde
     // name; an exception escaping the duty loop would be (exit 70) for a core defect the contract relays.
     namespace money = com::openexchange::core::infrastructure::generated;
     Bytes golden = JAVA_ME_DISPATCH_RAW_ENUMS;
-    money::MeDispatchBatch batch(reinterpret_cast<char *>(golden.data()), 8, golden.size(), 0, 7);
+    money::MeDispatchBatch batch(reinterpret_cast<char *>(golden.data()), 8, golden.size(), 0, 8);
     auto &entries = batch.dispatches();
     entries.next();
     CHECK(entries.kindRaw() == 4);

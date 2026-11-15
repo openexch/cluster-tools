@@ -57,8 +57,8 @@ TEST_CASE("build info names the schemas this binary speaks")
     CHECK(money::MessageHeader::sbeSchemaId() == 2);
     CHECK(me::MessageHeader::sbeSchemaId() == 1);
     CHECK(journal::MessageHeader::sbeSchemaId() == 4);
-    // The pins of / dependencies.lock: money v7, order v12, ME journal v1.
-    CHECK(money::MessageHeader::sbeSchemaVersion() == 7);
+    // The pins of / dependencies.lock: money v8, order v12, ME journal v1.
+    CHECK(money::MessageHeader::sbeSchemaVersion() == 8);
     CHECK(me::MessageHeader::sbeSchemaVersion() == 12);
     CHECK(journal::MessageHeader::sbeSchemaVersion() == 1);
 }
@@ -345,7 +345,7 @@ TEST_CASE("market-data floors: ids, block lengths and group headers of 22, 25, 2
     CHECK(money::MarketTick::sbeTemplateId() == 60);
     CHECK(money::MarketTick::sbeBlockLength() == 52);
     CHECK(money::MarketTick::sbeSchemaId() == 2);
-    CHECK(money::MarketTick::sbeSchemaVersion() == 7);
+    CHECK(money::MarketTick::sbeSchemaVersion() == 8);
 }
 
 TEST_CASE("BookSnapshot 20x20: Java golden decodes through the generated codec")
@@ -463,7 +463,7 @@ TEST_CASE("MarketTick 60: Java golden decodes, C++ re-encodes byte-equal")
     CHECK(h.templateId() == 60);
     CHECK(h.blockLength() == 52);
     CHECK(h.schemaId() == 2);
-    CHECK(h.version() == 7);
+    CHECK(h.version() == 8);
     money::MarketTick t(bytes(golden), money::MessageHeader::encodedLength(), golden.size(), h.blockLength(), h.version());
     CHECK(t.marketId() == 3);
     CHECK(t.bookVersion() == 0x0102030405060708LL);

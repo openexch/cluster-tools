@@ -36,7 +36,7 @@ public:
     virtual OfferOutcome tryOffer(const std::uint8_t *frame, std::size_t length) noexcept = 0;
 };
 
-// The money v7 template ids the domain emits (the codec static-asserts them against the generated codecs).
+// The money-schema template ids the domain emits (the codec static-asserts them against the generated codecs).
 inline constexpr std::uint16_t T_QUERY_FEED_POSITION = 7;
 inline constexpr std::uint16_t T_FEED_POSITION_REPORT = 17;
 inline constexpr std::uint16_t T_ME_JOURNAL_TRADE = 61;

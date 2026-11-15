@@ -306,8 +306,12 @@ TEST_CASE("BridgeAgentTest.unauthorizedClassExits78")
 
 TEST_CASE("BridgeAgentTest.wrongMoneyVersionExits78")
 {
+    // 6 is an old core; the generated version - 1 is the wire the previous core spoke (the cut is a clean genesis: a core
+    // one version behind is a wrong core, never read as far as it goes)
+    for (const std::uint8_t wrong : { std::uint8_t{ 6 }, static_cast<std::uint8_t>(money::MessageHeader::sbeSchemaVersion() - 1) })
     for (const bool registered : { false, true })
     {
+        CAPTURE(wrong);
         CAPTURE(registered);
         AppRig r(1);
         r.journal(0, 1, 5);
@@ -321,9 +325,9 @@ TEST_CASE("BridgeAgentTest.wrongMoneyVersionExits78")
             r.reg = AppRig::Reg::SILENT;
             REQUIRE(r.runUntil([&] { return r.client->isConnected(); }));
         }
-        Bytes v6 = adminAckFrame(1, 66, 0);
-        v6[6] = 6;
-        r.inject(v6, r.term);
+        Bytes old = adminAckFrame(1, 66, 0);
+        old[6] = wrong;
+        r.inject(old, r.term);
         r.runFor(100 * MS);
         REQUIRE(r.agent->stopped());
         CHECK(r.agent->stopReason().exitCode == 78);
