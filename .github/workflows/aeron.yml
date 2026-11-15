@@ -15,6 +15,8 @@
 # (-DWITH_BRIDGE=ON) and runs the pure, codec-layout and adapter tests. The forwarder's domain, codec,
 # agent (two fake transports), config and supervisor tests and their negative-control tables run here too
 # (forwarder.*); its integration run (app/forwarder/it/run-forwarder-it.sh) is local like the other integration runs.
+# The installed package is linked by a separate CMake project (package.consumer, tests/package-consumer), and the
+# test-only session stub (-DCT_SESSION_STUB=ON) runs its unit, negative-control and process tests (session_stub.*).
 name: aeron
 
 on:
@@ -36,6 +38,8 @@ on:
       - 'app/forwarder/**'
       - 'domain/forwarder/**'
       - 'poc/**'
+      - 'runtime/**'
+      - 'tests/**'
       - '.github/workflows/aeron.yml'
 
 jobs:
@@ -122,7 +126,7 @@ jobs:
           # The bridge's and the forwarder's negative controls and tc drills (MainAeronTest.conductorStallExits70)
           # need the seamed test builds (never published; publish.yml builds without them)
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AERON=ON -DWITH_BRIDGE=ON -DCT_BRIDGE_TEST_BUILDS=ON \
-            -DCT_FORWARDER_TEST_BUILDS=ON \
+            -DCT_FORWARDER_TEST_BUILDS=ON -DCT_SESSION_STUB=ON \
             ${{ steps.deps.outputs.args }} ${{ steps.schemas.outputs.args }}
 
       - name: Build

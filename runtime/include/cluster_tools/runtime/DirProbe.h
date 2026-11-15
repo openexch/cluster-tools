@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_DIR_PROBE_H
-#define CLUSTER_TOOLS_APP_COMMON_DIR_PROBE_H
+#ifndef CLUSTER_TOOLS_RUNTIME_DIR_PROBE_H
+#define CLUSTER_TOOLS_RUNTIME_DIR_PROBE_H
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -13,7 +13,7 @@
 // object. The config tests inject one; systemDirProbe() is stat(2) / access(2). The shape of ct-bridge's
 // bridge::DirProbe (BridgeConfig.h), which can become an alias of this one.
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 struct DirProbe
 {
@@ -32,6 +32,6 @@ inline DirProbe systemDirProbe()
     return p;
 }
 
-}}}
+}}
 
 #endif

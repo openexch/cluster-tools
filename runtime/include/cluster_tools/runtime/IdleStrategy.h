@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_IDLE_STRATEGY_H
-#define CLUSTER_TOOLS_APP_COMMON_IDLE_STRATEGY_H
+#ifndef CLUSTER_TOOLS_RUNTIME_IDLE_STRATEGY_H
+#define CLUSTER_TOOLS_RUNTIME_IDLE_STRATEGY_H
 
 #include <sched.h>
 #include <time.h>
@@ -12,7 +12,7 @@
 //   FORWARDER_IDLE  spin 100, yield 100, park 100 us   (ct-forwarder)
 //   BRIDGE_IDLE     spin 0, yield 10, park 1 ms        (ct-bridge: no busy spin on a shared box)
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 struct IdlePolicy
 {
@@ -57,6 +57,6 @@ private:
     int m_count = 0;
 };
 
-}}}
+}}
 
 #endif

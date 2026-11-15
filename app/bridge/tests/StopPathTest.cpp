@@ -30,11 +30,11 @@ struct Supervised
     AppRig rig;
     app::BridgeBoard board;
     std::atomic<int> exitCode{ -1 };
-    std::unique_ptr<common::Supervisor> supervisor;
+    std::unique_ptr<runtime::Supervisor> supervisor;
 
     explicit Supervised(std::function<void(app::AgentSettings &)> tweak = {}) : rig(1, std::move(tweak))
     {
-        supervisor = std::make_unique<common::Supervisor>(board, rig.log, app::bridgeSupervisorSettings(),
+        supervisor = std::make_unique<runtime::Supervisor>(board, rig.log, app::bridgeSupervisorSettings(),
             [this](int code, const std::string &) { exitCode.store(code); }, nullptr);
         rig.journal(0, 1, 5);
     }

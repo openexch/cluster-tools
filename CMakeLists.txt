@@ -37,9 +37,14 @@ option(CT_INTEGRATION_TESTS "Register the real-cluster integration test (java + 
 option(CT_BRIDGE_TEST_BUILDS "Build the never-published ct_bridge_nc_* / ct_bridge_negctl / ct_bridge_tc_* binaries (integration drills)" OFF)
 # The forwarder's negative-control and test-corruption binaries (ct_forwarder_nc_*, ct_forwarder_tc_*).
 # Never published: publish.yml refuses a binary list that names them.
+# The session stub (ct_session_stub): one GATEWAY session on the exported client, a channel mask from the command line,
+# commands from stdin and a poll throttle that leaves doWork() and keepalives running. Test-only: never installed,
+# never published (publish.yml refuses it).
+option(CT_SESSION_STUB "Build the never-published ct_session_stub (requires WITH_AERON; drill dry runs)" OFF)
 option(CT_FORWARDER_TEST_BUILDS "Build the never-published ct_forwarder_nc_* / ct_forwarder_tc_* binaries (T1 negative controls)" OFF)
 
 include(CTest)
+include(GNUInstallDirs)
 
 # Cache variables retired by the rename of the engine to core. A configure that still sets one was written for the
 # old names: it is refused, naming the new name; the old name is never read (an empty value, the default an older
@@ -54,6 +59,9 @@ foreach(_ct_retired IN ITEMS "CT_IT_ASSETS_JAR=CT_IT_CORE_JAR" "CT_PARITY_ASSETS
     endif()
 endforeach()
 
+if(CT_SESSION_STUB AND NOT (WITH_AERON AND CT_BUILD_MEDIA_DRIVER))
+    message(FATAL_ERROR "CT_SESSION_STUB=ON requires WITH_AERON=ON and CT_BUILD_MEDIA_DRIVER=ON (the stub runs in both driver modes)")
+endif()
 if(WITH_BRIDGE AND NOT WITH_AERON)
     message(FATAL_ERROR "WITH_BRIDGE=ON requires WITH_AERON=ON (the archive client links the verified Aeron tree)")
 endif()
@@ -147,7 +155,8 @@ if(WITH_AERON)
     add_subdirectory(app/switch-behavior)
     add_subdirectory(poc)
 endif()
-add_subdirectory(app/common)    # The process machinery both C++ processes share (pure; ConductorWatch with WITH_AERON)
+add_subdirectory(runtime)       # The process machinery of a C++ cluster process (pure; ConductorWatch and the embedded driver with WITH_AERON)
+add_subdirectory(app/common)    # What ct-forwarder and ct-bridge share beyond the runtime (the retired-settings table)
 add_subdirectory(app/forwarder) # Pure parts everywhere, ct-forwarder and its agent tests with WITH_AERON
 
 if(WITH_BRIDGE)
@@ -156,3 +165,17 @@ if(WITH_BRIDGE)
     add_subdirectory(app/journal-tail)
 endif()
 add_subdirectory(app/bridge) # ct_bridge_pure everywhere; ct-bridge and its app tests with WITH_AERON AND WITH_BRIDGE
+
+# The installed package another repository links (cmake/Package.cmake): the client library and the runtime, by
+# component; and the session stub, a test-only program on the exported client (never installed or published).
+include(cmake/Package.cmake)
+if(CT_SESSION_STUB)
+    add_subdirectory(app/session-stub)
+endif()
+if(BUILD_TESTING)
+    # A separate CMake project configures against the INSTALLED package and links it (tests/package-consumer).
+    add_test(NAME package.consumer
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/package-consumer/check-package.sh"
+            "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/package-consumer")
+    set_tests_properties(package.consumer PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
+endif()

@@ -1,14 +1,14 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_SUPERVISOR_H
-#define CLUSTER_TOOLS_APP_COMMON_SUPERVISOR_H
+#ifndef CLUSTER_TOOLS_RUNTIME_SUPERVISOR_H
+#define CLUSTER_TOOLS_RUNTIME_SUPERVISOR_H
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string>
 
-#include "common/HttpServer.h"
-#include "common/LogRing.h"
-#include "common/StatusBoardT.h"
+#include "cluster_tools/runtime/HttpServer.h"
+#include "cluster_tools/runtime/LogRing.h"
+#include "cluster_tools/runtime/StatusBoardT.h"
 
 // Supervisor - main's responsibilities after start. One copy for
 // ct-forwarder and ct-bridge: the process name, the thread names, the SIGHUP meaning and the join
@@ -24,7 +24,7 @@
 // The exit itself goes through a seam (production: flush stderr + std::_Exit) so ct_forwarder_main_tests can
 // observe it. Pure POSIX: no Aeron.
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 enum class SighupPolicy : std::uint8_t
 {
@@ -122,6 +122,6 @@ private:
     LivenessCheck m_liveness;
 };
 
-}}}
+}}
 
 #endif

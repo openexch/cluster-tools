@@ -211,6 +211,13 @@ jobs:
           if echo " ${FILES} " | grep -qE 'ct_bridge_(nc|tc)_|ct_bridge_negctl'; then
             echo "::error::FILES names a bridge test build"; exit 1
           fi
+          # The session stub is a test-only program (CT_SESSION_STUB is not set): never in the publish tree, never in FILES
+          if find build -type f -name 'ct_session_stub*' | grep -q .; then
+            echo "::error::ct_session_stub (a test-only program) is in the publish tree"; exit 1
+          fi
+          if echo " ${FILES} " | grep -q 'ct_session_stub'; then
+            echo "::error::FILES names the session stub"; exit 1
+          fi
           cp build/app/switch-behavior/switch-behavior dist/
           cp build/app/forwarder/ct-forwarder dist/
           cp build/app/bridge/ct-bridge dist/

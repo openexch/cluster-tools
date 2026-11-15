@@ -78,8 +78,8 @@ void checkExit70(AppRig &r, const Outcome &o, const char *what)
         CHECK(std::string(r.agent->stopReason().code) == "F_STORAGE_STARVED");
         CHECK(std::string(r.agent->stopReason().detail).find(what) != std::string::npos);
         const std::int64_t took = r.t.now - o.onsetNs;
-        CHECK(took >= common::STORAGE_STARVED_EXIT_NS);
-        CHECK(took <= common::STORAGE_STARVED_EXIT_NS + 3 * 10 * MS); // stop in one iteration, finish in the next
+        CHECK(took >= runtime::STORAGE_STARVED_EXIT_NS);
+        CHECK(took <= runtime::STORAGE_STARVED_EXIT_NS + 3 * 10 * MS); // stop in one iteration, finish in the next
     }
 }
 

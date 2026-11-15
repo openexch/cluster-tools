@@ -8,6 +8,7 @@
 # ct_sbe_codecs exposes the include paths plus build_info.h (pins + schema hashes).
 
 set(CT_SBE_GEN_DIR "${CMAKE_BINARY_DIR}/generated/sbe")
+set(CT_SBE_GEN_DIR "${CT_SBE_GEN_DIR}" PARENT_SCOPE) # the installed package copies the generated headers (cmake/Package.cmake)
 
 set(CT_SBE_STAMPS)
 set(CT_SBE_INCLUDES)
@@ -46,8 +47,20 @@ add_custom_target(ct_sbe_generate DEPENDS ${CT_SBE_STAMPS})
 
 add_library(ct_sbe_codecs INTERFACE)
 add_library(cluster_tools::sbe_codecs ALIAS ct_sbe_codecs)
+set_target_properties(ct_sbe_codecs PROPERTIES EXPORT_NAME sbe_codecs)
 add_dependencies(ct_sbe_codecs ct_sbe_generate)
-target_include_directories(ct_sbe_codecs SYSTEM INTERFACE ${CT_SBE_INCLUDES} "${CT_SBE_GEN_DIR}/info")
+# The installed package (cmake/Package.cmake) carries the codecs the client is compiled against: the cluster protocol
+# (WITH_AERON), the money schema and build_info.h, under include/cluster_tools/sbe/<name>.
+set(CT_SBE_INSTALL_INCLUDES "${CMAKE_INSTALL_INCLUDEDIR}/cluster_tools/sbe/money" "${CMAKE_INSTALL_INCLUDEDIR}/cluster_tools/sbe/info")
+if(WITH_AERON)
+    list(APPEND CT_SBE_INSTALL_INCLUDES "${CMAKE_INSTALL_INCLUDEDIR}/cluster_tools/sbe/cluster")
+endif()
+foreach(dir IN LISTS CT_SBE_INCLUDES ITEMS "${CT_SBE_GEN_DIR}/info")
+    target_include_directories(ct_sbe_codecs SYSTEM INTERFACE "$<BUILD_INTERFACE:${dir}>")
+endforeach()
+foreach(dir IN LISTS CT_SBE_INSTALL_INCLUDES)
+    target_include_directories(ct_sbe_codecs SYSTEM INTERFACE "$<INSTALL_INTERFACE:${dir}>")
+endforeach()
 
 add_library(ct_adapter_sbe STATIC
     src/EngineConfigCodec.cpp)

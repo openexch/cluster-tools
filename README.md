@@ -44,7 +44,10 @@ ports/               seams (header-only)
 adapters/aeron/      cluster session over the Aeron cpp_wrapper (switch-behavior)
 adapters/json/       strict EngineConfig JSON parser
 adapters/sbe/        SBE codegen wiring, codecs, Java-encoder goldens
-app/common/          process machinery shared by ct-forwarder and ct-bridge (HTTP, supervisor, embedded driver)
+runtime/             process machinery of a C++ cluster process (supervisor, HTTP, log ring, idle, embedded driver)
+app/common/          what ct-forwarder and ct-bridge share beyond the runtime (the retired-settings table)
+app/session-stub/    ct_session_stub, a test-only program on the exported client (never published)
+tests/package-consumer/  a separate CMake project that links the installed package
 app/forwarder/       ct-forwarder
 app/bridge/          ct-bridge
 app/journal-tail/    ct-journal-tail
@@ -102,6 +105,52 @@ app/bridge/it/run-bridge-it.sh <build> <core-cluster.jar> <harness.jar> <drill|a
 
 `bridge.parity` (registered when `-DCT_PARITY_CORE_TREE` points at a core checkout) checks that every
 Java bridge test has a row in `archive/tests/PARITY.md` or `domain/bridge/tests/PARITY.md`.
+
+## Using the client library from another repository
+
+`cmake --install <build> --prefix <dir>` installs the cluster client and the process machinery as a CMake package.
+Another C++20 repository pins this repository by commit sha and source tarball sha256, builds it with the same
+verified inputs (and its own money schema, which configure checks against the lock's floor and templates), installs
+it, and links it. The package records the source sha from git at configure time; a build from the source tarball
+has no `.git`, so it must pass `-DCT_BUILD_SOURCE_SHA=<the pinned 40-hex sha>` (configure warns when the sha is
+`unknown`, and a consumer's pin check refuses such a package).
+
+```cmake
+find_package(cluster_tools CONFIG REQUIRED COMPONENTS client_core runtime client client_aeron runtime_aeron
+    runtime_embedded_driver)
+target_link_libraries(my-process PRIVATE cluster_tools::runtime_embedded_driver   # first: see runtime/CMakeLists.txt
+    cluster_tools::runtime_aeron cluster_tools::client_aeron cluster_tools::client)
+```
+
+| Component | Configuration | Content |
+|---|---|---|
+| `client_core` | every | endpoints, credentials, backoff, client settings, protocol vocabulary |
+| `runtime` | every | Supervisor, HttpServer, LogRing, StatusBoardT, IdleStrategy, DriverTimeout, DirProbe, StorageStarvation |
+| `client` | `WITH_AERON` | the `ClusterClient` state machine and `CoreSessionRegistrar` (header-only) |
+| `client_aeron` | `WITH_AERON` | the Aeron transport and the fatal-error policy |
+| `runtime_aeron` | `WITH_AERON` | ConductorWatch |
+| `runtime_embedded_driver` | `WITH_AERON`, `CT_BUILD_MEDIA_DRIVER` | the embedded media driver; link it only from a final executable, first in the list, never from a library (it compiles into whatever links it, so a static library would carry the driver object and lose the link order). The installed driver links `uuid`, so the consumer host needs libuuid |
+| `sbe_codecs` | `WITH_AERON` | the generated cluster-protocol and money-schema codecs and `cluster_tools/build_info.h` |
+
+The package config sets `cluster_tools_SOURCE_SHA`, `cluster_tools_MONEY_SCHEMA_VERSION` and
+`cluster_tools_MONEY_SCHEMA_SHA256`; a consumer compares them with its own lock. A component the build did not make
+fails `find_package` by name. Binaries, test builds and the session stub are never installed. `package.consumer`
+(`tests/package-consumer/check-package.sh`) proves all of this in every configuration.
+
+## Session stub (test-only)
+
+`-DCT_SESSION_STUB=ON` (needs `WITH_AERON`) builds `ct_session_stub`: one GATEWAY core session on the exported client,
+registered with the channel mask given on the command line, driven by a script on stdin, with a poll throttle that
+leaves `doWork()` and the keepalives running, so a slow consumer can be produced on purpose. It is never installed
+and never published. Options and commands are documented in `app/session-stub/StubOptions.h` and `StubCommands.h`.
+
+```bash
+printf 'await registered 10000\nthrottle 500 1\nsleep 60000\nstatus\nquit\n' | \
+  CORE_AUTH_CREDENTIAL=<keyId>:gateway:<secretHex> ct_session_stub --driver-mode external --aeron-dir /dev/shm/aeron \
+  --instance-id 7 --ingress-endpoints 0=10.0.0.1:9302,1=10.0.0.2:9302,2=10.0.0.3:9302 \
+  --ingress-channel 'aeron:udp?term-length=4m|mtu=8192' --response-channel 'aeron:udp?endpoint=10.0.0.9:0|term-length=4m|mtu=8192' \
+  --channels acks,orders,balances,control
+```
 
 ## Binaries
 

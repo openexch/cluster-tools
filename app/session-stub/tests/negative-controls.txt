@@ -1,0 +1,3 @@
+# ct_session_stub negative controls (run-negative-controls.sh): test | rule | why | expected text in the failure output
+throttle: poll at most once per interval while doWork and the keepalives keep running|DOWORK_EVERY_CYCLE|doWork only with a poll: the keepalives stop with the throttle|keepalives stopped under the throttle
+throttle: poll at most once per interval while doWork and the keepalives keep running|POLL_THROTTLE|poll every cycle: no slow consumer|the throttle is not applied

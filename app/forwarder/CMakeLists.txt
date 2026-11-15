@@ -2,8 +2,8 @@
 #
 # Every configuration (the WITH_AERON=OFF fast job included):
 #   ct_forwarder_pure / _seamed  ForwarderConfig (strict env, the driver keys), MetricsRender, the app seams
-#                              Links ct_app_common (HttpServer, Supervisor, LogRing, StatusBoardT: moved to
-#                              app/common)
+#                              Links ct_app_common (the retired-settings table) and through it ct_runtime
+#                              (HttpServer, Supervisor, LogRing, StatusBoardT: runtime/)
 #   ct_forwarder_config_tests  ForwarderConfigTest + MetricsRenderTest + TcCaptureTest + DriverStartTest (+ the pure
 #                              REDs, negative-controls-pure.txt; the repo README's ct-forwarder example is parsed)
 #   ct_forwarder_main_tests    the watchdog, the 2 s join bound and the stop path against duty stubs
@@ -70,7 +70,7 @@ if(WITH_AERON)
     if(NOT CT_BUILD_MEDIA_DRIVER)
         message(FATAL_ERROR "ct-forwarder (WITH_AERON) needs CT_BUILD_MEDIA_DRIVER=ON: the embedded driver mode links aeron_driver_static")
     endif()
-    # The embedded driver is app/common's (the bridge's, moved): aeron_driver_static is linked first,
+    # The embedded driver is the runtime library's (runtime/src/EmbeddedDriver.cpp): aeron_driver_static is linked first,
     # as in ct-bridge, so the client symbols resolve from it and nothing of aeron_static is pulled twice. The seam flavour
     # follows the domain flavour: a seamed domain means a test build, which takes the seamed app layer too.
     function(ct_forwarder_binary name domain)
@@ -80,7 +80,7 @@ if(WITH_AERON)
         else()
             set(pure ct_forwarder_pure_seamed)
         endif()
-        target_link_libraries(${name} PRIVATE aeron_driver_static ${pure} ct_app_common_aeron ct_forwarder_codec ${domain}
+        target_link_libraries(${name} PRIVATE aeron_driver_static ${pure} ct_runtime_aeron ct_forwarder_codec ${domain}
             ct_client_aeron ct_sbe_codecs)
         target_compile_options(${name} PRIVATE -Wall -Wextra)
         target_compile_definitions(${name} PRIVATE CT_BUILD_SOURCE_SHA="${CT_SOURCE_SHA_EFFECTIVE}")
@@ -108,7 +108,7 @@ if(WITH_AERON)
         # The start sequence in both driver modes and the conductor stall, against the real binaries
         add_executable(ct_forwarder_main_aeron_tests tests/MainAeronTest.cpp ${CT_EMBEDDED_DRIVER_SOURCE})
         target_link_libraries(ct_forwarder_main_aeron_tests PRIVATE aeron_driver_static ct_forwarder_pure_seamed
-            ct_app_common_aeron ct_client_aeron)
+            ct_runtime_aeron ct_client_aeron)
         target_include_directories(ct_forwarder_main_aeron_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
         target_compile_definitions(ct_forwarder_main_aeron_tests PRIVATE
             CT_FORWARDER_BINARY="$<TARGET_FILE:ct-forwarder>"

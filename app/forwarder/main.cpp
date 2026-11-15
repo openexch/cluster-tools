@@ -40,8 +40,8 @@
 #include "cluster_tools/client/aeron/FatalErrors.h"
 #include "cluster_tools/domain/forwarder/TestSeams.h"
 
-#include "common/ConductorWatch.h"
-#include "common/EmbeddedDriver.h"
+#include "cluster_tools/runtime/ConductorWatch.h"
+#include "cluster_tools/runtime/EmbeddedDriver.h"
 
 #include "AppSeams.h"
 #include "DutyLoop.h"
@@ -62,7 +62,7 @@
 #endif
 
 namespace fwd = cluster_tools::app::forwarder;
-namespace common = cluster_tools::app::common;
+namespace runtime = cluster_tools::runtime;
 namespace cl = cluster_tools::client;
 namespace at = cluster_tools::client::aeron_transport;
 
@@ -147,15 +147,15 @@ int main()
 
     // The driver per mode (embedded: its own C media driver; a start failure is host configuration, 78,
     // except a start starved of storage space: retried for 30 s, then 70 F_STORAGE_STARVED)
-    std::unique_ptr<common::EmbeddedDriver> driver;
+    std::unique_ptr<runtime::EmbeddedDriver> driver;
     std::string aeronDir = c.aeronDir;
     if (fwd::DriverMode::EMBEDDED == c.driverMode)
     {
-        const std::string dir = common::EmbeddedDriver::dirFor(c.driverDir, c.instanceId, fwd::forwarderDriverOptions());
-        common::StorageStarvation startStorage;
+        const std::string dir = runtime::EmbeddedDriver::dirFor(c.driverDir, c.instanceId, fwd::forwarderDriverOptions());
+        runtime::StorageStarvation startStorage;
         for (;;)
         {
-            driver = std::make_unique<common::EmbeddedDriver>(fwd::forwarderDriverOptions(),
+            driver = std::make_unique<runtime::EmbeddedDriver>(fwd::forwarderDriverOptions(),
                 [](const std::string &why) { fwd::Supervisor::exitProcess(70, why); });
             if (driver->start(dir, false, error))
             {
@@ -248,7 +248,7 @@ int main()
 
     // The client-conductor heartbeat check, re-validated on every check (a reclaimed or
     // re-used counter slot is a 70, never a healthy read), threshold FWD_DRIVER_TIMEOUT_MS; main runs it at every wake
-    common::ConductorWatch watch(aeron, c.driverTimeoutMs);
+    runtime::ConductorWatch watch(aeron, c.driverTimeoutMs);
     if (!fwd::app_seams::disabled(fwd::app_seams::Rule::CONDUCTOR_WATCH_OFF))
     {
         supervisor.setLivenessCheck([&watch](std::int64_t, std::string &why) { return watch.check(why); });

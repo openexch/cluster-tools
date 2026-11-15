@@ -1,6 +1,6 @@
 // Storage starvation: an ingress publication refused for storage space on every attempt for
 // 30 s ends ct-forwarder 70; until then /ready names storage_starved and forwarder_storage_starved_seconds_total grows.
-//   StorageStarvationTest.*            the shared common::StorageStarvation rule (pure)
+//   StorageStarvationTest.*            the shared runtime::StorageStarvation rule (pure)
 //   ForwarderAgentTest.storageStarvedIngressExits70  the agent over FakeTransport: the ME's ingress publications are
 //       refused with the C client's exact text; alive and not ready at 29 s, exit 70 F_STORAGE_STARVED within 30 s + one
 //       duty iteration; RED STORAGE_STARVED_EXIT_OFF: alive after 60 s ("alive after 30 s of storage starvation")
@@ -12,11 +12,11 @@
 #include "AgentRig.h"
 #include "MetricsRender.h"
 
-#include "common/StorageStarvation.h"
+#include "cluster_tools/runtime/StorageStarvation.h"
 
 using namespace cluster_tools::app::forwarder;
 using namespace cluster_tools::app::forwarder::test;
-namespace common = cluster_tools::app::common;
+namespace runtime = cluster_tools::runtime;
 
 namespace {
 
@@ -42,23 +42,23 @@ void refuseAll(FakeTransport &t, const std::string &error)
 
 TEST_CASE("StorageStarvationTest.classifiesAeronStorageSpaceOnly")
 {
-    CHECK(common::isStorageSpaceError(OBSERVED_STORAGE));
-    CHECK(common::isStorageSpaceError("insufficient usable storage for new log of length=12582912"));
-    CHECK_FALSE(common::isStorageSpaceError("no ingress publication could be added: ingress publication: (-1) generic error"));
-    CHECK_FALSE(common::isStorageSpaceError("connect timed out [attempt 3/3]"));
-    CHECK_FALSE(common::isStorageSpaceError(""));
+    CHECK(runtime::isStorageSpaceError(OBSERVED_STORAGE));
+    CHECK(runtime::isStorageSpaceError("insufficient usable storage for new log of length=12582912"));
+    CHECK_FALSE(runtime::isStorageSpaceError("no ingress publication could be added: ingress publication: (-1) generic error"));
+    CHECK_FALSE(runtime::isStorageSpaceError("connect timed out [attempt 3/3]"));
+    CHECK_FALSE(runtime::isStorageSpaceError(""));
 }
 
 TEST_CASE("StorageStarvationTest.thirtySecondsContinuousThenExpired")
 {
-    common::StorageStarvation w;
+    runtime::StorageStarvation w;
     const std::int64_t s = 1'000'000'000LL;
     CHECK(w.onStarved(5 * s, "first"));
     CHECK_FALSE(w.onStarved(6 * s, "second")); // the onset is the first failure; its text is kept
     CHECK(std::string(w.why()) == "first");
     CHECK(w.active());
-    CHECK_FALSE(w.expired(5 * s + common::STORAGE_STARVED_EXIT_NS - 1));
-    CHECK(w.expired(5 * s + common::STORAGE_STARVED_EXIT_NS));
+    CHECK_FALSE(w.expired(5 * s + runtime::STORAGE_STARVED_EXIT_NS - 1));
+    CHECK(w.expired(5 * s + runtime::STORAGE_STARVED_EXIT_NS));
     CHECK(w.starvedSeconds(20 * s) == 15);
     // relieved: not continuous any more; the counter keeps the 15 s; a new episode starts from its own onset
     w.onRelieved(20 * s);
@@ -70,7 +70,7 @@ TEST_CASE("StorageStarvationTest.thirtySecondsContinuousThenExpired")
     CHECK(w.expired(130 * s));
     CHECK(w.starvedSeconds(130 * s) == 45);
     CHECK(w.episodes() == 2);
-    CHECK(common::STORAGE_STARVED_EXIT_NS == 30 * s); // a constant in code, not a key
+    CHECK(runtime::STORAGE_STARVED_EXIT_NS == 30 * s); // a constant in code, not a key
 }
 
 TEST_CASE("ForwarderAgentTest.storageStarvedIngressExits70")
@@ -113,8 +113,8 @@ TEST_CASE("ForwarderAgentTest.storageStarvedIngressExits70")
         CHECK(std::string(r.agent.stopReason().detail).find("insufficient storage space") != std::string::npos);
         // at most one duty iteration after 30 s from the first refused attempt (the onset, seen within the same step)
         const std::int64_t took = r.coreT.now - onsetNs;
-        CHECK(took >= common::STORAGE_STARVED_EXIT_NS);
-        CHECK(took <= common::STORAGE_STARVED_EXIT_NS + 2 * step);
+        CHECK(took >= runtime::STORAGE_STARVED_EXIT_NS);
+        CHECK(took <= runtime::STORAGE_STARVED_EXIT_NS + 2 * step);
     }
 }
 

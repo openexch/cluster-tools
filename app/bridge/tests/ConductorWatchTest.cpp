@@ -13,12 +13,12 @@
 #include <string>
 
 #include "AppSeams.h"
-#include "common/ConductorWatchCore.h"
+#include "cluster_tools/runtime/ConductorWatchCore.h"
 
 namespace {
 
-using cluster_tools::app::common::ConductorWatchCore;
-using cluster_tools::app::common::HeartbeatCounters;
+using cluster_tools::runtime::ConductorWatchCore;
+using cluster_tools::runtime::HeartbeatCounters;
 namespace app_seams = cluster_tools::app::bridge::app_seams;
 
 struct Record

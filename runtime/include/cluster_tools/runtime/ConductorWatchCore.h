@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_CONDUCTOR_WATCH_CORE_H
-#define CLUSTER_TOOLS_APP_COMMON_CONDUCTOR_WATCH_CORE_H
+#ifndef CLUSTER_TOOLS_RUNTIME_CONDUCTOR_WATCH_CORE_H
+#define CLUSTER_TOOLS_RUNTIME_CONDUCTOR_WATCH_CORE_H
 
 #include <atomic>
 #include <cstdint>
@@ -18,7 +18,7 @@
 //     least the timeout (this process did not run), "conductor wedged" otherwise.
 // `revalidate` false is the RED shape only (CONDUCTOR_REVALIDATE_OFF in the seamed builds).
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 class HeartbeatCounters
 {
@@ -136,6 +136,6 @@ private:
     std::atomic<std::int64_t> m_ageMs{ -1 };
 };
 
-}}}
+}}
 
 #endif

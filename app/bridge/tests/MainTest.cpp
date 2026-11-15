@@ -1,4 +1,4 @@
-// ct_bridge_main_tests (pure: the shared app/common Supervisor with the bridge's settings, the bridge-http
+// ct_bridge_main_tests (pure: the shared runtime Supervisor with the bridge's settings, the bridge-http
 // routes, duty stubs):
 //   healthStalledAndWatchdog   a duty stub that stops beating: /health 503 STALLED within 6 s and the exit seam 70 at
 //                              5 s while an HTTP client trickles 1 byte per 200 ms (RED WATCHDOG_OFF)
@@ -27,7 +27,7 @@
 #include "BridgeDuty.h"
 
 using namespace cluster_tools::app::bridge;
-namespace common = cluster_tools::app::common;
+namespace runtime = cluster_tools::runtime;
 namespace db = cluster_tools::domain::bridge;
 namespace arc = cluster_tools::archive;
 
@@ -81,18 +81,18 @@ std::string get(std::uint16_t port, const std::string &request)
 struct Fixture
 {
     BridgeBoard board;
-    common::LogRing log;
+    runtime::LogRing log;
     db::BridgeMetrics domain;
     arc::ArchiveMetrics archive;
     ExitRecord exit;
-    common::Supervisor supervisor{ board, log, bridgeSupervisorSettings(),
+    runtime::Supervisor supervisor{ board, log, bridgeSupervisorSettings(),
         [this](int code, const std::string &) {
-            exit.atNs.store(common::Supervisor::monotonicNs());
+            exit.atNs.store(runtime::Supervisor::monotonicNs());
             exit.code.store(code);
         },
         nullptr };
     HttpContext context;
-    common::HttpServer http{ [this](const common::HttpRequest &r) { return routeBridge(r, context); }, "BRIDGE_HTTP_BIND" };
+    runtime::HttpServer http{ [this](const runtime::HttpRequest &r) { return routeBridge(r, context); }, "BRIDGE_HTTP_BIND" };
 
     Fixture()
     {
@@ -140,9 +140,9 @@ TEST_CASE("MainTest.healthStalledAndWatchdog")
                 ::close(fd);
             }
         });
-        stalledAt.store(common::Supervisor::monotonicNs());
+        stalledAt.store(runtime::Supervisor::monotonicNs());
         // wedged: no heartbeat (bounded at 9 s so the WATCHDOG_OFF RED fails an assertion instead of hanging)
-        while (!release.load() && common::Supervisor::monotonicNs() - stalledAt.load() < 9'000'000'000LL)
+        while (!release.load() && runtime::Supervisor::monotonicNs() - stalledAt.load() < 9'000'000'000LL)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
@@ -169,20 +169,20 @@ TEST_CASE("MainTest.stalledHealthIs503BeforeTheExit")
 {
     // the STALLED body with the watchdog later than STALLED (a test-only spread so the 503 is observable)
     BridgeBoard board;
-    common::LogRing log;
+    runtime::LogRing log;
     db::BridgeMetrics domain;
     arc::ArchiveMetrics archive;
-    common::SupervisorSettings settings = bridgeSupervisorSettings();
+    runtime::SupervisorSettings settings = bridgeSupervisorSettings();
     settings.stalledNs = 500'000'000LL;
     settings.watchdogNs = 3'000'000'000LL;
     std::atomic<int> exitCode{ -1 };
-    common::Supervisor supervisor(board, log, settings, [&](int code, const std::string &) { exitCode.store(code); }, nullptr);
+    runtime::Supervisor supervisor(board, log, settings, [&](int code, const std::string &) { exitCode.store(code); }, nullptr);
     HttpContext context;
     context.domain = &domain;
     context.archive = &archive;
     context.supervisor = &supervisor;
     context.board = &board;
-    common::HttpServer http([&](const common::HttpRequest &r) { return routeBridge(r, context); }, "BRIDGE_HTTP_BIND");
+    runtime::HttpServer http([&](const runtime::HttpRequest &r) { return routeBridge(r, context); }, "BRIDGE_HTTP_BIND");
     context.http = &http;
     std::string error;
     REQUIRE(http.bind("127.0.0.1", 0, error));
@@ -250,7 +250,7 @@ TEST_CASE("MainTest.stopJoinBoundExits70")
     std::atomic<std::int64_t> signalledAt{ 0 };
     std::thread killer([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        signalledAt.store(common::Supervisor::monotonicNs());
+        signalledAt.store(runtime::Supervisor::monotonicNs());
         ::kill(::getpid(), SIGTERM);
     });
     const int code = f.supervisor.run([&] {
@@ -278,7 +278,7 @@ TEST_CASE("MainTest.sigtermReturns0")
     std::atomic<std::int64_t> signalledAt{ 0 };
     std::thread killer([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
-        signalledAt.store(common::Supervisor::monotonicNs());
+        signalledAt.store(runtime::Supervisor::monotonicNs());
         ::kill(::getpid(), SIGTERM);
     });
     const int code = f.supervisor.run([&] {
@@ -289,7 +289,7 @@ TEST_CASE("MainTest.sigtermReturns0")
         }
         return 0;
     }, &f.http);
-    const std::int64_t returnedAt = common::Supervisor::monotonicNs();
+    const std::int64_t returnedAt = runtime::Supervisor::monotonicNs();
     killer.join();
     CHECK(code == 0);
     CHECK(f.exit.code.load() == -1);
@@ -320,7 +320,7 @@ TEST_CASE("MainTest.sighupIsCountedOnly")
     CHECK(code == 0);
     CHECK(f.supervisor.sighupCount.load() == 2);
     CHECK_FALSE(f.supervisor.resyncRequested.load());
-    common::LogRecord r;
+    runtime::LogRecord r;
     bool logged = false;
     while (f.log.pop(r))
     {
@@ -330,8 +330,8 @@ TEST_CASE("MainTest.sighupIsCountedOnly")
 
     // the forwarder's policy (the same Supervisor): SIGHUP sets the resync flag
     BridgeBoard board;
-    common::LogRing log;
-    common::Supervisor forwarder(board, log, common::SupervisorSettings{}, [](int, const std::string &) {}, nullptr);
+    runtime::LogRing log;
+    runtime::Supervisor forwarder(board, log, runtime::SupervisorSettings{}, [](int, const std::string &) {}, nullptr);
     std::thread hup([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         ::kill(::getpid(), SIGHUP);
@@ -385,7 +385,7 @@ TEST_CASE("MainTest.routesAreGetOnly")
 
 int main(int argc, char **argv)
 {
-    common::Supervisor::blockSignals(); // before any thread, as main.cpp does
+    runtime::Supervisor::blockSignals(); // before any thread, as main.cpp does
     doctest::Context context(argc, argv);
     return context.run();
 }

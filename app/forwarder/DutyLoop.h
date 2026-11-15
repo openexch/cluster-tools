@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <functional>
 
-#include "common/IdleStrategy.h"
+#include "cluster_tools/runtime/IdleStrategy.h"
 
 #include "MetricsRender.h"
 #include "StatusBoard.h"
@@ -16,7 +16,7 @@
 
 // The fwd-duty thread body and the fwd-http routes.
 //
-// Duty: one agent iteration, then the idle strategy when the iteration did no work (common::FORWARDER_IDLE: spin
+// Duty: one agent iteration, then the idle strategy when the iteration did no work (runtime::FORWARDER_IDLE: spin
 // 100, yield 100, then nanosleep 100 us: the only sleep, between iterations, never inside a step); the heartbeat counter is
 // bumped every iteration (main's watchdog) and the StatusBoard snapshot is published every 100 ms. The
 // stop and resync flags are main's (signals) and fwd-http's (POST /resync).
@@ -31,7 +31,7 @@ template<typename Agent>
 int runDuty(Agent &agent, Supervisor &supervisor, StatusBoard &board, const std::function<std::uint64_t()> &errorCount)
 {
     ForwarderSnapshot snapshot;
-    common::IdleStrategy idle(common::FORWARDER_IDLE);
+    runtime::IdleStrategy idle(runtime::FORWARDER_IDLE);
     std::int64_t nextPublish = 0;
     std::int64_t windowStart = Supervisor::monotonicNs();
     std::uint64_t windowMax = 0;

@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_STATUS_BOARD_T_H
-#define CLUSTER_TOOLS_APP_COMMON_STATUS_BOARD_T_H
+#ifndef CLUSTER_TOOLS_RUNTIME_STATUS_BOARD_T_H
+#define CLUSTER_TOOLS_RUNTIME_STATUS_BOARD_T_H
 
 #include <atomic>
 #include <cstdint>
@@ -11,7 +11,7 @@
 // main) copy under the lock. The duty heartbeat is a separate atomic (DutyHeartbeat), bumped every iteration, so the
 // watchdog never depends on a publish. Snapshot must have a `std::uint64_t sequence` member.
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 class DutyHeartbeat
 {
@@ -56,6 +56,6 @@ private:
     std::atomic<std::uint64_t> m_publishSkipped{ 0 };
 };
 
-}}}
+}}
 
 #endif

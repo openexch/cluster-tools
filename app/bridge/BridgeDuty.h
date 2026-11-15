@@ -5,10 +5,10 @@
 #include <cstdint>
 #include <functional>
 
-#include "common/HttpServer.h"
-#include "common/IdleStrategy.h"
-#include "common/StatusBoardT.h"
-#include "common/Supervisor.h"
+#include "cluster_tools/runtime/HttpServer.h"
+#include "cluster_tools/runtime/IdleStrategy.h"
+#include "cluster_tools/runtime/StatusBoardT.h"
+#include "cluster_tools/runtime/Supervisor.h"
 
 #include "BridgeMetricsRender.h"
 #include "BridgeSnapshot.h"
@@ -17,20 +17,20 @@
 // The bridge-duty thread body and the bridge-http routes.
 //
 // Duty: one agent iteration, the heartbeat every iteration (main's watchdog), the StatusBoard snapshot every
-// 100 ms, then the idle strategy when the iteration did no work (common::BRIDGE_IDLE: spin 0, yield 10, park 1 ms).
+// 100 ms, then the idle strategy when the iteration did no work (runtime::BRIDGE_IDLE: spin 0, yield 10, park 1 ms).
 // The stop flag is main's (SIGTERM / SIGINT). SIGHUP is the Supervisor's COUNT_ONLY policy: nothing reaches the agent.
 
 namespace cluster_tools { namespace app { namespace bridge {
 
-using BridgeBoard = common::StatusBoardT<BridgeSnapshot>;
+using BridgeBoard = runtime::StatusBoardT<BridgeSnapshot>;
 
 // The one SupervisorSettings shape with the bridge's values: watchdog and STALLED 5 s (the forwarder's),
 // join bound = the archive message timeout 5 s + 2 s = 7 s, SIGHUP counted only.
-inline common::SupervisorSettings bridgeSupervisorSettings()
+inline runtime::SupervisorSettings bridgeSupervisorSettings()
 {
-    common::SupervisorSettings s;
+    runtime::SupervisorSettings s;
     s.joinBoundNs = STOP_JOIN_BOUND_NS;
-    s.sighupPolicy = common::SighupPolicy::COUNT_ONLY;
+    s.sighupPolicy = runtime::SighupPolicy::COUNT_ONLY;
     s.processName = "ct-bridge";
     s.threadPrefix = "bridge";
     if (app_seams::disabled(app_seams::Rule::WATCHDOG_OFF))
@@ -45,13 +45,13 @@ inline constexpr std::int64_t MAX_CYCLE_WINDOW_NS = 10'000'000'000LL;
 
 // errorCount: the Aeron monitor's error count (bridge_aeron_errors_total); may be empty.
 template<typename Agent>
-int runBridgeDuty(Agent &agent, common::Supervisor &supervisor, BridgeBoard &board,
+int runBridgeDuty(Agent &agent, runtime::Supervisor &supervisor, BridgeBoard &board,
     const std::function<std::uint64_t()> &errorCount)
 {
     BridgeSnapshot snapshot;
-    common::IdleStrategy idle(common::BRIDGE_IDLE);
+    runtime::IdleStrategy idle(runtime::BRIDGE_IDLE);
     std::int64_t nextPublish = 0;
-    std::int64_t windowStart = common::Supervisor::monotonicNs();
+    std::int64_t windowStart = runtime::Supervisor::monotonicNs();
     std::uint64_t windowMax = 0;
     std::uint64_t lastWindowMax = 0;
     while (!agent.stopped())
@@ -60,9 +60,9 @@ int runBridgeDuty(Agent &agent, common::Supervisor &supervisor, BridgeBoard &boa
         {
             agent.requestStop(supervisor.stopRequestedAtNs.load(std::memory_order_acquire));
         }
-        const std::int64_t t0 = common::Supervisor::monotonicNs();
+        const std::int64_t t0 = runtime::Supervisor::monotonicNs();
         const int work = agent.doWork();
-        const std::int64_t t1 = common::Supervisor::monotonicNs();
+        const std::int64_t t1 = runtime::Supervisor::monotonicNs();
         const std::uint64_t cycleUs = static_cast<std::uint64_t>((t1 - t0) / 1000);
         if (cycleUs > windowMax)
         {
@@ -97,8 +97,8 @@ struct HttpContext
 {
     const domain::bridge::BridgeMetrics *domain = nullptr;
     archive::ArchiveMetrics *archive = nullptr;
-    common::Supervisor *supervisor = nullptr;
-    const common::HttpServer *http = nullptr;
+    runtime::Supervisor *supervisor = nullptr;
+    const runtime::HttpServer *http = nullptr;
     const BridgeBoard *board = nullptr;
     std::function<std::int64_t()> conductorAgeMs; // -1 when not watched
     std::function<bool()> conductorStale;
@@ -111,7 +111,7 @@ inline HttpExtras extrasOf(const HttpContext &c)
 {
     HttpExtras x;
     const bool conductorStale = c.conductorStale ? c.conductorStale() : false;
-    x.stalled = (nullptr != c.supervisor && c.supervisor->stalled(common::Supervisor::monotonicNs())) || conductorStale;
+    x.stalled = (nullptr != c.supervisor && c.supervisor->stalled(runtime::Supervisor::monotonicNs())) || conductorStale;
     x.conductorHeartbeatAgeMs = c.conductorAgeMs ? c.conductorAgeMs() : -1;
     x.httpTimeouts = nullptr == c.http ? 0 : c.http->timedOut();
     x.publishSkipped = nullptr == c.board ? 0 : c.board->publishSkipped();
@@ -123,9 +123,9 @@ inline HttpExtras extrasOf(const HttpContext &c)
 }
 
 // bridge-http: GET /health /ready /metrics; nothing else.
-inline common::HttpResponse routeBridge(const common::HttpRequest &request, const HttpContext &c)
+inline runtime::HttpResponse routeBridge(const runtime::HttpRequest &request, const HttpContext &c)
 {
-    common::HttpResponse response;
+    runtime::HttpResponse response;
     const bool known = "/health" == request.path || "/ready" == request.path || "/metrics" == request.path;
     if (known && "GET" != request.method)
     {

@@ -24,9 +24,9 @@
 #include "cluster_tools/domain/bridge/BridgeMetrics.h"
 #include "cluster_tools/domain/bridge/BridgeSettings.h"
 
-#include "common/LogRing.h"
-#include "common/StatusBoardT.h"
-#include "common/StorageStarvation.h"
+#include "cluster_tools/runtime/LogRing.h"
+#include "cluster_tools/runtime/StatusBoardT.h"
+#include "cluster_tools/runtime/StorageStarvation.h"
 
 #include "AppSeams.h"
 #include "StopBounds.h"
@@ -233,7 +233,7 @@ public:
     // during a blocked archive call).
     BridgeAgent(CoreClient &client, Sources &sources, ObserverTap &tap, archive::ResumeMemo &memo,
         archive::ArchiveMetrics &archiveMetrics, domain::bridge::FrameEncoder &encoder, AgentSettings settings,
-        common::LogRing *log = nullptr, common::DutyHeartbeat *heartbeat = nullptr) :
+        runtime::LogRing *log = nullptr, runtime::DutyHeartbeat *heartbeat = nullptr) :
         m_client(client),
         m_sources(sources),
         m_tap(tap),
@@ -376,7 +376,7 @@ public:
     {
         if (m_coreStorageFeed.update(m_client, client::ClientState::CONNECTED == m_client.state(), m_nowNs, m_coreStorage))
         {
-            log(common::LogLevel::ERROR, "core ingress publication refused: insufficient storage space in the media driver "
+            log(runtime::LogLevel::ERROR, "core ingress publication refused: insufficient storage space in the media driver "
                 "dir (exit 70 if it lasts 30 s): %s", m_coreStorage.why());
         }
         using archive::OpenFailure;
@@ -398,7 +398,7 @@ public:
             if (m_replayStorage.onStarved(m_nowNs, "a replay image needs more free space than the media driver dir has "
                     "(REPLAY_STORAGE / STORAGE_SPACE)"))
             {
-                log(common::LogLevel::ERROR, "replay image refused: insufficient storage space in the media driver dir "
+                log(runtime::LogLevel::ERROR, "replay image refused: insufficient storage space in the media driver dir "
                     "(exit 70 if no source can follow for 30 s)");
             }
         }
@@ -423,7 +423,7 @@ public:
         {
             return;
         }
-        for (const common::StorageStarvation *w : { &m_coreStorage, &m_replayStorage })
+        for (const runtime::StorageStarvation *w : { &m_coreStorage, &m_replayStorage })
         {
             if (w->expired(m_nowNs))
             {
@@ -562,7 +562,7 @@ public:
 
     void onClientNewLeader(const client::NewLeaderInfo &info) noexcept override
     {
-        log(common::LogLevel::INFO, "core NewLeaderEvent: term %lld -> %lld, leader %d (offers in the ended term %llu)",
+        log(runtime::LogLevel::INFO, "core NewLeaderEvent: term %lld -> %lld, leader %d (offers in the ended term %llu)",
             static_cast<long long>(info.previousLeadershipTermId), static_cast<long long>(info.leadershipTermId),
             info.leaderMemberId, static_cast<unsigned long long>(info.offersInEndedTerm));
         if (app_seams::disabled(app_seams::Rule::FENCE_WAITS_REPORT_OFF))
@@ -719,7 +719,7 @@ private:
         }
     }
 
-    void log(common::LogLevel level, const char *format, ...) __attribute__((format(printf, 3, 4)))
+    void log(runtime::LogLevel level, const char *format, ...) __attribute__((format(printf, 3, 4)))
     {
         if (nullptr == m_log)
         {
@@ -745,7 +745,7 @@ private:
         va_start(args, format);
         std::vsnprintf(m_stop.detail, sizeof(m_stop.detail), format, args);
         va_end(args);
-        log(EXIT_SOFTWARE == m_stop.exitCode ? common::LogLevel::CRITICAL : common::LogLevel::ERROR, "STOP %s exit %d: %s",
+        log(EXIT_SOFTWARE == m_stop.exitCode ? runtime::LogLevel::CRITICAL : runtime::LogLevel::ERROR, "STOP %s exit %d: %s",
             code, m_stop.exitCode, m_stop.detail);
     }
 
@@ -773,12 +773,12 @@ private:
         const std::size_t current = detail::currentOf(m_sources);
         if (m_tap.sourceIsDead(current))
         {
-            log(common::LogLevel::INFO, "stop: source %zu is dead (%s): detached without stopReplay", current,
+            log(runtime::LogLevel::INFO, "stop: source %zu is dead (%s): detached without stopReplay", current,
                 archive::faultName(m_tap.lastFault(current)));
         }
         else if (lateAtStart || stopIsLate())
         {
-            log(common::LogLevel::WARN, "stop: the stop request is %.1f s old (>= the join bound %.0f s - the archive "
+            log(runtime::LogLevel::WARN, "stop: the stop request is %.1f s old (>= the join bound %.0f s - the archive "
                 "timeout %.0f s): source %zu detached without stopReplay (the replay ends with this process; the next "
                 "start re-lists)", static_cast<double>(steadyNs() - m_stopRequestedAtNs) / 1e9,
                 static_cast<double>(STOP_JOIN_BOUND_NS) / 1e9, static_cast<double>(STOP_ARCHIVE_TIMEOUT_NS) / 1e9, current);
@@ -867,18 +867,18 @@ private:
             const std::int64_t term = m_client.leadershipTermId();
             if (m.leadershipTermId < term)
             {
-                if (common::shouldLog(++m_counters.coreStaleTerm))
+                if (runtime::shouldLog(++m_counters.coreStaleTerm))
                 {
-                    log(common::LogLevel::WARN, "core frame of ended term %lld dropped (client term %lld)",
+                    log(runtime::LogLevel::WARN, "core frame of ended term %lld dropped (client term %lld)",
                         static_cast<long long>(m.leadershipTermId), static_cast<long long>(term));
                 }
                 return;
             }
             if (m.leadershipTermId > term)
             {
-                if (common::shouldLog(++m_counters.coreFutureTerm))
+                if (runtime::shouldLog(++m_counters.coreFutureTerm))
                 {
-                    log(common::LogLevel::WARN, "core frame of a later term %lld dropped before its NewLeaderEvent (client "
+                    log(runtime::LogLevel::WARN, "core frame of a later term %lld dropped before its NewLeaderEvent (client "
                         "term %lld)", static_cast<long long>(m.leadershipTermId), static_cast<long long>(term));
                 }
                 return;
@@ -999,7 +999,7 @@ private:
             }
             // 6.2: the core forgot this session's registration inside a live session
             m_counters.registrationLost++;
-            log(common::LogLevel::WARN, "core says this session is unregistered (OrderReject naming %u): re-registering "
+            log(runtime::LogLevel::WARN, "core says this session is unregistered (OrderReject naming %u): re-registering "
                 "and fencing (SESSION_REESTABLISHED)", static_cast<unsigned>(r.refTemplateId));
             m_registrar.requestReRegistration();
             domainCall();
@@ -1021,9 +1021,9 @@ private:
             return;
         }
         m_counters.orderReject[r.reasonRaw]++;
-        if (common::shouldLog(m_counters.orderReject[r.reasonRaw]))
+        if (runtime::shouldLog(m_counters.orderReject[r.reasonRaw]))
         {
-            log(common::LogLevel::WARN, "core OrderReject naming %u reason %u (counted)", static_cast<unsigned>(r.refTemplateId),
+            log(runtime::LogLevel::WARN, "core OrderReject naming %u reason %u (counted)", static_cast<unsigned>(r.refTemplateId),
                 static_cast<unsigned>(r.reasonRaw));
         }
     }
@@ -1048,7 +1048,7 @@ private:
         {
             case ConnectError::ATTEMPTS_EXHAUSTED:
                 m_counters.connectCyclesFailed++;
-                log(common::LogLevel::WARN, "core connect cycle exhausted: %s", m_client.lastDetail().c_str());
+                log(runtime::LogLevel::WARN, "core connect cycle exhausted: %s", m_client.lastDetail().c_str());
                 return true;
             case ConnectError::CLUSTER_ERROR:
                 if (namesProtocolVersion(m_client.lastDetail()))
@@ -1058,7 +1058,7 @@ private:
                 }
                 m_counters.connectClusterErrors++;
                 m_counters.connectCyclesFailed++;
-                log(common::LogLevel::ERROR, "core CLUSTER_ERROR (retrying, F12): %s", m_client.lastDetail().c_str());
+                log(runtime::LogLevel::ERROR, "core CLUSTER_ERROR (retrying, F12): %s", m_client.lastDetail().c_str());
                 return true;
             default:
                 stop(EXIT_CONFIG, "F9_REFUSED", "core connect refused (%s): %s", client::nameOf(m_client.connectError()),
@@ -1128,7 +1128,7 @@ private:
             if (m_registrar.retryAfterRejection())
             {
                 m_counters.duplicateIdentityRetries++;
-                log(common::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44) in an earlier session or "
+                log(runtime::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44) in an earlier session or "
                     "term: retry %llu now in session epoch %lld term %lld, %.1f s of the %.1f s connected budget used",
                     static_cast<unsigned long long>(m_counters.duplicateIdentityRetries), static_cast<long long>(epoch),
                     static_cast<long long>(term), static_cast<double>(m_dupHeldNs) / 1e9, static_cast<double>(budgetNs) / 1e9);
@@ -1149,7 +1149,7 @@ private:
         if (m_dupNextNs < 0)
         {
             m_dupNextNs = m_nowNs + m_dupBackoffNs;
-            log(common::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44): identity %lld is held by "
+            log(runtime::LogLevel::WARN, "RegisterSession REJECTED DUPLICATE_IDENTITY (reason 44): identity %lld is held by "
                 "another live session (the previous process before its core session timeout?); retry %llu in %lld ms, "
                 "%.1f s of the %.1f s connected budget left", static_cast<long long>(m_settings.identity),
                 static_cast<unsigned long long>(m_counters.duplicateIdentityRetries + 1),
@@ -1200,7 +1200,7 @@ private:
         {
             m_counters.sessionLosses[reason]++;
         }
-        log(common::LogLevel::WARN, "core session lost (%s): %s", client::nameOf(m_client.closeReason()),
+        log(runtime::LogLevel::WARN, "core session lost (%s): %s", client::nameOf(m_client.closeReason()),
             m_client.lastDetail().c_str());
         if (!app_seams::disabled(app_seams::Rule::RECONNECT_WITHOUT_SESSION_DOWN))
         {
@@ -1224,7 +1224,7 @@ private:
             m_domain.onSessionUp(m_now);
             m_counters.sessionUps++;
             m_upReportedFor = key;
-            log(common::LogLevel::INFO, "registered: session %lld term %lld (epoch %llu): sync from the core's cursor",
+            log(runtime::LogLevel::INFO, "registered: session %lld term %lld (epoch %llu): sync from the core's cursor",
                 static_cast<long long>(m_client.clusterSessionId()), static_cast<long long>(key.term),
                 static_cast<unsigned long long>(key.sessionEpoch));
         }
@@ -1268,7 +1268,7 @@ private:
                 {
                     m_link = CoreLink::C2_CONNECTED;
                     m_pendingSinceNs = -1;
-                    log(common::LogLevel::INFO, "core session %lld open, term %lld",
+                    log(runtime::LogLevel::INFO, "core session %lld open, term %lld",
                         static_cast<long long>(m_client.clusterSessionId()), static_cast<long long>(m_client.leadershipTermId()));
                     break;
                 }
@@ -1361,7 +1361,7 @@ private:
         {
             const domain::bridge::VerdictEvent &v = m_verdictBuffer[i];
             m_counters.verdictEvents++;
-            log(common::LogLevel::INFO, "verdict source %zu e %lld %s seq %lld epoch %lld bad %s fault %s", v.source,
+            log(runtime::LogLevel::INFO, "verdict source %zu e %lld %s seq %lld epoch %lld bad %s fault %s", v.source,
                 static_cast<long long>(v.e), domain::bridge::verdictName(v.kind), static_cast<long long>(v.seq),
                 static_cast<long long>(v.epoch),
                 domain::bridge::BadReason::COUNT == v.bad ? "-" : domain::bridge::badReasonLabel(v.bad),
@@ -1375,19 +1375,19 @@ private:
         {
             if (h.active && (!m_loggedHaltActive || h.correlationId != m_loggedHaltCorrelation))
             {
-                log(common::LogLevel::WARN, "halt %s e %lld seen %lld epoch %lld: FeedHalt %s",
+                log(runtime::LogLevel::WARN, "halt %s e %lld seen %lld epoch %lld: FeedHalt %s",
                     domain::bridge::bridgeHaltName(h.halt), static_cast<long long>(h.e), static_cast<long long>(h.seen),
                     static_cast<long long>(h.syncEpoch), h.sendsFeedHalt() ? "pending" : "none (CORE_REFUSED)");
             }
             if (h.active && h.acked && !(m_loggedHaltAcked && h.correlationId == m_loggedHaltCorrelation) &&
                 h.sendsFeedHalt())
             {
-                log(common::LogLevel::INFO, "FeedHalt AdminAck %s e %lld seen %lld (ACCEPTED or DUPLICATE)",
+                log(runtime::LogLevel::INFO, "FeedHalt AdminAck %s e %lld seen %lld (ACCEPTED or DUPLICATE)",
                     domain::bridge::bridgeHaltName(h.halt), static_cast<long long>(h.e), static_cast<long long>(h.seen));
             }
             if (!h.active && m_loggedHaltActive)
             {
-                log(common::LogLevel::INFO, "halt left: cursor %lld last %lld", static_cast<long long>(m_domain.view().cursor),
+                log(runtime::LogLevel::INFO, "halt left: cursor %lld last %lld", static_cast<long long>(m_domain.view().cursor),
                     static_cast<long long>(m_domain.view().last));
             }
             m_loggedHaltActive = h.active;
@@ -1399,7 +1399,7 @@ private:
         {
             // The same refusal is a journal left from another release OR a bridge of another build; never
             // tell the operator to wipe a valid journal over a version skew
-            log(common::LogLevel::WARN,
+            log(runtime::LogLevel::WARN,
                 "foreign journal at the chain head of every source (journal schema %d, this bridge reads schema %u): no "
                 "successor walk; check the bridge build against the ME journal schema first, wipe only a journal left "
                 "from another release",
@@ -1431,13 +1431,13 @@ private:
     ObserverTap &m_tap;
     archive::ArchiveMetrics &m_archive;
     AgentSettings m_settings;
-    common::LogRing *m_log;
-    common::DutyHeartbeat *m_heartbeat;
+    runtime::LogRing *m_log;
+    runtime::DutyHeartbeat *m_heartbeat;
     AppCounters m_counters;
-    common::StorageStarvation m_coreStorage;   // the core ingress publication's starvation episode
-    common::StorageStarvation m_replayStorage;
-    common::StorageStarvation m_anyStorage;    // either of them: bridge_storage_starved_seconds_total
-    common::ClientStorageFeed<CoreClient> m_coreStorageFeed;
+    runtime::StorageStarvation m_coreStorage;   // the core ingress publication's starvation episode
+    runtime::StorageStarvation m_replayStorage;
+    runtime::StorageStarvation m_anyStorage;    // either of them: bridge_storage_starved_seconds_total
+    runtime::ClientStorageFeed<CoreClient> m_coreStorageFeed;
     std::uint64_t m_seenReplayStorage = 0;
     std::uint64_t m_seenReplayOther = 0;
     domain::bridge::BridgeMetrics m_metrics;

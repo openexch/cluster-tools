@@ -5,7 +5,7 @@
 #include <limits>
 #include <random>
 
-#include "common/DriverTimeout.h"
+#include "cluster_tools/runtime/DriverTimeout.h"
 #include "common/RetiredSettings.h"
 
 #include "AppSeams.h"
@@ -149,7 +149,7 @@ client::ClientSettings meClientSettings(const ForwarderConfig &config)
     return s;
 }
 
-ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProbe &probe)
+ConfigResult parseForwarderConfig(const EnvGetter &getenv, const runtime::DirProbe &probe)
 {
     ConfigResult r;
     ForwarderConfig &c = r.config;
@@ -246,7 +246,7 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProb
         else
         {
             std::string error;
-            const auto timeout = common::parseDriverTimeoutMs("FWD_DRIVER_TIMEOUT_MS", raw, error);
+            const auto timeout = runtime::parseDriverTimeoutMs("FWD_DRIVER_TIMEOUT_MS", raw, error);
             if (timeout)
             {
                 c.driverTimeoutMs = *timeout;

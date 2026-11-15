@@ -1,0 +1,32 @@
+# cluster_tools package config (generated from cmake/cluster_toolsConfig.cmake.in; cmake/Package.cmake says what is in it).
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+include("${CMAKE_CURRENT_LIST_DIR}/cluster_toolsTargets.cmake")
+
+# What this package was built from: a consumer compares these with its own lock and refuses a mismatch.
+set(cluster_tools_SOURCE_SHA "@CT_SOURCE_SHA_EFFECTIVE@")
+set(cluster_tools_WITH_AERON @CT_PACKAGE_WITH_AERON@)
+set(cluster_tools_AERON_VERSION "@CT_PACKAGE_AERON_VERSION@")
+set(cluster_tools_MONEY_SCHEMA_VERSION "@CT_PACKAGE_MONEY_SCHEMA_VERSION@")
+set(cluster_tools_MONEY_SCHEMA_SHA256 "@CT_PACKAGE_MONEY_SCHEMA_SHA256@")
+set(cluster_tools_COMPONENTS_BUILT "@CT_PACKAGE_COMPONENTS@")
+
+# A component is the target cluster_tools::<component>. One that this build did not make is not found, by name: there
+# is no fallback to a partial package.
+foreach(_ct_component IN LISTS cluster_tools_FIND_COMPONENTS)
+    if(TARGET "cluster_tools::${_ct_component}")
+        set(cluster_tools_${_ct_component}_FOUND TRUE)
+    else()
+        set(cluster_tools_${_ct_component}_FOUND FALSE)
+        if(cluster_tools_FIND_REQUIRED_${_ct_component})
+            string(APPEND cluster_tools_NOT_FOUND_MESSAGE
+                "cluster_tools component '${_ct_component}' is not in this package (built: ${cluster_tools_COMPONENTS_BUILT}). ")
+        endif()
+    endif()
+endforeach()
+unset(_ct_component)
+
+check_required_components(cluster_tools)
