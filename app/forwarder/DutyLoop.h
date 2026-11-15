@@ -85,9 +85,12 @@ inline HttpResponse route(const HttpRequest &request, const StatusBoard &board, 
     if ("GET" == request.method && "/health" == request.path)
     {
         const bool stalled = supervisor.stalled(Supervisor::monotonicNs());
-        response.status = stalled ? 503 : 200;
+        const ForwarderSnapshot s = board.read();
+        // Before the duty thread's first snapshot publish the board still holds defaults (driver mode unset, identity 0):
+        // that is not healthy, so /health stays 503 until the first publish
+        response.status = stalled || 0 == s.sequence ? 503 : 200;
         response.contentType = "application/json";
-        response.body = renderHealthJson(board.read(), stalled);
+        response.body = renderHealthJson(s, stalled);
         return response;
     }
     if ("GET" == request.method && "/ready" == request.path)

@@ -140,6 +140,10 @@ TEST_CASE("MainTest.healthTurnsStalledWithTheWatchdog")
     std::string resync;
     supervisor.run([&] {
         board.beat();
+        const std::string before = get(http.boundPort(), "GET /health HTTP/1.0\r\n\r\n");
+        CHECK(before.rfind("HTTP/1.0 503", 0) == 0); // no snapshot published yet: not healthy
+        ForwarderSnapshot first;
+        board.tryPublish(first);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         healthy = get(http.boundPort(), "GET /health HTTP/1.0\r\n\r\n");
         notFound = get(http.boundPort(), "GET /admin HTTP/1.0\r\n\r\n");
