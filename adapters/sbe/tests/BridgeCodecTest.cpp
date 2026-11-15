@@ -312,9 +312,15 @@ TEST_CASE("BridgeEgressCodecTest.decodesTheCoreEgressAndEncodesTheControlFramesL
     Bytes shortBlock = JAVA_FEED_POSITION_REPORT_V7;
     shortBlock.resize(8 + 40);
     CHECK(BridgeCodec::decodeEgress(shortBlock.data(), shortBlock.size(), e) == EgressKind::MALFORMED);
-    Bytes wrongVersion = JAVA_SETTLE_REJECTED;
-    wrongVersion[6] = 8;
-    CHECK(BridgeCodec::decodeEgress(wrongVersion.data(), wrongVersion.size(), e) == EgressKind::MALFORMED);
+    // the header version is exact: the next version and the previous core's version are both MALFORMED
+    constexpr std::uint16_t moneyVersion = cluster_tools::sbe_adapter::bridge_codec::MONEY_VERSION;
+    for (const std::uint16_t version : { static_cast<std::uint16_t>(moneyVersion + 1), static_cast<std::uint16_t>(moneyVersion - 1) })
+    {
+        CAPTURE(version);
+        Bytes wrongVersion = JAVA_SETTLE_REJECTED;
+        wrongVersion[6] = static_cast<std::uint8_t>(version);
+        CHECK(BridgeCodec::decodeEgress(wrongVersion.data(), wrongVersion.size(), e) == EgressKind::MALFORMED);
+    }
     // other templates are not the domain's
     CHECK(BridgeCodec::decodeEgress(JAVA_ME_DISPATCH_BATCH.data(), JAVA_ME_DISPATCH_BATCH.size(), e) == EgressKind::IGNORED);
     CHECK(BridgeCodec::decodeEgress(JAVA_REGISTER_SESSION.data(), 4, e) == EgressKind::MALFORMED);

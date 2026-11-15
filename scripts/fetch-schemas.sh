@@ -13,7 +13,7 @@
 # A newer schema is taken by bumping *_ref and *_sha256 in the lock, or by pointing
 # -DMONEY_SCHEMA / -DMATCH_SCHEMA at the file directly: the CMake configure check validates their
 # structure (schema id, version floor, required templates). The ME journal schema is pinned by exact
-# sha256 always, and with -DWITH_BRIDGE=ON the money schema is too (the bridge's exact v7 core wire).
+# sha256 always, and with -DWITH_BRIDGE=ON the money schema is too (the bridge's exact core wire).
 set -euo pipefail
 
 if [ $# -ne 3 ]; then

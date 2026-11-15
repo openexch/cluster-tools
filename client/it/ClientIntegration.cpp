@@ -329,9 +329,9 @@ int scenarioAuth(const std::string &dir, const std::string &ingress, const std::
             nameOf(ok.registrar->state()) + ")");
         runUntil({ &ok }, [&] { return ok.admissionStates > 0; }, 5'000);
         check(ok.admissionStates > 0, "ORIGIN AdmissionState after registration");
-        check(ok.admissionVersion == 7 && ok.admissionBlock == 27 &&
+        check(ok.admissionVersion == 8 && ok.admissionBlock == 27 &&
                 ok.admissionBlock == money::AdmissionState::sbeBlockLength(),
-            "AdmissionState arrives at money v7, block 27 (got v" + std::to_string(ok.admissionVersion) +
+            "AdmissionState arrives at money v8, block 27 (got v" + std::to_string(ok.admissionVersion) +
             " block " + std::to_string(ok.admissionBlock) + ")");
         printCounters("auth", ok.client);
         std::printf("  redirects on connect: %llu (leader %d)\n",

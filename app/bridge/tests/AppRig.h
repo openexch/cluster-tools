@@ -138,7 +138,7 @@ inline std::uint16_t rd16(const std::uint8_t *p)
 
 inline bool isRegisterSession(const std::uint8_t *p, std::size_t n)
 {
-    return n >= 8 && 80 == rd16(p + 2) && 2 == rd16(p + 4) && 7 == rd16(p + 6);
+    return n >= 8 && 80 == rd16(p + 2) && 2 == rd16(p + 4) && money::MessageHeader::sbeSchemaVersion() == rd16(p + 6);
 }
 
 // ------------------------------------------------------------------ an allocation-free transport (zeroAllocDutyIteration)
@@ -277,7 +277,7 @@ struct AppRigT
     std::int32_t image = 900;
     bool answerConnects = true;
     std::set<std::int64_t> answered;
-    std::uint16_t moneyVersion = 7;
+    std::uint16_t moneyVersion = money::MessageHeader::sbeSchemaVersion();
 
     // the registration model
     enum class Reg
@@ -520,7 +520,7 @@ struct AppRigT
         if (a.registerSession)
         {
             money::RegisterSession d(const_cast<char *>(reinterpret_cast<const char *>(a.payload.data())), 8,
-                a.payload.size(), money::RegisterSession::sbeBlockLength(), 7);
+                a.payload.size(), money::RegisterSession::sbeBlockLength(), money::MessageHeader::sbeSchemaVersion());
             const std::int64_t corr = d.correlationId();
             registerCorrelations.push_back(corr);
             switch (reg)

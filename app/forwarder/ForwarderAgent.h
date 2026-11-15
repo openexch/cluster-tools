@@ -803,8 +803,9 @@ private:
         }
         if (codec::MONEY_VERSION != h.version)
         {
-            stop(EXIT_CONFIG, "F9_MONEY_VERSION", "core frame template %u has money-schema version %u, this binary speaks 7",
-                static_cast<unsigned>(h.templateId), static_cast<unsigned>(h.version));
+            stop(EXIT_CONFIG, "F9_MONEY_VERSION", "core frame template %u has money-schema version %u, this binary speaks %u",
+                static_cast<unsigned>(h.templateId), static_cast<unsigned>(h.version),
+                static_cast<unsigned>(codec::MONEY_VERSION));
             return;
         }
         m_resync.onCoreFrame(m_now); // T9: every core frame of this term restarts the 108 timer

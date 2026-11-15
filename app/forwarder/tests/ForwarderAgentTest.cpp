@@ -1,5 +1,5 @@
 // ForwarderAgent<ClusterClient<FakeTransport>, ClusterClient<FakeTransport>> with a
-// manual clock. Every frame the agent sees is a real money-schema v7 / order-schema v12 encoding; every frame
+// manual clock. Every frame the agent sees is a real money-schema v8 / order-schema v12 encoding; every frame
 // it offers is decoded back.
 #include "doctest/doctest.h"
 
@@ -573,6 +573,26 @@ TEST_CASE("ForwarderAgentTest.exitSeams")
         Rig r;
         r.bringUp();
         r.core_(dispatchFrame(create(1, 101), 6));
+        r.cycles(3);
+        CHECK(r.agent.stopReason().exitCode == 78);
+        CHECK(std::string(r.agent.stopReason().code) == "F9_MONEY_VERSION");
+        CHECK(r.meOffers().empty());
+    }
+    SUBCASE("a frame of the previous money version (MONEY_VERSION - 1): 78")
+    {
+        Rig r;
+        r.bringUp();
+        r.core_(dispatchFrame(create(1, 101), static_cast<std::uint16_t>(codec::MONEY_VERSION - 1)));
+        r.cycles(3);
+        CHECK(r.agent.stopReason().exitCode == 78);
+        CHECK(std::string(r.agent.stopReason().code) == "F9_MONEY_VERSION");
+        CHECK(r.meOffers().empty());
+    }
+    SUBCASE("a frame of the next money version (MONEY_VERSION + 1): 78")
+    {
+        Rig r;
+        r.bringUp();
+        r.core_(dispatchFrame(create(1, 101), static_cast<std::uint16_t>(codec::MONEY_VERSION + 1)));
         r.cycles(3);
         CHECK(r.agent.stopReason().exitCode == 78);
         CHECK(std::string(r.agent.stopReason().code) == "F9_MONEY_VERSION");

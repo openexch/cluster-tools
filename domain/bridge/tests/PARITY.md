@@ -19,7 +19,7 @@ Rules that replace Java behaviour, referenced in the notes:
   `seq <= cursor` is skipped; nothing is ever forwarded past a hole.
 - A resume proof comes only from a record at or below the cursor, on its own source and recording. Staged,
   unsent or unacknowledged records never prove.
-- Money schema v7 templates replace the v5 shapes: trades go as one 62 batch (cap 64), terminals as a 63
+- Money schema v7 templates (unchanged in v8) replace the v5 shapes: trades go as one 62 batch (cap 64), terminals as a 63
   carrying the raw status. The v5 SettleBatch and TerminalRelease shapes are refused for the BRIDGE role.
 
 ## BridgeFilterTest (6)
@@ -39,7 +39,7 @@ Rules that replace Java behaviour, referenced in the notes:
 |---|---|---|
 | `translatesTradeFieldForField_takerIsBuyTrue` | `TranslatorGoldenTest` (`fx_trade`, the Java reference translation), `TranslatorDifferentialTest`, `BridgeAppCodecTest.tradeGetterReadsTheGeneratedOffsets` | every field verbatim against the Java reference bytes |
 | `translatesTradeFieldForField_takerIsBuyFalse` | `TranslatorGoldenTest`, `RawEnumsAreWrittenVerbatim` (takerIsBuy 0..255 raw) | |
-| `translateTradeCarriesLargeEgressSeqAsJournalPositionVerbatim` | `TranslatorGoldenTest` (`head_extremes`), `TranslatorDifferentialTest`, `TranslatorIdentityTest` | money v7 carries `egressSeq` and `journalSeq` as separate fields |
+| `translateTradeCarriesLargeEgressSeqAsJournalPositionVerbatim` | `TranslatorGoldenTest` (`head_extremes`), `TranslatorDifferentialTest`, `TranslatorIdentityTest` | money v7 and later carry `egressSeq` and `journalSeq` as separate fields |
 | `stagedTradesEncodeAsOneSettleBatchFieldForFieldInOrder` | `TranslatorGoldenTest` (`two_trades`, `trades_64`), `StagingTest.outcomeIsForwardedAndFlushesStagedTrades` | the batch is the 62 |
 | `stagingPastTheCapThrowsRatherThanDroppingASettlement` | `StagingTest.capSixtyFourSplits`, `.backPressureKeepsEverythingAndAborts`, `TranslatorGoldenTest` (`trades_65`) | the cap flushes at the 64th; nothing staged is ever dropped |
 | `translatesTerminalFilledToTerminalReleaseShape` | retired | the v5 TerminalRelease is refused for BRIDGE; the 63 carries the status raw: `TranslatorGoldenTest` (`fx_terminal`), `RawEnumsAreWrittenVerbatim` |

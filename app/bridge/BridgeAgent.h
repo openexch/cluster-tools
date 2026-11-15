@@ -897,11 +897,13 @@ private:
             ignored(templateId);
             return;
         }
-        // row 1: this binary speaks money v7 exactly, in every link state
+        // row 1: this binary speaks exactly the money version it was generated from (codec::MONEY_VERSION), in every
+        // link state
         if (codec::MONEY_VERSION != version)
         {
             stop(EXIT_CONFIG, "F10_WRONG_CORE_VERSION", "core frame template %u has money-schema version %u; this binary "
-                "speaks 7 (a wrong core for this binary)", static_cast<unsigned>(templateId), static_cast<unsigned>(version));
+                "speaks %u (a wrong core for this binary)", static_cast<unsigned>(templateId), static_cast<unsigned>(version),
+                static_cast<unsigned>(codec::MONEY_VERSION));
             return;
         }
         switch (templateId)

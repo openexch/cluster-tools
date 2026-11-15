@@ -151,9 +151,9 @@ if(NOT CT_JOURNAL_SHA256 STREQUAL CT_LOCK_JOURNAL_SHA)
 endif()
 
 # The bridge reads the ME journal and writes the core money wire, and the
-# core gate is exact (v7 only). Under WITH_BRIDGE both schemas are pinned by EXACT sha256 and exact
-# root version, unlike the structural floor above: a money v8 file would pass a floor and be refused
-# by the exact-7 core gate at run time (C++ twin).
+# core gate is exact (the pinned version only). Under WITH_BRIDGE both schemas are pinned by EXACT sha256 and exact
+# root version, unlike the structural floor above: a later money file would pass a floor and be refused
+# by the exact core gate at run time (C++ twin).
 if(WITH_BRIDGE)
     string(JSON CT_LOCK_MONEY_SHA GET "${CT_DEPENDENCY_LOCK}" money_schema_sha256)
     if(NOT CT_MONEY_SHA256 STREQUAL CT_LOCK_MONEY_SHA)

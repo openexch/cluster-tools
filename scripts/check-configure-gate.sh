@@ -43,6 +43,15 @@ expect_refused() { # name needle cmake-args...
     rm -rf "$WORK/build-$name"
 }
 
+# The money schema's root version is the lock's pin (money_schema_min_version); the cases below edit the ROOT
+# attribute (the first version="N" of the file: sinceVersion attributes come after it) one below and one above it.
+MONEY_V=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["money_schema_min_version"])' "$HERE/dependencies.lock")
+MONEY_PREV=$((MONEY_V - 1))
+MONEY_NEXT=$((MONEY_V + 1))
+if ! grep -q "^[[:space:]]*version=\"$MONEY_V\"" "$MONEY"; then
+    fail "money schema $MONEY does not carry the root version=\"$MONEY_V\" the lock pins"
+fi
+
 GOOD=(-DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL")
 
 # 1. A tampered Aeron tree, repacked: one C source changed, version.txt intact.
@@ -75,16 +84,25 @@ expect_refused retired-parity-tree "the cache variable CT_PARITY_ASSETS_TREE is 
     "${GOOD[@]}" -DCT_PARITY_ASSETS_TREE="$WORK"
 
 # 5-7. Schemas: missing, below the floor, required template removed. The negatives the
-# pin rules name: the v11 order schema, a money-schema v6, an ME journal whose hash differs,
+# pin rules name: the v11 order schema, the previous money-schema version, an ME journal whose hash differs,
 # a v12 order schema whose template 9 lost timeInForce.
 SCHEMAS=(-DAERON_TARBALL="$TARBALL" -DSBE_CLASSPATH="$SBE_CP")
 expect_refused no-money-schema "is required" "${SCHEMAS[@]}" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
 sed '0,/version="12"/s//version="11"/' "$MATCH" > "$WORK/order-v11.xml"
 expect_refused match-v11-below-floor "below the floor" "${SCHEMAS[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$WORK/order-v11.xml" -DME_JOURNAL_SCHEMA="$JOURNAL"
-sed '0,/version="7"/s//version="6"/' "$MONEY" > "$WORK/money-v6.xml"
-expect_refused money-v6-below-floor "below the floor" "${SCHEMAS[@]}" \
-    -DMONEY_SCHEMA="$WORK/money-v6.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed "0,/version=\"$MONEY_V\"/s//version=\"$MONEY_PREV\"/" "$MONEY" > "$WORK/money-prev.xml"
+expect_refused money-prev-below-floor "below the floor" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$WORK/money-prev.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
+python3 -I - "$MONEY" "$WORK/money-no117.xml" <<'PY'
+import sys
+xml = open(sys.argv[1]).read()
+needle = '<sbe:message name="UserBalances" id="117"'
+assert xml.count(needle) == 1
+open(sys.argv[2], 'w').write(xml.replace(needle, '<sbe:message name="UserBalancesX" id="199"'))
+PY
+expect_refused money-no-template-117 "template 117 is missing" "${SCHEMAS[@]}" \
+    -DMONEY_SCHEMA="$WORK/money-no117.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
 sed 's/<sbe:message name="DurableOrderCommand" id="9"/<sbe:message name="DurableOrderCommandX" id="99"/' "$MATCH" \
     > "$WORK/order-no9.xml"
 expect_refused match-no-template-9 "template 9 is missing" "${SCHEMAS[@]}" \
@@ -122,20 +140,22 @@ fi
 expect_refused bridge-without-aeron "WITH_BRIDGE=ON requires WITH_AERON=ON" "${GOOD[@]}" -DWITH_BRIDGE=ON -DWITH_AERON=OFF
 expect_refused bridge-no-journal-schema "is required" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
-sed '0,/version="7"/s//version="7" /' "$MONEY" > "$WORK/money-edited.xml"
+sed "0,/version=\"$MONEY_V\"/s//version=\"$MONEY_V\" /" "$MONEY" > "$WORK/money-edited.xml"
 expect_refused bridge-money-hash-differs "the bridge needs the exact core wire" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$WORK/money-edited.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
-sed '0,/version="7"/s//version="8"/' "$MONEY" > "$WORK/money-v8.xml"
-expect_refused bridge-money-v8 "WITH_BRIDGE=ON: MONEY_SCHEMA" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
-    -DMONEY_SCHEMA="$WORK/money-v8.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
+sed "0,/version=\"$MONEY_V\"/s//version=\"$MONEY_NEXT\"/" "$MONEY" > "$WORK/money-next.xml"
+expect_refused bridge-money-next "WITH_BRIDGE=ON: MONEY_SCHEMA" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
+    -DMONEY_SCHEMA="$WORK/money-next.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
 sed '0,/version="1"/s//version="2"/' "$JOURNAL" > "$WORK/journal-v2.xml"
 expect_refused bridge-journal-v2 "dependencies.lock pins" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$WORK/journal-v2.xml"
 if [ -n "$AERON_ALL" ]; then
     cp "$AERON_ALL" "$WORK/aeron-all-other.jar"
     printf 'x' >> "$WORK/aeron-all-other.jar"
-    expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" "${BRIDGE[@]}" -DCT_INTEGRATION_TESTS=ON \
-        -DCT_IT_CORE_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
+    # the driver is built here (the later -D wins over expect_refused's OFF): the jar check, not the driver rule, must refuse
+    expect_refused bridge-it-jar-sha "CT_IT_AERON_ALL_JAR" "${GOOD[@]}" "${BRIDGE[@]}" -DCT_BUILD_MEDIA_DRIVER=ON \
+        -DCT_INTEGRATION_TESTS=ON -DCT_IT_CORE_JAR="$MONEY" -DCT_IT_MATCH_JAR="$MATCH" \
+        -DCT_IT_AERON_ALL_JAR="$WORK/aeron-all-other.jar"
 fi
 # ct-bridge links aeron_driver_static (the embedded driver mode), so WITH_BRIDGE needs the driver built
 expect_refused bridge-without-driver "needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}" "${BRIDGE[@]}"
