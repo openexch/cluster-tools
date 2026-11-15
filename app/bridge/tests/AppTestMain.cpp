@@ -3,11 +3,11 @@
 #define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest/doctest.h"
 
-#include "common/Supervisor.h"
+#include "cluster_tools/runtime/Supervisor.h"
 
 int main(int argc, char **argv)
 {
-    cluster_tools::app::common::Supervisor::blockSignals();
+    cluster_tools::runtime::Supervisor::blockSignals();
     doctest::Context context(argc, argv);
     return context.run();
 }

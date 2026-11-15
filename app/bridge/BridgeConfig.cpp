@@ -11,7 +11,7 @@
 #include <optional>
 #include <utility>
 
-#include "common/DriverTimeout.h"
+#include "cluster_tools/runtime/DriverTimeout.h"
 #include "common/RetiredSettings.h"
 
 #include "AppSeams.h"
@@ -327,7 +327,7 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
     }
     {
         std::string error;
-        const auto timeout = common::parseDriverTimeoutMs("BRIDGE_DRIVER_TIMEOUT_MS", getenv("BRIDGE_DRIVER_TIMEOUT_MS"), error);
+        const auto timeout = runtime::parseDriverTimeoutMs("BRIDGE_DRIVER_TIMEOUT_MS", getenv("BRIDGE_DRIVER_TIMEOUT_MS"), error);
         if (timeout)
         {
             c.driverTimeoutMs = *timeout;

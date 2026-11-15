@@ -1,4 +1,4 @@
-#include "common/EmbeddedDriver.h"
+#include "cluster_tools/runtime/EmbeddedDriver.h"
 
 #include <fcntl.h>
 #include <sys/file.h>
@@ -16,9 +16,9 @@ extern "C" {
 #include "aeronmd.h"
 }
 
-#include "common/DriverTimeout.h"
+#include "cluster_tools/runtime/DriverTimeout.h"
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 namespace {
 
@@ -257,4 +257,4 @@ bool EmbeddedDriver::close(std::int64_t boundMs)
     return finished;
 }
 
-}}}
+}}

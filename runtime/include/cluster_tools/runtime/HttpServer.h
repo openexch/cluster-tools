@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_HTTP_SERVER_H
-#define CLUSTER_TOOLS_APP_COMMON_HTTP_SERVER_H
+#ifndef CLUSTER_TOOLS_RUNTIME_HTTP_SERVER_H
+#define CLUSTER_TOOLS_RUNTIME_HTTP_SERVER_H
 
 #include <atomic>
 #include <cstdint>
@@ -7,13 +7,13 @@
 #include <string>
 
 // HttpServer - the HTTP thread of ct-forwarder (fwd-http) and ct-bridge (bridge-http)
-// (one copy in app/common): a minimal blocking HTTP/1.0 server for GET
+// (one copy in runtime/): a minimal blocking HTTP/1.0 server for GET
 // /health, /ready, /metrics (and the forwarder's POST /resync). It owns no liveness decision and never touches a session, the
 // ring or the domain: the handler reads the StatusBoard and at most sets the resync atomic. Every accepted
 // socket gets SO_RCVTIMEO / SO_SNDTIMEO of 2 s, so a client that connects and sends nothing cannot hold the
 // thread; shutdown() shuts the listening socket down so a blocked accept() returns (the stop path).
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 struct HttpRequest
 {
@@ -73,6 +73,6 @@ private:
 
 std::string statusText(int status);
 
-}}}
+}}
 
 #endif

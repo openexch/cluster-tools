@@ -1092,10 +1092,10 @@ TEST_CASE("BridgeAgentTest.foreignJournalHeadHealthDetail")
     int warns = 0;
     bool warnNamesSchemas = false, warnBuildFirst = false, warnNoBareWipe = true;
     auto drain = [&] {
-        common::LogRecord rec;
+        runtime::LogRecord rec;
         while (r.log.pop(rec))
         {
-            if (common::LogLevel::WARN == rec.level && std::strstr(rec.text, "foreign journal at the chain head") != nullptr)
+            if (runtime::LogLevel::WARN == rec.level && std::strstr(rec.text, "foreign journal at the chain head") != nullptr)
             {
                 ++warns;
                 // Both schema ids, the build check first, and the wipe only for a journal of another release

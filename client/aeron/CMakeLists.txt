@@ -4,12 +4,15 @@
 # Header-only state machine + registrar: needs the generated cluster and money codecs.
 add_library(ct_client INTERFACE)
 add_library(cluster_tools::client ALIAS ct_client)
+set_target_properties(ct_client PROPERTIES EXPORT_NAME client)
 target_link_libraries(ct_client INTERFACE ct_client_core ct_sbe_codecs)
 
 # Aeron-linked part.
 add_library(ct_client_aeron STATIC src/FatalErrors.cpp)
 add_library(cluster_tools::client_aeron ALIAS ct_client_aeron)
-target_include_directories(ct_client_aeron PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(ct_client_aeron PROPERTIES EXPORT_NAME client_aeron)
+target_include_directories(ct_client_aeron PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(ct_client_aeron PUBLIC ct_client aeron_client_wrapper aeron_static Threads::Threads)
 target_compile_options(ct_client_aeron PRIVATE -Wall -Wextra)
 

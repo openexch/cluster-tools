@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_EMBEDDED_DRIVER_H
-#define CLUSTER_TOOLS_APP_COMMON_EMBEDDED_DRIVER_H
+#ifndef CLUSTER_TOOLS_RUNTIME_EMBEDDED_DRIVER_H
+#define CLUSTER_TOOLS_RUNTIME_EMBEDDED_DRIVER_H
 
 #include <atomic>
 #include <cstdint>
@@ -7,7 +7,7 @@
 #include <string>
 #include <thread>
 
-#include "common/StorageStarvation.h"
+#include "cluster_tools/runtime/StorageStarvation.h"
 
 // EmbeddedDriver - <PROCESS>_DRIVER_MODE=embedded only (dev and demo; the prod mode is the host aeronmd that admin and
 // cloud-console manage): the Aeron C media driver of the verified tree, in this process. One copy for
@@ -36,7 +36,7 @@
 struct aeron_driver_context_stct;
 struct aeron_driver_stct;
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 struct EmbeddedDriverOptions
 {
@@ -98,6 +98,6 @@ private:
     int m_failureErrcode = 0; // aeron_errcode() of a failed aeron_driver_init / aeron_driver_start
 };
 
-}}}
+}}
 
 #endif

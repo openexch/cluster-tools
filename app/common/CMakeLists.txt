@@ -1,20 +1,9 @@
-# app/common - the process machinery ct-forwarder and ct-bridge share (moved out of app/forwarder,
-# one copy): Supervisor (main's sigtimedwait loop, watchdog, stop path, exit seam, NonBlockingLogWriter), HttpServer,
-# LogRing, StatusBoardT, IdleStrategy, DriverTimeout. Pure POSIX: every configuration (the WITH_AERON=OFF job too).
-# WITH_AERON: ConductorWatch (the client-conductor heartbeat check) in ct_app_common_aeron, and
-# EmbeddedDriver.cpp (the embedded media driver of ct-bridge AND ct-forwarder), which each final
-# target compiles itself (CT_EMBEDDED_DRIVER_SOURCE) and links with aeron_driver_static FIRST: a library here would let
-# CMake order aeron_static's client objects ahead of the driver's.
+# app/common - what ct-forwarder and ct-bridge share that is not process machinery: the table of environment
+# variables retired by the rename of the engine to core (RetiredSettings.h). The process machinery itself (Supervisor,
+# HttpServer, LogRing, StatusBoardT, IdleStrategy, DriverTimeout, DirProbe, StorageStarvation, ConductorWatch,
+# EmbeddedDriver) is the runtime library (runtime/), which other repositories link as cluster_tools::runtime*.
+# ct_app_common carries the app/ include root and links ct_runtime, so both processes keep one link name.
 
-add_library(ct_app_common STATIC HttpServer.cpp Supervisor.cpp)
-target_include_directories(ct_app_common PUBLIC "${PROJECT_SOURCE_DIR}/app")
-target_link_libraries(ct_app_common PUBLIC Threads::Threads)
-target_compile_options(ct_app_common PRIVATE -Wall -Wextra)
-
-if(WITH_AERON)
-    add_library(ct_app_common_aeron STATIC ConductorWatch.cpp)
-    target_link_libraries(ct_app_common_aeron PUBLIC ct_app_common ct_client_aeron)
-    target_compile_options(ct_app_common_aeron PRIVATE -Wall -Wextra)
-endif()
-
-set(CT_EMBEDDED_DRIVER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/EmbeddedDriver.cpp" CACHE INTERNAL "app/common's embedded driver")
+add_library(ct_app_common INTERFACE)
+target_include_directories(ct_app_common INTERFACE "${PROJECT_SOURCE_DIR}/app")
+target_link_libraries(ct_app_common INTERFACE ct_runtime)

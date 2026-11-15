@@ -12,7 +12,7 @@ inline constexpr std::int64_t STOP_ARCHIVE_TIMEOUT_NS = 5'000'000'000LL;
 inline constexpr std::int64_t STOP_JOIN_BOUND_NS = STOP_ARCHIVE_TIMEOUT_NS + 2'000'000'000LL;
 inline constexpr std::int64_t STOP_DETACH_AGE_NS = STOP_JOIN_BOUND_NS - STOP_ARCHIVE_TIMEOUT_NS;
 
-// The steady clock of common::Supervisor::monotonicNs (the signal time the duty thread passes in).
+// The steady clock of runtime::Supervisor::monotonicNs (the signal time the duty thread passes in).
 inline std::int64_t steadyNs() noexcept
 {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();

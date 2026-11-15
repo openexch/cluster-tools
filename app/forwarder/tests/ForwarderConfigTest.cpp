@@ -56,16 +56,16 @@ std::map<std::string, std::string> embeddedEnv()
 }
 
 // Every path is an existing writable directory unless named in `missing` / `readOnly` (the bridge's injected probe).
-cluster_tools::app::common::DirProbe fakeDirs(std::set<std::string> missing = {}, std::set<std::string> readOnly = {})
+cluster_tools::runtime::DirProbe fakeDirs(std::set<std::string> missing = {}, std::set<std::string> readOnly = {})
 {
-    cluster_tools::app::common::DirProbe p;
+    cluster_tools::runtime::DirProbe p;
     p.isDirectory = [missing](const std::string &path) { return 0 == missing.count(path); };
     p.isWritable = [readOnly](const std::string &path) { return 0 == readOnly.count(path); };
     return p;
 }
 
 ConfigResult parse(const std::map<std::string, std::string> &env,
-    const cluster_tools::app::common::DirProbe &probe = fakeDirs())
+    const cluster_tools::runtime::DirProbe &probe = fakeDirs())
 {
     return parseForwarderConfig(
         [&env](const char *name) -> const char * {
@@ -358,12 +358,12 @@ TEST_CASE("ForwarderConfigTest.driverDirsAreCheckedAtTheParse")
         fs::create_directories(base + "/there");
         auto env = embeddedEnv();
         env["FWD_DRIVER_DIR"] = base + "/there";
-        CHECK(parse(env, cluster_tools::app::common::systemDirProbe()).ok());
+        CHECK(parse(env, cluster_tools::runtime::systemDirProbe()).ok());
         env["FWD_DRIVER_DIR"] = base + "/missing";
-        CHECK(mentions(parse(env, cluster_tools::app::common::systemDirProbe()), "is not an existing directory"));
+        CHECK(mentions(parse(env, cluster_tools::runtime::systemDirProbe()), "is not an existing directory"));
         auto ext = validEnv();
         ext["AERON_DIR"] = base + "/missing";
-        CHECK(mentions(parse(ext, cluster_tools::app::common::systemDirProbe()), "is not an existing directory"));
+        CHECK(mentions(parse(ext, cluster_tools::runtime::systemDirProbe()), "is not an existing directory"));
         fs::remove_all(base);
     }
 }

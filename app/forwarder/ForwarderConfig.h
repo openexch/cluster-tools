@@ -9,7 +9,7 @@
 #include "cluster_tools/client/ClientSettings.h"
 #include "cluster_tools/client/Credentials.h"
 
-#include "common/DirProbe.h"
+#include "cluster_tools/runtime/DirProbe.h"
 
 // ForwarderConfig - the strict environment: every variable is required, a
 // missing or malformed one refuses to start (exit 78); both credentials must be of class FORWARDER;
@@ -24,10 +24,10 @@
 //   FWD_DRIVER_DIR        embedded only (required there, refused with external): an absolute, existing, writable
 //                         directory at the parse; the parent of the per-instance dir
 //                         <FWD_DRIVER_DIR>/ct-forwarder-<FWD_INSTANCE_ID> and its lock ct-forwarder-<id>.lock.
-//   FWD_DRIVER_TIMEOUT_MS the shared strict parser (app/common/DriverTimeout.h, 3000..60000), given the raw value (no
+//   FWD_DRIVER_TIMEOUT_MS the shared strict parser (runtime/include/cluster_tools/runtime/DriverTimeout.h, 3000..60000), given the raw value (no
 //                         trimming: ' 5000' is refused, as BRIDGE_DRIVER_TIMEOUT_MS): the connect wait, the CnC
 //                         liveness check and the conductor heartbeat threshold; replaces the former constant 5000.
-// The directory checks go through a DirProbe (app/common/DirProbe.h, ct-bridge's rule); tests inject one.
+// The directory checks go through a DirProbe (runtime/include/cluster_tools/runtime/DirProbe.h, ct-bridge's rule); tests inject one.
 //   FWD_INSTANCE_ID       1..INT64_MAX, both modes: the embedded dir's id and the identity on BOTH cluster sessions
 //                         (the core's RegisterSession.identity and the clientInfo of both connect requests), replacing
 //                         the random identity per start (a breaking env change, accepted at beta).
@@ -70,7 +70,7 @@ struct ConfigResult
 
 using EnvGetter = std::function<const char *(const char *name)>;
 
-ConfigResult parseForwarderConfig(const EnvGetter &getenv, const common::DirProbe &probe = common::systemDirProbe());
+ConfigResult parseForwarderConfig(const EnvGetter &getenv, const runtime::DirProbe &probe = runtime::systemDirProbe());
 
 // The identity both cluster sessions carry: FWD_INSTANCE_ID (the IDENTITY_RANDOM RED: a random value per call).
 std::int64_t forwarderIdentity(const ForwarderConfig &config);

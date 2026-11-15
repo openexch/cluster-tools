@@ -52,7 +52,7 @@
 #include "ForwarderDriver.h"
 
 namespace fs = std::filesystem;
-using cluster_tools::app::common::EmbeddedDriver;
+using cluster_tools::runtime::EmbeddedDriver;
 using cluster_tools::app::forwarder::forwarderDriverOptions;
 
 namespace {

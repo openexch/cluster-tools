@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_LOG_RING_H
-#define CLUSTER_TOOLS_APP_COMMON_LOG_RING_H
+#ifndef CLUSTER_TOOLS_RUNTIME_LOG_RING_H
+#define CLUSTER_TOOLS_RUNTIME_LOG_RING_H
 
 #include <atomic>
 #include <cstdarg>
@@ -9,13 +9,13 @@
 #include <cstring>
 #include <memory>
 
-// LogRing - the duty thread never writes to a file descriptor (app/common,
+// LogRing - the duty thread never writes to a file descriptor (runtime/,
 // shared by ct-forwarder and ct-bridge): it formats a fixed
 // record into this single-producer / single-consumer ring and main drains it to stderr once a second. A full
 // ring drops the record and counts it (forwarder_log_dropped_total, bridge_log_dropped_total). No allocation after construction;
 // vsnprintf into the slot does not allocate for the integer/string formats the agent uses.
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 enum class LogLevel : std::uint8_t
 {
@@ -112,6 +112,6 @@ inline bool shouldLog(std::uint64_t occurrences) noexcept
     return 1 == occurrences || 0 == occurrences % 1000;
 }
 
-}}}
+}}
 
 #endif

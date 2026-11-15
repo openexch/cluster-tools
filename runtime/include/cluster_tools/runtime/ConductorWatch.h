@@ -1,12 +1,12 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_CONDUCTOR_WATCH_H
-#define CLUSTER_TOOLS_APP_COMMON_CONDUCTOR_WATCH_H
+#ifndef CLUSTER_TOOLS_RUNTIME_CONDUCTOR_WATCH_H
+#define CLUSTER_TOOLS_RUNTIME_CONDUCTOR_WATCH_H
 
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 
-#include "common/ConductorWatchCore.h"
+#include "cluster_tools/runtime/ConductorWatchCore.h"
 
 namespace aeron { class Aeron; }
 
@@ -21,7 +21,7 @@ namespace aeron { class Aeron; }
 // a counter never found within the timeout = 70, a stale stamp = 70 (named a process pause when this
 // process itself did not run for the timeout).
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 class ConductorWatch
 {
@@ -51,6 +51,6 @@ private:
     std::unique_ptr<ConductorWatchCore> m_core;
 };
 
-}}}
+}}
 
 #endif

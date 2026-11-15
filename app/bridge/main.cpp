@@ -39,10 +39,10 @@
 #include "cluster_tools/client/aeron/FatalErrors.h"
 #include "cluster_tools/domain/bridge/TestSeams.h"
 
-#include "common/ConductorWatch.h"
-#include "common/HttpServer.h"
-#include "common/LogRing.h"
-#include "common/Supervisor.h"
+#include "cluster_tools/runtime/ConductorWatch.h"
+#include "cluster_tools/runtime/HttpServer.h"
+#include "cluster_tools/runtime/LogRing.h"
+#include "cluster_tools/runtime/Supervisor.h"
 
 #include "AppSeams.h"
 #include "BridgeAgent.h"
@@ -60,7 +60,7 @@
 #endif
 
 namespace br = cluster_tools::app::bridge;
-namespace common = cluster_tools::app::common;
+namespace runtime = cluster_tools::runtime;
 namespace cl = cluster_tools::client;
 namespace at = cluster_tools::client::aeron_transport;
 namespace arc = cluster_tools::archive;
@@ -68,9 +68,9 @@ namespace aa = cluster_tools::archive::aeron_archive;
 
 namespace {
 
-common::NonBlockingLogWriter g_stderr(2); // main's log drain never blocks on stderr
+runtime::NonBlockingLogWriter g_stderr(2); // main's log drain never blocks on stderr
 
-void writeRecord(const common::LogRecord &r)
+void writeRecord(const runtime::LogRecord &r)
 {
     g_stderr(r);
 }
@@ -98,9 +98,9 @@ std::atomic<bool> g_parkConductor{ false };
 
 int run()
 {
-    common::Supervisor::blockSignals(); // before any thread (the Aeron conductor and the embedded driver included)
-    common::Supervisor::ignoreSigpipe();
-    common::Supervisor::setProcessName("ct-bridge");
+    runtime::Supervisor::blockSignals(); // before any thread (the Aeron conductor and the embedded driver included)
+    runtime::Supervisor::ignoreSigpipe();
+    runtime::Supervisor::setProcessName("ct-bridge");
 #if defined(CT_BRIDGE_TC_DRIVERSTALL) || defined(CT_BRIDGE_TC_CONDUCTORSTALL)
     {
         sigset_t usr2;
@@ -148,16 +148,16 @@ int run()
         c.ingressEndpoints.c_str(), c.egressEndpoint.c_str(), c.archive.archives.size(), c.httpHost.c_str(),
         static_cast<unsigned>(c.httpPort));
 
-    common::LogRing log;
+    runtime::LogRing log;
     br::BridgeBoard board;
-    common::SupervisorSettings supervisorSettings = br::bridgeSupervisorSettings();
+    runtime::SupervisorSettings supervisorSettings = br::bridgeSupervisorSettings();
     static_assert(br::STOP_ARCHIVE_TIMEOUT_NS == static_cast<std::int64_t>(aa::ARCHIVE_MESSAGE_TIMEOUT_NS));
     static_assert(br::STOP_JOIN_BOUND_NS == 7'000'000'000LL);
-    common::Supervisor supervisor(board, log, supervisorSettings, &common::Supervisor::exitProcess, &writeRecord);
+    runtime::Supervisor supervisor(board, log, supervisorSettings, &runtime::Supervisor::exitProcess, &writeRecord);
 
     // 3.3 step 3: the HTTP bind (78)
     br::HttpContext context;
-    common::HttpServer http([&](const common::HttpRequest &request) { return br::routeBridge(request, context); },
+    runtime::HttpServer http([&](const runtime::HttpRequest &request) { return br::routeBridge(request, context); },
         "BRIDGE_HTTP_BIND");
     std::string error;
     if (!http.bind(c.httpHost, c.httpPort, error))
@@ -172,7 +172,7 @@ int run()
     std::string aeronDir = c.aeronDir;
     if (br::DriverMode::EMBEDDED == c.driverMode)
     {
-        driver = std::make_unique<br::EmbeddedDriver>([](const std::string &why) { common::Supervisor::exitProcess(70, why); });
+        driver = std::make_unique<br::EmbeddedDriver>([](const std::string &why) { runtime::Supervisor::exitProcess(70, why); });
         const std::string dir = br::EmbeddedDriver::dirFor(c.driverDir, c.instanceId);
 #if defined(CT_BRIDGE_TC_DRIVERSTALL)
         const bool manual = true;
@@ -248,7 +248,7 @@ int run()
     observer.target = &agent;
     invokeAgent = [&agent] { agent.invoke(); };
 
-    common::ConductorWatch watch(aeron, c.driverTimeoutMs, {},
+    runtime::ConductorWatch watch(aeron, c.driverTimeoutMs, {},
         !br::app_seams::disabled(br::app_seams::Rule::CONDUCTOR_REVALIDATE_OFF)); // re-validated every check
     if (!br::app_seams::disabled(br::app_seams::Rule::CONDUCTOR_WATCH_OFF))
     {

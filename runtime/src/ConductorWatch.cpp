@@ -1,10 +1,10 @@
-#include "common/ConductorWatch.h"
+#include "cluster_tools/runtime/ConductorWatch.h"
 
 #include <chrono>
 
 #include <Aeron.h>
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 namespace {
 
@@ -59,4 +59,4 @@ bool ConductorWatch::check(std::string &why)
     return m_core->check(m_clock(), why);
 }
 
-}}}
+}}

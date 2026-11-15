@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_DRIVER_TIMEOUT_H
-#define CLUSTER_TOOLS_APP_COMMON_DRIVER_TIMEOUT_H
+#ifndef CLUSTER_TOOLS_RUNTIME_DRIVER_TIMEOUT_H
+#define CLUSTER_TOOLS_RUNTIME_DRIVER_TIMEOUT_H
 
 #include <charconv>
 #include <cstdint>
@@ -13,7 +13,7 @@
 // exit 70), and the threshold of the client-conductor heartbeat check (ConductorWatch). Admin and
 // cloud-console set it; 5000 is the value the drills and the forwarder use. One rule for both processes.
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 // The media driver stamps its CnC heartbeat once per timer interval (aeron_driver_conductor_do_work; 1 s, the C and Java
 // drivers' default, pinned by the embedded driver). A timeout at that cadence reads a live driver as dead on every
@@ -49,6 +49,6 @@ inline std::optional<std::int64_t> parseDriverTimeoutMs(const char *key, const c
     return value;
 }
 
-}}}
+}}
 
 #endif

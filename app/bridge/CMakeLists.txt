@@ -67,12 +67,12 @@ if(WITH_AERON AND WITH_BRIDGE)
     if(NOT CT_BUILD_MEDIA_DRIVER)
         message(FATAL_ERROR "ct-bridge (WITH_BRIDGE) needs CT_BUILD_MEDIA_DRIVER=ON: the embedded driver mode links aeron_driver_static")
     endif()
-    # The embedded driver: app/common/EmbeddedDriver.cpp (one copy with ct-forwarder; compiled into
+    # The embedded driver: runtime/src/EmbeddedDriver.cpp (one copy with ct-forwarder; compiled into
     # each final target, never a library, so the link order below holds) over aeron_driver_static of the verified tree (it carries the C client too; it is linked first so
     # the client symbols resolve from it and nothing of aeron_static is pulled twice). The ldd allowlist gains nothing.
     function(ct_bridge_binary name pure domain codec archive)
         add_executable(${name} main.cpp ${CT_EMBEDDED_DRIVER_SOURCE})
-        target_link_libraries(${name} PRIVATE aeron_driver_static ${pure} ct_app_common_aeron ${codec} ${domain} ${archive}
+        target_link_libraries(${name} PRIVATE aeron_driver_static ${pure} ct_runtime_aeron ${codec} ${domain} ${archive}
             ct_client_aeron ct_sbe_codecs)
         target_compile_options(${name} PRIVATE -Wall -Wextra)
         add_dependencies(${name} ct_sbe_generate)
@@ -129,7 +129,7 @@ if(WITH_AERON AND WITH_BRIDGE)
         add_test(NAME bridge.zero_alloc_app COMMAND ct_bridge_app_alloc_tests)
 
         add_executable(ct_bridge_main_aeron_tests tests/MainAeronTest.cpp ${CT_EMBEDDED_DRIVER_SOURCE})
-        target_link_libraries(ct_bridge_main_aeron_tests PRIVATE aeron_driver_static ct_bridge_pure_seamed ct_app_common_aeron
+        target_link_libraries(ct_bridge_main_aeron_tests PRIVATE aeron_driver_static ct_bridge_pure_seamed ct_runtime_aeron
             ct_client_aeron)
         target_include_directories(ct_bridge_main_aeron_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
         target_compile_definitions(ct_bridge_main_aeron_tests PRIVATE

@@ -23,7 +23,7 @@
 #include "cluster_tools/domain/forwarder/TestSeams.h"
 #include "cluster_tools/domain/forwarder/TickEmitter.h"
 
-#include "common/StorageStarvation.h"
+#include "cluster_tools/runtime/StorageStarvation.h"
 
 #include "AppSeams.h"
 #include "LogRing.h"
@@ -1407,10 +1407,10 @@ private:
     bool m_stopRequested = false;
     bool m_stopped = false;
     StopReason m_stopReason;
-    common::StorageStarvation m_storage[2];               // [0] core, [1] ME ingress publication
-    common::StorageStarvation m_storageAny;               // either of them: forwarder_storage_starved_seconds_total
-    common::ClientStorageFeed<CoreClient> m_storageFeed0;
-    common::ClientStorageFeed<MeClient> m_storageFeed1;
+    runtime::StorageStarvation m_storage[2];               // [0] core, [1] ME ingress publication
+    runtime::StorageStarvation m_storageAny;               // either of them: forwarder_storage_starved_seconds_total
+    runtime::ClientStorageFeed<CoreClient> m_storageFeed0;
+    runtime::ClientStorageFeed<MeClient> m_storageFeed1;
 
     std::uint8_t m_requestFrame[64] = {};
     std::uint8_t m_tickFrame[sbe_adapter::forwarder_codec::MARKET_TICK_FRAME_LENGTH + 4] = {};

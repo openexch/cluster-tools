@@ -1,7 +1,8 @@
 # Domain-side CI only: configure with WITH_AERON=OFF, build, run the tests (domain,
 # ports, json adapter, the pure cluster-client parts, the pure archive core of the C++ bridge with
 # its negative controls and the ME journal fixture guard; the forwarder's pure core with its property
-# test and negative controls, its strict config, metrics rendering and supervisor tests). The Aeron-linked build and its
+# test and negative controls, its strict config, metrics rendering and supervisor tests; the installed package's pure
+# half linked by a separate CMake project, package.consumer). The Aeron-linked build and its
 # tests run in aeron.yml, path-filtered, so this job stays fast.
 name: ci
 

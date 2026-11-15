@@ -1,4 +1,4 @@
-#include "common/HttpServer.h"
+#include "cluster_tools/runtime/HttpServer.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -10,7 +10,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 std::string statusText(int status)
 {
@@ -191,4 +191,4 @@ void HttpServer::serve(int fd)
     m_served.fetch_add(1, std::memory_order_relaxed);
 }
 
-}}}
+}}

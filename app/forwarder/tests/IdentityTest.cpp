@@ -88,7 +88,7 @@ struct Start
 
     explicit Start(const std::map<std::string, std::string> &e)
     {
-        cluster_tools::app::common::DirProbe anyDir; // FWD_DRIVER_DIR is only named here, never created
+        cluster_tools::runtime::DirProbe anyDir; // FWD_DRIVER_DIR is only named here, never created
         anyDir.isDirectory = [](const std::string &) { return true; };
         anyDir.isWritable = [](const std::string &) { return true; };
         const ConfigResult r = parseForwarderConfig(

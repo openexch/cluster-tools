@@ -46,7 +46,7 @@ namespace ct_bridge_app_test {
 
 using namespace ct_bridge_test;
 namespace app = cluster_tools::app::bridge;
-namespace common = cluster_tools::app::common;
+namespace runtime = cluster_tools::runtime;
 namespace cl = cluster_tools::client;
 namespace cc = io::aeron::cluster::codecs;
 namespace money = com::openexchange::core::infrastructure::generated;
@@ -265,8 +265,8 @@ struct AppRigT
     RigSources sources;
     FakeEncoder encoder;
     StubCore core;
-    common::LogRing log;
-    common::DutyHeartbeat heartbeat;
+    runtime::LogRing log;
+    runtime::DutyHeartbeat heartbeat;
     std::unique_ptr<Agent> agent;
     std::size_t sourceCount = 1;
 

@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_APP_FORWARDER_FORWARDER_DRIVER_H
 #define CLUSTER_TOOLS_APP_FORWARDER_FORWARDER_DRIVER_H
 
-// ct-forwarder's embedded media driver: the shared app/common EmbeddedDriver (ct-bridge's,
+// ct-forwarder's embedded media driver: the shared runtime EmbeddedDriver (ct-bridge's,
 // moved) bound to the forwarder's names: <FWD_DRIVER_DIR>/ct-forwarder-<FWD_INSTANCE_ID>, lock ct-forwarder-<id>.lock,
 // and to the forwarder's app seams (EMBEDDED_DIR_PER_PID, EMBEDDED_INSTANCE_LOCK, EMBEDDED_LIVE_CHECK). Header-only: the
 // seam flavour is the including target's (constexpr false in the production ct-forwarder).
@@ -14,16 +14,16 @@
 #include <cstdint>
 #include <string_view>
 
-#include "common/EmbeddedDriver.h"
-#include "common/StorageStarvation.h"
+#include "cluster_tools/runtime/EmbeddedDriver.h"
+#include "cluster_tools/runtime/StorageStarvation.h"
 
 #include "AppSeams.h"
 
 namespace cluster_tools { namespace app { namespace forwarder {
 
-inline common::EmbeddedDriverOptions forwarderDriverOptions()
+inline runtime::EmbeddedDriverOptions forwarderDriverOptions()
 {
-    common::EmbeddedDriverOptions o;
+    runtime::EmbeddedDriverOptions o;
     o.processName = "ct-forwarder";
     o.dirPrefix = "ct-forwarder-";
     o.instanceKey = "FWD_INSTANCE_ID";
@@ -42,7 +42,7 @@ enum class DriverStartVerdict : std::uint8_t
 
 // One failed start at `nowNs` (the owner's monotonic clock); `episode` spans the attempts of this process start.
 inline DriverStartVerdict driverStartVerdict(bool failedForStorage, std::string_view why, std::int64_t nowNs,
-    common::StorageStarvation &episode) noexcept
+    runtime::StorageStarvation &episode) noexcept
 {
     if (!failedForStorage || app_seams::disabled(app_seams::Rule::DRIVER_START_STORAGE_78))
     {

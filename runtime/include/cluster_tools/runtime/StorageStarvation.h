@@ -1,5 +1,5 @@
-#ifndef CLUSTER_TOOLS_APP_COMMON_STORAGE_STARVATION_H
-#define CLUSTER_TOOLS_APP_COMMON_STORAGE_STARVATION_H
+#ifndef CLUSTER_TOOLS_RUNTIME_STORAGE_STARVATION_H
+#define CLUSTER_TOOLS_RUNTIME_STORAGE_STARVATION_H
 
 #include <cerrno>
 #include <cstdint>
@@ -18,7 +18,7 @@
 //     log and the alert), never 78, which would stop it for good after a passing tmpfs squeeze.
 // The 30 s is a constant in code, not a configuration key. Pure: no Aeron, no clock of its own (the owner's ns clock).
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 inline constexpr std::int64_t STORAGE_STARVED_EXIT_NS = 30'000'000'000LL;
 
@@ -129,6 +129,6 @@ private:
     std::uint64_t m_seenFailed = 0;
 };
 
-}}}
+}}
 
 #endif

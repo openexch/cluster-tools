@@ -13,7 +13,10 @@ add_library(ct_client_core STATIC
     src/Credentials.cpp
     src/ClientSettings.cpp)
 add_library(cluster_tools::client_core ALIAS ct_client_core)
-target_include_directories(ct_client_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(ct_client_core PROPERTIES EXPORT_NAME client_core)
+target_include_directories(ct_client_core PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_compile_features(ct_client_core PUBLIC cxx_std_20)
 target_compile_options(ct_client_core PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)

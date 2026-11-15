@@ -1,4 +1,4 @@
-#include "common/Supervisor.h"
+#include "cluster_tools/runtime/Supervisor.h"
 
 #include <poll.h>
 #include <pthread.h>
@@ -12,7 +12,7 @@
 #include <exception>
 #include <thread>
 
-namespace cluster_tools { namespace app { namespace common {
+namespace cluster_tools { namespace runtime {
 
 namespace {
 
@@ -333,4 +333,4 @@ int Supervisor::run(const std::function<int()> &dutyBody, HttpServer *http)
     return dutyCode.load(std::memory_order_acquire);
 }
 
-}}}
+}}

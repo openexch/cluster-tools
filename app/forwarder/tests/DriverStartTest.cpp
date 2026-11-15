@@ -13,8 +13,8 @@
 
 #include "ForwarderDriver.h"
 
-using cluster_tools::app::common::StorageStarvation;
-using cluster_tools::app::common::isStorageSpaceErrcode;
+using cluster_tools::runtime::StorageStarvation;
+using cluster_tools::runtime::isStorageSpaceErrcode;
 using cluster_tools::app::forwarder::DriverStartVerdict;
 using cluster_tools::app::forwarder::driverStartVerdict;
 
