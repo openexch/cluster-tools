@@ -2,7 +2,10 @@
 #define CLUSTER_TOOLS_ARCHIVE_RESUME_MEMO_H
 
 // The per-source resume memo keyed on journalSeq. RAM only, never a
-// checkpoint: the core's lastAppliedJournalSeq is the only cursor. The memo decides only WHERE
+// checkpoint: the owner's cursor (the bridge: the core's lastAppliedJournalSeq) is the only cursor. An owner
+// that stores its own memo rows next to its cursor may hand them back at start (seed): a seeded proof is
+// validated against the first listing and then treated exactly like one the library made itself, the resume
+// belt included, so the library stays the only place that decides whether a proof is used. The memo decides only WHERE
 // reading starts; what is offered is decided by the forward rule, so a wrong proof can
 // only turn into SKIPs or a visible hole, and a hole is believed only from a memo-free read
 // (5.2 rule 5), so a wrong proof can never become a FeedHalt GAP.
@@ -22,15 +25,31 @@
 
 namespace cluster_tools { namespace archive {
 
-// proof[key] = (s, m, p): the core has applied every seq up to s, and every record before the
-// frame end position p on recording `key` has seq <= s (seqs strictly ascend inside a recording).
+// proof[key] = (s, e, p): the owner has applied every seq up to s of epoch e, and every record before the
+// frame end position p on recording `key` has seq <= s (seqs strictly ascend inside a recording). The key
+// holds the archive id, so a proof never matches a recording of another archive incarnation by id alone.
 struct Proof
 {
     std::int64_t seq = 0;
-    std::int64_t meEpoch = 0;
+    std::int64_t epoch = 0;
     std::int64_t endPosition = 0;
+    bool seeded = false; // handed over by the owner and not yet advanced by a read of this process
 
     bool operator==(const Proof &) const = default;
+};
+
+// The reader checkpoint value an owner reports for retention: the logical sequence is the owner's cursor; the
+// recording and the position are diagnosis only and always the attached source's own (its best proof), never
+// carried over from another source. NULL_POSITION / -1 when the source holds no proof yet.
+struct ReaderCheckpoint
+{
+    std::int64_t sourceEpoch = 0;
+    std::int64_t archiveId = -1;
+    std::int64_t recordingId = -1;
+    std::int64_t position = NULL_POSITION;
+    std::int64_t logicalSeq = 0;
+
+    bool operator==(const ReaderCheckpoint &) const = default;
 };
 
 // Where an attach starts reading (5.2 rule 3).
@@ -41,6 +60,7 @@ struct ResumePoint
     bool fromProof = false;    // started at (K, proof[K].p): the resume belt applies (4.5 row 4)
     std::int64_t proofSeq = 0; // proof[K].seq when fromProof; the first accepted frame must be proofSeq + 1
     bool memoFree = true;      // chain index 0 at its startPosition: holes seen on this read are believed
+    bool seeded = false;       // the proof came from the owner's seed (the belt applies like to any proof)
 };
 
 struct ListingOutcome
@@ -62,8 +82,8 @@ public:
 
     std::size_t sourceCount() const noexcept { return m_sources.size(); }
 
-    // 5.4 step 2: every FeedPositionReport (5.3 rows 1-2). E = 0 is unbound.
-    void onReport(std::int64_t meEpoch, std::int64_t lastAppliedJournalSeq);
+    // 5.4 step 2: every FeedPositionReport (5.3 rows 1-2), or the owner's cursor. E = 0 is unbound.
+    void onReport(std::int64_t epoch, std::int64_t lastAppliedJournalSeq);
     std::int64_t epoch() const noexcept { return m_epoch; }
     std::int64_t cursor() const noexcept { return m_cursor; }
     std::int64_t maxProven() const noexcept { return m_maxProven; }
@@ -75,13 +95,25 @@ public:
     // 5.2 rule 3 against the last listing. Counts bridge_memo_resumes_total{kind}.
     ResumePoint resume(std::size_t source);
 
-    // 5.2 rule 1: an accepted frame with meEpoch == E != 0 and journalSeq <= C read on `key` of
+    // 5.2 rule 1: an accepted frame with epoch == E != 0 and journalSeq <= C read on `key` of
     // `source` at frame end position `endPosition`. Returns true when a proof was recorded.
     bool proveFromSkip(std::size_t source, const RecordingKey &key, const Peek &peek, std::int64_t endPosition);
 
     // 5.2 rule 2: a ring proof after a report raised the cursor; applied to `source` only.
-    bool prove(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t meEpoch,
+    bool prove(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t epoch,
         std::int64_t endPosition);
+
+    // The memo seed: the owner's stored proof (recording key with its archive id, end position, sequence) for
+    // `source`, handed over at start after onReport. Refused (false) without a report, for another epoch, for
+    // seq < 1 or above the cursor, or for a position that is not a frame end. An accepted seed waits for the
+    // source's next listing: a key the listing does not hold (a recording that is gone, another archive id) or
+    // a position outside the recording's extent drops it; otherwise it becomes a proof marked seeded. The
+    // bridge never calls this: its memo stays RAM only.
+    bool seed(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t epoch, std::int64_t endPosition);
+    std::size_t pendingSeeds(std::size_t source) const;
+
+    // The reader checkpoint for `source` at the owner's logical sequence (see ReaderCheckpoint).
+    ReaderCheckpoint readerCheckpoint(std::size_t source, std::int64_t logicalSeq) const;
 
     // 5.3 rows 6-7 (and rows 1-3 internally): drop every proof of `source`.
     void invalidate(std::size_t source, MemoReason reason);
@@ -109,6 +141,7 @@ private:
         std::vector<Recording> chain;
         bool listed = false;
         std::vector<std::pair<RecordingKey, Proof>> proofs;
+        std::vector<std::pair<RecordingKey, Proof>> seeds;  // accepted seeds waiting for the next listing
         std::vector<std::int64_t> holeMarkers;   // e values whose verification is pending this sync (forces memo-free reads)
         std::vector<std::int64_t> verifiedHoles; // e values a memo-free read believed this sync (amended 5.2 rule 5)
     };
@@ -116,6 +149,7 @@ private:
     SourceMemo &slot(std::size_t source);
     const SourceMemo &slot(std::size_t source) const;
     bool record(std::size_t source, const RecordingKey &key, const Proof &proof);
+    void adoptSeeds(SourceMemo &memo);
     void dropProof(SourceMemo &memo, const RecordingKey &key);
     const Proof *findProof(const SourceMemo &memo, const RecordingKey &key) const;
     void recomputeMaxProven();

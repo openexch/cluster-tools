@@ -1,0 +1,13 @@
+# The RED column of JournalProfileTest (the follow library on the core order journal profile), in the format of
+# negative-controls.txt: test case | rule | why | expected text. run-negative-controls.sh runs each test with
+# CT_TEST_DISABLE_<rule>=1 and requires it to FAIL with the text, and to PASS without the variable.
+JournalProfileTest.coreGateOneVerdictInEveryReadMode|PEEK_SCHEMA|row 3 off: a wrong schema id or version passes the core gate|frame refused: schema expected
+JournalProfileTest.coreGateOneVerdictInEveryReadMode|PEEK_TEMPLATE|row 4 off: template 2 passes the core gate|frame refused: template expected
+JournalProfileTest.coreGateOneVerdictInEveryReadMode|PEEK_BLOCK|row 5 off: block 207 passes the core gate|frame refused: block expected
+JournalProfileTest.coreGateOneVerdictInEveryReadMode|PEEK_FLAGS|row 1 off: a fragment passes the core gate|frame refused: fragmented expected
+JournalProfileTest.coreGateOneVerdictInEveryReadMode|PEEK_HEAD|row 7 off: seq 0 and epoch 0 pass the core gate|frame refused: head expected
+JournalProfileTest.coreChainWalkProperty|FOLLOW_RELIST_ON_STOP|re-list on stop off: a drained stopped recording is never left|follower stuck on a stopped recording
+JournalProfileTest.memoSeedIsUsedOnlyThroughTheBelt|MEMO_SEED_BELT|belt skipped for a seeded proof: frames after a wrong proof are read|seeded proof used without the belt
+JournalProfileTest.expectedEpochFilter|FOLLOW_EPOCH_FILTER|filter off: the previous genesis is walked|recording of another epoch walked
+JournalProfileTest.successorWhileTheOldRecordingStillReadsActive|FOLLOW_TIMED_RELIST|timed re-list off: the follower waits on the ACTIVE recording|successor not found while the old recording is active
+JournalProfileTest.checkpointAfterASourceSwitch|MEMO_CHECKPOINT_SOURCE|the best proof of any source: the old source's position is reported|checkpoint position from another source

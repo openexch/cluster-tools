@@ -21,6 +21,12 @@
 #                                        verified tarball (the consumer links Aeron through the package, never its own)
 #   WITH_AERON and CT_BUILD_MEDIA_DRIVER
 #                         runtime_embedded_driver, aeron_driver_static   the embedded media driver (list it first)
+#   every configuration   archive_core   the archive follow library: journal profiles, the frame gate, the chain
+#                                        model, the follow policy and loop, the resume memo, prefixed settings
+#   WITH_BRIDGE           archive_aeron  the follow library on the Aeron archive client (ArchiveSource, ChainFollower,
+#                                        SourceSet)
+#                         aeron_archive_client   the Aeron C archive client and its C++ wrapper, from the verified
+#                                        tarball
 #
 # The config file also sets cluster_tools_SOURCE_SHA (the commit this package was built from, as /health.build),
 # cluster_tools_WITH_AERON and, WITH_AERON, cluster_tools_MONEY_SCHEMA_VERSION / _SHA256: a consumer checks them
@@ -36,8 +42,8 @@ if(CT_SOURCE_SHA_EFFECTIVE STREQUAL "unknown")
         "pin check will refuse it. Pass -DCT_BUILD_SOURCE_SHA=<40-hex sha> when building from a source tarball.")
 endif()
 
-set(CT_PACKAGE_TARGETS ct_client_core ct_runtime)
-set(CT_PACKAGE_COMPONENTS client_core runtime)
+set(CT_PACKAGE_TARGETS ct_client_core ct_runtime ct_archive_core)
+set(CT_PACKAGE_COMPONENTS client_core runtime archive_core)
 if(WITH_AERON)
     list(APPEND CT_PACKAGE_TARGETS ct_sbe_codecs ct_client ct_client_aeron ct_runtime_aeron aeron_static aeron_client_wrapper)
     list(APPEND CT_PACKAGE_COMPONENTS sbe_codecs client client_aeron runtime_aeron aeron_static aeron_client_wrapper)
@@ -48,6 +54,10 @@ if(WITH_AERON)
         list(APPEND CT_PACKAGE_TARGETS ct_runtime_embedded_driver aeron_driver_static)
         list(APPEND CT_PACKAGE_COMPONENTS runtime_embedded_driver aeron_driver_static)
         set_target_properties(aeron_driver_static PROPERTIES EXPORT_NAME aeron_driver_static)
+    endif()
+    if(WITH_BRIDGE)
+        list(APPEND CT_PACKAGE_TARGETS ct_aeron_archive_client ct_archive_aeron)
+        list(APPEND CT_PACKAGE_COMPONENTS aeron_archive_client archive_aeron)
     endif()
 endif()
 
@@ -62,6 +72,16 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/client/include/" DESTINATION "${CMAKE_I
     FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/runtime/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/archive/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    FILES_MATCHING PATTERN "*.h")
+if(WITH_BRIDGE)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/archive/aeron/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+        FILES_MATCHING PATTERN "*.h")
+    install(DIRECTORY "${CT_ARCHIVE_SRC}/c/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/aeron_archive"
+        FILES_MATCHING PATTERN "*.h")
+    install(DIRECTORY "${CT_ARCHIVE_SRC}/cpp_wrapper/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/aeron_archive_wrapper"
+        FILES_MATCHING PATTERN "*.h")
+endif()
 
 if(WITH_AERON)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/client/aeron/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"

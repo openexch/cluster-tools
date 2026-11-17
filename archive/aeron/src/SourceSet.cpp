@@ -25,6 +25,7 @@ SourceSet::SourceSet(const ArchiveSettings &settings, std::shared_ptr<::aeron::A
         config.identity.channel = settings.journalChannel;
         config.localHost = settings.localHost;
         config.replayStreamId = settings.replayStreamId;
+        config.keyByArchiveId = follow.keyByArchiveId;
         m_followers.push_back(std::make_unique<ChainFollower>(
             i, config, follow, m_memo, aeron, monitor, invoker, &metrics, observer, seams, exit));
     }
@@ -72,6 +73,14 @@ void SourceSet::stop(TimePoint now)
 {
     m_pending.reset();
     m_followers[m_current]->policy().detach(now);
+}
+
+void SourceSet::expectEpoch(std::int64_t epoch, TimePoint now)
+{
+    for (auto &follower : m_followers)
+    {
+        follower->policy().expectEpoch(epoch, now); // an idle follower only records it
+    }
 }
 
 bool SourceSet::allRefusedForMtu() const

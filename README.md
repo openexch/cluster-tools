@@ -131,11 +131,24 @@ target_link_libraries(my-process PRIVATE cluster_tools::runtime_embedded_driver 
 | `runtime_aeron` | `WITH_AERON` | ConductorWatch |
 | `runtime_embedded_driver` | `WITH_AERON`, `CT_BUILD_MEDIA_DRIVER` | the embedded media driver; link it only from a final executable, first in the list, never from a library (it compiles into whatever links it, so a static library would carry the driver object and lose the link order). The installed driver links `uuid`, so the consumer host needs libuuid |
 | `sbe_codecs` | `WITH_AERON` | the generated cluster-protocol and money-schema codecs and `cluster_tools/build_info.h` |
+| `archive_core` | every | the journal-neutral archive follow library: frame admission by journal profile, recording chain, resume memo, follow policy |
+| `archive_aeron`, `aeron_archive_client` | `WITH_BRIDGE` | the Aeron archive source set over the C archive client |
 
 The package config sets `cluster_tools_SOURCE_SHA`, `cluster_tools_MONEY_SCHEMA_VERSION` and
 `cluster_tools_MONEY_SCHEMA_SHA256`; a consumer compares them with its own lock. A component the build did not make
 fails `find_package` by name. Binaries, test builds and the session stub are never installed. `package.consumer`
 (`tests/package-consumer/check-package.sh`) proves all of this in every configuration.
+
+### Archive follow library
+
+`archive/` is journal-neutral. `FollowSettings::profile` picks the journal: `ME_JOURNAL` (schema 4, the bridge's default) or `CORE_ORDER_JOURNAL` (schema 5, stream 4102 by setting, one 216-byte record per order event, head `journalSeq`, `epoch` and core log position).
+
+- Settings take a key prefix: `parseArchiveSettings(lookup, scope, ArchiveSettingsKeys::withPrefix("<PREFIX>_", CORE_ORDER_JOURNAL))` reads `<PREFIX>_JOURNAL_ARCHIVES`, `_JOURNAL_CONTROL_STREAM`, `_JOURNAL_STREAM`, `_JOURNAL_CHANNEL`, `_REPLAY_STREAM`, `_LOCAL_HOST`, `_JOURNAL_MTU` and `_DRIVER_DIR`. The bridge keeps its `BRIDGE_` names.
+- An owner that stores its memo rows may hand them back with `ResumeMemo::seed()` after `onReport()`. A seed is checked against the next listing (key, extent, epoch, cursor) and is used only through the resume belt.
+- `FollowSettings::expectedEpoch` (at least 1, given by the owner, or `SourceSet::expectEpoch`) skips recordings of another epoch and counts them in `foreignEpochRecordings`.
+- `relistInterval` (0 by default, so the bridge is unchanged) finds a successor while the old recording still reads ACTIVE.
+- `SourceSet::readerCheckpoint(logicalSeq)` reports the attached source's own recording and position.
+- `keyByArchiveId` puts the archive id in recording keys. Enable it only when the archives have a configured, stable `aeron.archive.id`; Aeron's default id changes on every archive start.
 
 ## Session stub (test-only)
 
@@ -263,7 +276,7 @@ ct-journal-tail --aeron-dir /dev/shm/aeron --archive 10.0.0.1:9010 --control-str
     --journal-mtu 1408 --from-seq 1234 --to-seq 1234 --hex
 ```
 
-Each admitted frame prints as `FRAME seq=... template=... epoch=...`; a refused frame prints as
+`--profile me|core-order` picks the journal (default `me`); a core order journal frame prints `log=` for the core log position. Each admitted frame prints as `FRAME seq=... template=... epoch=...`; a refused frame prints as
 `REFUSED <reason> ...` and the tail continues. `--cursor C --epoch E` seeds the resume memo. Exit 0 after
 `--to-seq`, 75 on `--timeout-ms`, 78 on a usage error, 70 on a fatal error.
 

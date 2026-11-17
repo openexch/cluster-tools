@@ -33,6 +33,22 @@ struct FollowSettings
     std::chrono::milliseconds probeInterval{ 10'000 };            // rows 9-12, 12b (BridgeAgent.java:49)
     std::chrono::milliseconds endpointResolveTimeout{ 10'000 };   // 4.3 step 5
     std::chrono::milliseconds backoff{ 1'000 };                   // rows 14, 15, faults (BridgeAgent.java:44)
+    // The journal the frames are admitted as (FramePeek.h). The bridge's default: the ME journal.
+    JournalProfile profile = ME_JOURNAL;
+    // Re-list while attached to an ACTIVE recording at least this often, so a successor that appears while
+    // the old recording still reads ACTIVE (a crash that left no stop position) is found; the old recording is
+    // then drained to the position the archive reports, unchanged across two probes, before the successor is
+    // followed. 0 = re-list only when the recording stops or the chain is exhausted (the bridge's behaviour).
+    std::chrono::milliseconds relistInterval{ 0 };
+    // The expected-epoch filter: a recording whose frames carry another epoch is not walked, and counted once
+    // (foreignEpochRecordings). Given by the owner, never derived by the library; an epoch below 1 is refused.
+    // Empty = no filter (the bridge, whose owner judges the epoch itself).
+    std::optional<std::int64_t> expectedEpoch;
+    // Recording keys carry the archive id the adapter learned at connect (ArchiveSourceConfig::keyByArchiveId).
+    // An archive whose id is not configured takes its Aeron client id, a new value on every archive start: with
+    // this on, every restart of such an archive is a history change and the memo of that source is dropped.
+    // Off = ARCHIVE_ID_UNKNOWN in every key (the bridge's behaviour).
+    bool keyByArchiveId = false;
 };
 
 enum class Phase : std::uint8_t
@@ -97,6 +113,11 @@ public:
     void attach(TimePoint now);   // IDLE -> connect (or list when still connected)
     void detach(TimePoint now);   // finish the replay (stopReplay) and go IDLE, disconnected
     void reattach(TimePoint now); // rewind: finish the replay, re-list, resume from the memo (5.2 rule 5, fences)
+    // The expected epoch of the filter (FollowSettings::expectedEpoch), learned by the owner at run time.
+    // Throws std::invalid_argument below 1. A change forgets the recordings counted foreign and re-attaches.
+    void expectEpoch(std::int64_t epoch, TimePoint now);
+    const std::optional<std::int64_t> &expectedEpoch() const noexcept { return m_expectedEpoch; }
+    const JournalProfile &profile() const noexcept { return m_settings.profile; }
 #ifdef CT_TEST_SEAMS
     void forceProbe() noexcept;   // test seam (9.3 invokerRunsWhileArchiveCallBlocks): probe on the next step
 #endif
@@ -127,6 +148,11 @@ public:
     // Frame path (4.4 / 4.5 rows 2-4). checkFrame runs BEFORE the sink; onAccepted only after the
     // sink answered CONTINUE or BREAK, so an aborted and redelivered frame is never a regression.
     FrameCheck checkFrame(const Peek &peek, TimePoint now);
+    // The epoch filter: true when the frame's epoch is not the expected one. onForeignEpoch marks the
+    // recording foreign (counted once), finishes the replay and walks on to the next recording.
+    bool foreignEpoch(const Peek &peek) const noexcept;
+    void onForeignEpoch(const Peek &peek, TimePoint now);
+    bool isForeign(const RecordingKey &key) const noexcept;
     void onAccepted(const Peek &peek, std::int64_t endPosition);
     // R1: SinkAction::CONSUME: the read position moves, no proof is recorded (and no hole marker read)
     void onConsumed(const Peek &peek, std::int64_t endPosition);
@@ -160,6 +186,8 @@ private:
     };
 
     void beginAttach(TimePoint now);
+    void onListedWhileFollowing(const ListResult &result, TimePoint now);
+    bool relistDue(TimePoint now) const noexcept;
     void resumeAndWalk(TimePoint now);
     void walk(std::size_t index, std::int64_t from, bool fromProof, std::int64_t proofSeq, TimePoint now);
     void fault(FaultKind kind, TimePoint now, std::string detail, Refusal refusal = Refusal::NONE,
@@ -185,6 +213,8 @@ private:
     std::size_t m_index = 0;
     std::int64_t m_from = 0;
     bool m_fromProof = false;
+    bool m_fromSeed = false;      // the proof this read starts at was seeded by the owner
+    bool m_resumeSeeded = false;
     std::int64_t m_proofSeq = 0;
     bool m_readMemoFree = true;
 
@@ -222,6 +252,12 @@ private:
 
     std::optional<SourceFault> m_lastFault;
     std::uint64_t m_faults = 0;
+
+    std::optional<std::int64_t> m_expectedEpoch;
+    std::vector<RecordingKey> m_foreign;               // recordings of another epoch on this source
+    TimePoint m_nextRelistAt{};
+    bool m_successorSeen = false;                      // a timed re-list showed a recording after the ACTIVE one
+    std::optional<std::int64_t> m_successorRecorded;   // the recorded position at the previous probe since then
 };
 
 }}

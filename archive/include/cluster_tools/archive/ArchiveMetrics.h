@@ -1,7 +1,7 @@
 #ifndef CLUSTER_TOOLS_ARCHIVE_ARCHIVE_METRICS_H
 #define CLUSTER_TOOLS_ARCHIVE_ARCHIVE_METRICS_H
 
-// The counters owns. Single writer (the duty thread B), relaxed atomics,
+// The counters the archive side owns. Single writer (the duty thread B), relaxed atomics,
 // labels from a fixed set, so the HTTP thread reads without a lock. The three max gauges are
 // written by B with a CAS max and read with exchange(0): "max since the previous scrape" needs no
 // other write from the reader. Rendering (/metrics) is the app's.
@@ -84,6 +84,10 @@ struct ArchiveMetrics
     std::atomic<std::uint64_t> emptyRecordingsSkipped{ 0 };
     std::atomic<std::uint64_t> recordingSuccessions{ 0 };
     std::atomic<std::uint64_t> foreignStreamDescriptorsDropped{ 0 };
+    std::atomic<std::uint64_t> foreignEpochRecordings{ 0 };  // recordings of another epoch, not walked (counted once each)
+    std::atomic<std::uint64_t> relistsWhileAttached{ 0 };    // timed re-lists of an attached follower
+    std::atomic<std::uint64_t> memoSeedsAdopted{ 0 };
+    std::atomic<std::uint64_t> memoSeedsDropped{ 0 };
     std::atomic<std::int64_t> sourceBacklogBytes{ 0 };
     std::atomic<std::int64_t> replayRecordingPosition{ 0 };
     std::atomic<std::int64_t> replayConsumedPosition{ 0 };

@@ -178,4 +178,15 @@ if(BUILD_TESTING)
         COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/package-consumer/check-package.sh"
             "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/package-consumer")
     set_tests_properties(package.consumer PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
+    # The archive follow library from the INSTALLED package (tests/package-archive-consumer); with an aeron-all jar
+    # (CT_IT_AERON_ALL_JAR, WITH_BRIDGE) it also tails a core order journal from a real archive through the package.
+    set(CT_PACKAGE_ARCHIVE_JAR "")
+    if(WITH_BRIDGE AND CT_IT_AERON_ALL_JAR)
+        set(CT_PACKAGE_ARCHIVE_JAR "${CT_IT_AERON_ALL_JAR}")
+    endif()
+    add_test(NAME package.archive_consumer
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/package-archive-consumer/check-archive-package.sh"
+            "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/package-archive-consumer"
+            ${CT_PACKAGE_ARCHIVE_JAR})
+    set_tests_properties(package.archive_consumer PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
 endif()

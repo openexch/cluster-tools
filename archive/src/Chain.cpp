@@ -98,7 +98,8 @@ std::string describe(const RecordingKey &key)
     return "recording " + std::to_string(key.recordingId) + " (startTimestamp " + std::to_string(key.startTimestamp) +
         ", initialTermId " + std::to_string(key.initialTermId) + ", sessionId " + std::to_string(key.sessionId) +
         ", termLength " + std::to_string(key.termBufferLength) + ", mtu " + std::to_string(key.mtuLength) +
-        ", stream " + std::to_string(key.streamId) + ")";
+        ", stream " + std::to_string(key.streamId) +
+        (ARCHIVE_ID_UNKNOWN == key.archiveId ? std::string() : ", archive " + std::to_string(key.archiveId)) + ")";
 }
 
 std::string describe(const Recording &recording)

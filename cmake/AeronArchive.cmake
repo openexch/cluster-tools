@@ -37,9 +37,13 @@ add_custom_target(ct_aeron_archive_codecs DEPENDS "${CT_ARCHIVE_GEN_STAMP}")
 file(GLOB CT_ARCHIVE_C_SOURCES CONFIGURE_DEPENDS "${CT_ARCHIVE_SRC}/c/client/*.c")
 add_library(ct_aeron_archive_client STATIC ${CT_ARCHIVE_C_SOURCES})
 add_dependencies(ct_aeron_archive_client ct_aeron_archive_codecs)
+# Installed (cmake/Package.cmake) as include/aeron_archive (the C client) and include/aeron_archive_wrapper.
 target_include_directories(ct_aeron_archive_client SYSTEM
-    PUBLIC "${CT_ARCHIVE_SRC}/c" "${CT_ARCHIVE_SRC}/cpp_wrapper"
+    PUBLIC "$<BUILD_INTERFACE:${CT_ARCHIVE_SRC}/c>" "$<BUILD_INTERFACE:${CT_ARCHIVE_SRC}/cpp_wrapper>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/aeron_archive>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/aeron_archive_wrapper>"
     PRIVATE "${CT_ARCHIVE_GEN_DIR}")
+set_target_properties(ct_aeron_archive_client PROPERTIES EXPORT_NAME aeron_archive_client)
 target_link_libraries(ct_aeron_archive_client PUBLIC aeron_static aeron_client_wrapper Threads::Threads)
 string(REPLACE "." ";" CT_AERON_VERSION_PARTS "${CT_AERON_VERSION}")
 list(GET CT_AERON_VERSION_PARTS 0 CT_AERON_VERSION_MAJOR)

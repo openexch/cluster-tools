@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
 
 namespace cluster_tools { namespace archive {
 
@@ -103,6 +104,71 @@ FollowPolicy::FollowPolicy(std::size_t sourceIndex, FollowSettings settings, Res
     FollowObserver *observer) :
     m_source(sourceIndex), m_settings(settings), m_memo(memo), m_metrics(metrics), m_observer(observer)
 {
+    if (m_settings.expectedEpoch)
+    {
+        if (*m_settings.expectedEpoch < 1)
+        {
+            throw std::invalid_argument("expected epoch must be >= 1 (the owner gives it; the library never derives it), got " +
+                std::to_string(*m_settings.expectedEpoch));
+        }
+        m_expectedEpoch = m_settings.expectedEpoch;
+    }
+}
+
+void FollowPolicy::expectEpoch(std::int64_t epoch, TimePoint now)
+{
+    if (epoch < 1)
+    {
+        throw std::invalid_argument("expected epoch must be >= 1 (the owner gives it; the library never derives it), got " +
+            std::to_string(epoch));
+    }
+    if (m_expectedEpoch && *m_expectedEpoch == epoch)
+    {
+        return;
+    }
+    m_expectedEpoch = epoch;
+    m_foreign.clear();
+    reattach(now);
+}
+
+bool FollowPolicy::isForeign(const RecordingKey &key) const noexcept
+{
+    return std::find(m_foreign.begin(), m_foreign.end(), key) != m_foreign.end();
+}
+
+bool FollowPolicy::foreignEpoch(const Peek &peek) const noexcept
+{
+    return m_expectedEpoch && peek.epoch() != *m_expectedEpoch && !disabled(Rule::FOLLOW_EPOCH_FILTER);
+}
+
+// The first frame of another epoch marks the whole recording foreign, even when frames of the expected epoch
+// were already delivered from it: the rest of it is not walked. This is safe only because a new epoch starts
+// from a clean genesis (a new recording); a recording that mixes epochs is not expected, and is skipped from
+// that frame on, counted in foreignEpochRecordings like any other foreign recording.
+void FollowPolicy::onForeignEpoch(const Peek &peek, TimePoint now)
+{
+    const Recording *r = currentRecording();
+    if (nullptr != r && !isForeign(r->key))
+    {
+        m_foreign.push_back(r->key);
+        if (nullptr != m_metrics)
+        {
+            ArchiveMetrics::add(m_metrics->foreignEpochRecordings);
+        }
+        if (nullptr != m_observer)
+        {
+            m_observer->onForeignEpochRecording(m_source, *r, peek.epoch());
+        }
+    }
+    (void)now;
+    beginDetach(AfterDetach::NEXT_RECORDING, true); // the replay is ours to stop: it may still be live
+}
+
+bool FollowPolicy::relistDue(TimePoint now) const noexcept
+{
+    const Recording *r = currentRecording();
+    return m_settings.relistInterval.count() > 0 && nullptr != r && r->active() && now >= m_nextRelistAt &&
+        !disabled(Rule::FOLLOW_TIMED_RELIST);
 }
 
 // ---- owner commands
@@ -256,6 +322,10 @@ ControlStep FollowPolicy::nextControl(TimePoint now)
                 {
                     m_probeNow = false; // a forced probe on a bounded replay has nothing to ask
                 }
+                if (relistDue(now))
+                {
+                    return ControlStep::LIST; // the timed re-list: is there a successor of this ACTIVE recording?
+                }
                 return ControlStep::NONE;
             }
             case Phase::DETACH_DUE:
@@ -312,6 +382,11 @@ void FollowPolicy::beginAttach(TimePoint)
 
 void FollowPolicy::onListed(const ListResult &result, TimePoint now)
 {
+    if (Phase::FOLLOWING == m_phase)
+    {
+        onListedWhileFollowing(result, now);
+        return;
+    }
     if (!result.ok)
     {
         if (ArchiveErrorKind::FATAL == result.error.kind)
@@ -409,10 +484,69 @@ void FollowPolicy::onListed(const ListResult &result, TimePoint now)
     resumeAndWalk(now);
 }
 
+void FollowPolicy::onListedWhileFollowing(const ListResult &result, TimePoint now)
+{
+    m_nextRelistAt = now + m_settings.relistInterval;
+    if (nullptr != m_metrics)
+    {
+        ArchiveMetrics::add(m_metrics->relistsWhileAttached);
+    }
+    if (!result.ok)
+    {
+        if (ArchiveErrorKind::FATAL == result.error.kind)
+        {
+            onFatal();
+        }
+        return; // the replay is healthy or not by the probe's rows; a failed re-list changes nothing
+    }
+    const Recording *current = currentRecording();
+    if (nullptr == current)
+    {
+        return;
+    }
+    ChainListing listing = buildChain(result.recordings, m_settings.journalStreamId);
+    if (nullptr != m_metrics)
+    {
+        ArchiveMetrics::add(m_metrics->foreignStreamDescriptorsDropped, listing.droppedForeignStream);
+        if (m_source < MAX_SOURCES)
+        {
+            m_metrics->chainRecordings[m_source].store(listing.recordings.size(), std::memory_order_relaxed);
+        }
+    }
+    const ListingOutcome outcome = m_memo.onListing(m_source, listing.recordings);
+    std::size_t at = listing.recordings.size();
+    for (std::size_t j = 0; j < listing.recordings.size(); ++j)
+    {
+        if (listing.recordings[j].key == current->key)
+        {
+            at = j;
+        }
+    }
+    if (outcome.historyChanged || at == listing.recordings.size())
+    {
+        beginDetach(AfterDetach::RELIST, true); // the read's listing is stale: re-list and resume from the memo
+        return;
+    }
+    const bool stoppedNow = !listing.recordings[at].active();
+    listing.recordings[at] = *current; // the read keeps its own view of the followed recording; the probe decides
+    m_chain = std::move(listing.recordings);
+    m_index = at;
+    if (stoppedNow)
+    {
+        m_probeNow = true; // row 10 by the probe
+    }
+    else if (m_index + 1 < m_chain.size())
+    {
+        m_successorSeen = true; // a successor while this recording still reads ACTIVE: drain it, then follow
+        m_probeNow = true;
+    }
+}
+
 void FollowPolicy::resumeAndWalk(TimePoint now)
 {
     const ResumePoint point = m_memo.resume(m_source);
     m_readMemoFree = point.memoFree;
+    m_resumeSeeded = point.seeded;
     walk(point.index, point.position, point.fromProof, point.proofSeq, now);
 }
 
@@ -454,6 +588,15 @@ void FollowPolicy::walk(std::size_t index, std::int64_t from, bool fromProof, st
             return;
         }
         const Recording &r = m_chain[index];
+        if (isForeign(r.key))
+        {
+            // a recording of another epoch (the filter saw its frames): never walked again on this source
+            ++index;
+            from = index < m_chain.size() ? m_chain[index].startPosition : 0;
+            fromProof = false;
+            proofSeq = 0;
+            continue;
+        }
         const RecordingVerdict verdict = classifyRecording(r, from, m_settings.journalMtu);
         switch (verdict)
         {
@@ -506,6 +649,7 @@ void FollowPolicy::walk(std::size_t index, std::int64_t from, bool fromProof, st
                 }
                 m_from = from;
                 m_fromProof = fromProof;
+                m_fromSeed = fromProof && m_resumeSeeded;
                 m_proofSeq = proofSeq;
                 m_request = ReplayRequest{};
                 m_request.recordingId = r.key.recordingId;
@@ -601,8 +745,11 @@ void FollowPolicy::onReplayStarted(const StartResult &result, TimePoint now)
         m_consumed = m_from;
         m_havePrevSeq = false;
         m_prevSeq = 0;
-        m_beltPending = m_fromProof;
+        m_beltPending = m_fromProof && !(m_fromSeed && disabled(Rule::MEMO_SEED_BELT));
         m_nextProbeAt = now + m_settings.probeInterval;
+        m_nextRelistAt = now + m_settings.relistInterval;
+        m_successorSeen = false;
+        m_successorRecorded.reset();
         m_probeNow = false;
         m_probeIsImageEnd = false;
         m_probeBaseline.reset();
@@ -710,6 +857,8 @@ void FollowPolicy::onDetached(TimePoint now)
     m_replayStarted = false;
     m_probeNow = false;
     m_probeIsImageEnd = false;
+    m_successorSeen = false;
+    m_successorRecorded.reset();
     setAttachedGauge(false);
     switch (m_afterDetach)
     {
@@ -1001,6 +1150,10 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
             m_metrics->replayRecordingPosition.store(stop, std::memory_order_relaxed);
             m_metrics->sourceBacklogBytes.store(std::max<std::int64_t>(0, stop - m_consumed), std::memory_order_relaxed);
         }
+        if (std::max(m_consumed, m_imagePosition) >= stop && disabled(Rule::FOLLOW_RELIST_ON_STOP))
+        {
+            return; // RED shape: drained and stopped, but never left
+        }
         // Row 10: stopped and fully consumed -> follow the successor; the core session is untouched.
         if (std::max(m_consumed, m_imagePosition) >= stop && !disabled(Rule::FOLLOW_ROW10_RECORDING_ENDED))
         {
@@ -1046,6 +1199,30 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
     {
         m_metrics->replayRecordingPosition.store(std::max(recorded, m_consumed), std::memory_order_relaxed);
         m_metrics->sourceBacklogBytes.store(std::max<std::int64_t>(0, recorded - m_consumed), std::memory_order_relaxed);
+    }
+    // A successor exists while this recording still reads ACTIVE (the timed re-list): drained when the read
+    // reached the recorded position and that position did not move between two probes.
+    if (m_successorSeen)
+    {
+        const std::int64_t reached = std::max(m_consumed, m_imagePosition);
+        if (reached >= recorded && m_successorRecorded && *m_successorRecorded == recorded)
+        {
+            if (nullptr != m_metrics)
+            {
+                ArchiveMetrics::add(m_metrics->recordingSuccessions);
+            }
+            Recording ended = *r;
+            ended.stopPosition = recorded;
+            if (nullptr != m_observer)
+            {
+                m_observer->onRecordingEnded(m_source, ended);
+            }
+            m_continueAfter = ended;
+            beginDetach(AfterDetach::SUCCESSOR, true); // the archive keeps a live replay of an ACTIVE recording
+            return;
+        }
+        m_successorRecorded = recorded;
+        m_nextProbeAt = now + std::min(m_settings.probeInterval, m_settings.relistInterval);
     }
     if (imageEnd)
     {

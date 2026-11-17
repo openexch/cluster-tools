@@ -45,9 +45,10 @@ inline constexpr std::uint64_t ARCHIVE_MESSAGE_TIMEOUT_NS = 5'000'000'000ULL; //
 struct ArchiveSourceConfig
 {
     SourceIdentity identity;
-    std::string localHost;              // BRIDGE_LOCAL_HOST: control responses and the replay come here
-    std::int32_t replayStreamId = 0;    // BRIDGE_REPLAY_STREAM
+    std::string localHost;              // <prefix>LOCAL_HOST: control responses and the replay come here
+    std::int32_t replayStreamId = 0;    // <prefix>REPLAY_STREAM
     std::uint64_t messageTimeoutNs = ARCHIVE_MESSAGE_TIMEOUT_NS;
+    bool keyByArchiveId = false;        // list(): the archive id in every recording key (FollowSettings)
 };
 
 // Test seams of the 9.3 integration run. In a production build (no CT_TEST_SEAMS) the struct is

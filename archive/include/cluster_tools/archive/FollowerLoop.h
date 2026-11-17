@@ -130,7 +130,7 @@ private:
             {
                 return SinkAction::ABORT; // faulted earlier in this poll
             }
-            const Admission admission = admitFrame(flags, bytes, length);
+            const Admission admission = admitFrame(m_policy.profile(), flags, bytes, length);
             if (!admission.accepted())
             {
                 if (nullptr != m_metrics)
@@ -154,6 +154,11 @@ private:
                     return SinkAction::CONTINUE;
                 }
                 m_policy.onRefused(admission.refusal, endPosition, now);
+                return SinkAction::ABORT;
+            }
+            if (m_policy.foreignEpoch(admission.peek))
+            {
+                m_policy.onForeignEpoch(admission.peek, now); // not delivered: the recording is not walked
                 return SinkAction::ABORT;
             }
             if (FrameCheck::FAULTED == m_policy.checkFrame(admission.peek, now))
