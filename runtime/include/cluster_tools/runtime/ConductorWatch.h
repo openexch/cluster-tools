@@ -20,6 +20,11 @@ namespace aeron { class Aeron; }
 // decisions are ConductorWatchCore's: the record is re-validated on every check (a reclaimed or re-used slot = 70),
 // a counter never found within the timeout = 70, a stale stamp = 70 (named a process pause when this
 // process itself did not run for the timeout).
+//
+// The heartbeat counter exists only while the client holds an Aeron resource. A client that has added no publication,
+// subscription or counter has no heartbeat counter for the driver to stamp, so this check reads it as reclaimed (70).
+// A process that may sit with no resource (for example before its first session) registers a counter of its own, such
+// as a process counter keyed by its instance id, so the driver keeps a heartbeat record for it.
 
 namespace cluster_tools { namespace runtime {
 
