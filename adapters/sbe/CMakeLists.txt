@@ -146,13 +146,16 @@ if(BUILD_TESTING)
             CT_FEED_HARNESS_JAR="${CT_FEED_HARNESS_JAR}")
         target_compile_options(ct_bridge_oracle_tests PRIVATE -Wall -Wextra)
         add_test(NAME bridge.e3_real_core_oracle COMMAND ct_bridge_oracle_tests)
-        set_tests_properties(bridge.e3_real_core_oracle PROPERTIES TIMEOUT 1800 ENVIRONMENT "CT_ORACLE_RUNS=10")
+        # Both oracle tests write their story under one temp directory (ct-bridge-oracle/story-<seed>) and remove it, so
+        # they must not run at the same time under ctest -j.
+        set_tests_properties(bridge.e3_real_core_oracle PROPERTIES TIMEOUT 1800 ENVIRONMENT "CT_ORACLE_RUNS=10"
+            RESOURCE_LOCK ct_bridge_oracle_story)
         add_test(NAME bridge.e3_real_core_oracle_negative_controls
             COMMAND bash "${PROJECT_SOURCE_DIR}/archive/tests/run-negative-controls.sh"
                 "$<TARGET_FILE:ct_bridge_oracle_tests>"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/oracle/negative-controls.txt")
         set_tests_properties(bridge.e3_real_core_oracle_negative_controls PROPERTIES TIMEOUT 1800
-            ENVIRONMENT "CT_ORACLE_RUNS=3")
+            ENVIRONMENT "CT_ORACLE_RUNS=3" RESOURCE_LOCK ct_bridge_oracle_story)
     else()
         message(STATUS "no CT_FEED_HARNESS_JAR: the E2 differential and the real-core oracle are not built")
     endif()
