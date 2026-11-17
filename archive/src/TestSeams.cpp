@@ -72,6 +72,11 @@ const char *ruleName(Rule rule) noexcept
         case Rule::ADAPTER_RESOLVE_ENDPOINT: return "ADAPTER_RESOLVE_ENDPOINT";
         case Rule::ADAPTER_INVOKER: return "ADAPTER_INVOKER";
         case Rule::TAIL_TERMINATE_HANDLER: return "TAIL_TERMINATE_HANDLER";
+        case Rule::FOLLOW_RELIST_ON_STOP: return "FOLLOW_RELIST_ON_STOP";
+        case Rule::FOLLOW_TIMED_RELIST: return "FOLLOW_TIMED_RELIST";
+        case Rule::FOLLOW_EPOCH_FILTER: return "FOLLOW_EPOCH_FILTER";
+        case Rule::MEMO_SEED_BELT: return "MEMO_SEED_BELT";
+        case Rule::MEMO_CHECKPOINT_SOURCE: return "MEMO_CHECKPOINT_SOURCE";
         case Rule::COUNT: break;
     }
     return "?";

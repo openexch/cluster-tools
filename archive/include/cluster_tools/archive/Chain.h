@@ -25,9 +25,14 @@ struct SourceIdentity
     bool operator==(const SourceIdentity &) const = default;
 };
 
+// The archive id of a listing the adapter could not name (never a real archive's id).
+inline constexpr std::int64_t ARCHIVE_ID_UNKNOWN = -1;
+
 // CHANGE against Java: startPosition is NOT part of the key. Retention purges the active
 // recording's head, and the Java key turned every purge into a memo loss; the start moving
-// BACKWARDS is a history change (ResumeMemo, 5.3 row 3).
+// BACKWARDS is a history change (ResumeMemo, 5.3 row 3). The archive id is part of the key: a wiped
+// member whose archive restarts its recording ids can never match an old proof by id alone (the
+// startTimestamp and the resume belt are the other two guards).
 struct RecordingKey
 {
     std::int64_t recordingId = -1;
@@ -37,6 +42,7 @@ struct RecordingKey
     std::int32_t termBufferLength = 0;
     std::int32_t mtuLength = 0;
     std::int32_t streamId = 0;
+    std::int64_t archiveId = ARCHIVE_ID_UNKNOWN;
 
     bool operator==(const RecordingKey &) const = default;
 };

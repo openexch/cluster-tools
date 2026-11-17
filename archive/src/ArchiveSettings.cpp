@@ -140,7 +140,24 @@ std::optional<ArchiveEndpoint> parseEndpoint(const std::string &text, std::strin
 
 }
 
+ArchiveSettingsKeys ArchiveSettingsKeys::withPrefix(const std::string &prefix, const JournalProfile &profile,
+    const std::string &role)
+{
+    ArchiveSettingsKeys keys;
+    keys.prefix = prefix;
+    keys.archives = "JOURNAL_ARCHIVES";
+    keys.role = role;
+    keys.profile = profile;
+    keys.refuseHaltOnGap = false;
+    return keys;
+}
+
 ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, SettingsScope scope)
+{
+    return parseArchiveSettings(lookup, scope, ArchiveSettingsKeys{});
+}
+
+ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, SettingsScope scope, const ArchiveSettingsKeys &keys)
 {
     ArchiveSettingsResult result;
     ArchiveSettings s;
@@ -175,12 +192,15 @@ ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, Settings
         return static_cast<std::int32_t>(*value);
     };
 
-    if (lookup("BRIDGE_HALT_ON_GAP"))
+    const std::string &x = keys.prefix;
+    const std::string archivesKey = x + keys.archives;
+    const std::size_t maxFrame = keys.profile.maxFrameLength;
+    if (keys.refuseHaltOnGap && lookup("BRIDGE_HALT_ON_GAP"))
     {
         errors.push_back("BRIDGE_HALT_ON_GAP is not a setting any more (the core enforces density; cpp: F5): remove it");
     }
 
-    if (auto list = required("BRIDGE_ME_JOURNAL_ARCHIVES"))
+    if (auto list = required(archivesKey))
     {
         std::size_t start = 0;
         bool bad = false;
@@ -192,7 +212,7 @@ ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, Settings
             const auto endpoint = parseEndpoint(item, why);
             if (!endpoint)
             {
-                errors.push_back("BRIDGE_ME_JOURNAL_ARCHIVES entry '" + item + "': " + why);
+                errors.push_back(archivesKey + " entry '" + item + "': " + why);
                 bad = true;
             }
             else
@@ -201,7 +221,7 @@ ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, Settings
                 {
                     if (seen.port == endpoint->port && canonicalHost(seen.host) == canonicalHost(endpoint->host))
                     {
-                        errors.push_back("BRIDGE_ME_JOURNAL_ARCHIVES lists " + endpoint->text() + " twice");
+                        errors.push_back(archivesKey + " lists " + endpoint->text() + " twice");
                         bad = true;
                     }
                 }
@@ -215,25 +235,25 @@ ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, Settings
         }
         if (!bad && (s.archives.empty() || s.archives.size() > 16))
         {
-            errors.push_back("BRIDGE_ME_JOURNAL_ARCHIVES must list 1..16 archives, got " + std::to_string(s.archives.size()));
+            errors.push_back(archivesKey + " must list 1..16 archives, got " + std::to_string(s.archives.size()));
         }
     }
-    s.controlStreamId = positiveInt32("BRIDGE_JOURNAL_CONTROL_STREAM");
-    s.journalStreamId = positiveInt32("BRIDGE_JOURNAL_STREAM");
-    if (auto channel = required("BRIDGE_JOURNAL_CHANNEL"))
+    s.controlStreamId = positiveInt32(x + "JOURNAL_CONTROL_STREAM");
+    s.journalStreamId = positiveInt32(x + "JOURNAL_STREAM");
+    if (auto channel = required(x + "JOURNAL_CHANNEL"))
     {
         if (channel->rfind("aeron:", 0) != 0)
         {
-            errors.push_back("BRIDGE_JOURNAL_CHANNEL must start with aeron:, got '" + *channel + "'");
+            errors.push_back(x + "JOURNAL_CHANNEL must start with aeron:, got '" + *channel + "'");
         }
         s.journalChannel = *channel;
     }
-    s.replayStreamId = positiveInt32("BRIDGE_REPLAY_STREAM");
+    s.replayStreamId = positiveInt32(x + "REPLAY_STREAM");
     if (s.replayStreamId != 0 && s.replayStreamId == s.journalStreamId)
     {
-        errors.push_back("BRIDGE_REPLAY_STREAM must differ from BRIDGE_JOURNAL_STREAM");
+        errors.push_back(x + "REPLAY_STREAM must differ from " + x + "JOURNAL_STREAM");
     }
-    if (auto host = required("BRIDGE_LOCAL_HOST"))
+    if (auto host = required(x + "LOCAL_HOST"))
     {
         s.localHost = *host;
         if (isLoopbackHost(*host))
@@ -242,32 +262,32 @@ ArchiveSettingsResult parseArchiveSettings(const SettingLookup &lookup, Settings
             {
                 if (!isLoopbackHost(archive.host))
                 {
-                    errors.push_back("BRIDGE_LOCAL_HOST " + *host + " is loopback but archive " + archive.text() +
+                    errors.push_back(x + "LOCAL_HOST " + *host + " is loopback but archive " + archive.text() +
                         " is not: the archive would send control responses and the replay to itself");
                     break;
                 }
             }
         }
     }
-    s.journalMtu = positiveInt32("BRIDGE_JOURNAL_MTU");
+    s.journalMtu = positiveInt32(x + "JOURNAL_MTU");
     if (s.journalMtu != 0 &&
-        (s.journalMtu % 32 != 0 || s.journalMtu < static_cast<std::int32_t>(MAX_FRAME_LENGTH + 32) || s.journalMtu > 65504))
+        (s.journalMtu % 32 != 0 || s.journalMtu < static_cast<std::int32_t>(maxFrame + 32) || s.journalMtu > 65504))
     {
-        errors.push_back("BRIDGE_JOURNAL_MTU must be a multiple of 32 in [" + std::to_string(MAX_FRAME_LENGTH + 32) +
+        errors.push_back(x + "JOURNAL_MTU must be a multiple of 32 in [" + std::to_string(maxFrame + 32) +
             ", 65504], got " + std::to_string(s.journalMtu));
     }
-    if (SettingsScope::BRIDGE_EXTERNAL == scope && lookup("BRIDGE_DRIVER_DIR"))
+    if (SettingsScope::BRIDGE_EXTERNAL == scope && lookup(x + "DRIVER_DIR"))
     {
-        errors.push_back("BRIDGE_DRIVER_DIR is set but the bridge runs on an external driver (BRIDGE_DRIVER_MODE=external): "
-                         "remove it");
+        errors.push_back(x + "DRIVER_DIR is set but " + keys.role + " runs on an external driver (" + x +
+                         "DRIVER_MODE=external): remove it");
     }
     if (SettingsScope::BRIDGE_EMBEDDED == scope)
     {
-        if (auto dir = required("BRIDGE_DRIVER_DIR"))
+        if (auto dir = required(x + "DRIVER_DIR"))
         {
             if (dir->front() != '/')
             {
-                errors.push_back("BRIDGE_DRIVER_DIR must be an absolute path, got '" + *dir + "'");
+                errors.push_back(x + "DRIVER_DIR must be an absolute path, got '" + *dir + "'");
             }
             s.driverDir = *dir;
         }

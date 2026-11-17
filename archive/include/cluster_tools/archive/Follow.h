@@ -157,6 +157,9 @@ public:
     virtual void onChainEmpty(std::size_t /*source*/) noexcept {}
     virtual void onChainExhausted(std::size_t /*source*/) noexcept {}
     virtual void onSourceRefused(std::size_t /*source*/, const Recording & /*recording*/) noexcept {}
+    // The epoch filter found a recording of another epoch (once per recording): it is not walked.
+    virtual void onForeignEpochRecording(std::size_t /*source*/, const Recording & /*recording*/,
+        std::int64_t /*epoch*/) noexcept {}
 };
 
 // ---- archive port results (the adapter's answers to the policy's commands)

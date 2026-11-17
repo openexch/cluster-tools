@@ -32,10 +32,14 @@ public:
     int doWork(FrameSink &sink, int fragmentLimit, TimePoint now);
 
     // 5.4 step 2: every FeedPositionReport.
-    void onReport(std::int64_t meEpoch, std::int64_t lastAppliedJournalSeq) { m_memo.onReport(meEpoch, lastAppliedJournalSeq); }
+    void onReport(std::int64_t epoch, std::int64_t lastAppliedJournalSeq) { m_memo.onReport(epoch, lastAppliedJournalSeq); }
     void switchTo(std::size_t index, TimePoint now);
     void reattach(TimePoint now); // rewind the current source to its memo (fence, hole verification)
     void stop(TimePoint now);     // shutdown: finish the replay and disconnect
+    // The expected-epoch filter of every source (FollowPolicy::expectEpoch); throws below 1.
+    void expectEpoch(std::int64_t epoch, TimePoint now);
+    // The reader checkpoint value of the attached source at the owner's logical sequence.
+    ReaderCheckpoint readerCheckpoint(std::int64_t logicalSeq) const { return m_memo.readerCheckpoint(m_current, logicalSeq); }
 
     // Section 7 row C2: every configured source refused for MTU_MISMATCH.
     bool allRefusedForMtu() const;

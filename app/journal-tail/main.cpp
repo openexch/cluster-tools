@@ -1,10 +1,11 @@
-// ct-journal-tail: reads the ME journal (schema 4) from the configured archives through archive/
-// end to end, without a core session. It is the integration
-// test driver of the archive side and the "bridge tooling" the S7 5.6 runbook needs to read journal
-// entry s. It reads only: no file is written, no core is contacted.
+// ct-journal-tail: reads a journal from the configured archives through archive/ end to end, without a core
+// session: the ME journal (schema 4, --profile me, the default) or the core order journal (schema 5, --profile
+// core-order). It is the integration test driver of the archive side and the operator's way to read journal
+// entry s over the network. It reads only: no file is written, no core is contacted.
 //
 // Every frame admitted by the 4.4 gate and inside [--from-seq, --to-seq] is printed as
 //   FRAME seq=<s> template=<t> epoch=<e> egress=<g> recording=<id> end=<position> length=<n> [hex=<bytes>]
+// (the core order journal names its third head field log=<core log position> instead of egress=)
 // and every refused frame as
 //   REFUSED <reason> <position> <length> <hex>
 // after which the tail continues with the next frame. A refused frame with a peek (a HEAD refusal)
@@ -67,7 +68,8 @@ struct UsageError : std::runtime_error
 const char *USAGE =
     "usage: ct-journal-tail --aeron-dir <dir> --archive <host:port>[,<host:port>...] --control-stream <id>\n"
     "         --journal-stream <id> --channel <aeron:...> --replay-stream <id> --local-host <host> --journal-mtu <n>\n"
-    "         [--from-seq <s>] [--to-seq <s>] [--hex] [--cursor <C> --epoch <E>] [--timeout-ms <n>]\n";
+    "         [--from-seq <s>] [--to-seq <s>] [--hex] [--cursor <C> --epoch <E>] [--timeout-ms <n>]\n"
+    "         [--profile me|core-order]\n";
 
 std::int64_t parseCount(const std::string &flag, const std::string &text, std::int64_t min)
 {
@@ -106,6 +108,7 @@ struct Options
     std::optional<std::int64_t> cursor;
     std::optional<std::int64_t> epoch;
     std::optional<std::int64_t> timeoutMs;
+    JournalProfile profile = ME_JOURNAL;
 };
 
 Options parseArgs(int argc, char **argv)
@@ -167,6 +170,21 @@ Options parseArgs(int argc, char **argv)
         {
             o.timeoutMs = parseCount(flag, value, 1);
         }
+        else if (flag == "--profile")
+        {
+            if (value == ME_JOURNAL.name)
+            {
+                o.profile = ME_JOURNAL;
+            }
+            else if (value == CORE_ORDER_JOURNAL.name)
+            {
+                o.profile = CORE_ORDER_JOURNAL;
+            }
+            else
+            {
+                throw UsageError("--profile must be me or core-order, got '" + value + "'");
+            }
+        }
         else
         {
             throw UsageError("unknown flag " + flag);
@@ -208,9 +226,10 @@ public:
         {
             return SinkAction::CONTINUE;
         }
-        std::printf("FRAME seq=%lld template=%u epoch=%lld egress=%lld recording=%lld end=%lld length=%zu",
+        std::printf("FRAME seq=%lld template=%u epoch=%lld %s=%lld recording=%lld end=%lld length=%zu",
             static_cast<long long>(frame.peek.journalSeq), static_cast<unsigned>(frame.peek.templateId),
-            static_cast<long long>(frame.peek.meEpoch), static_cast<long long>(frame.peek.egressSeq),
+            static_cast<long long>(frame.peek.epoch()), m_options.profile.positionLabel,
+            static_cast<long long>(frame.peek.position()),
             static_cast<long long>(frame.key.recordingId), static_cast<long long>(frame.endPosition), frame.length);
         if (m_options.hex)
         {
@@ -298,7 +317,11 @@ int run(int argc, char **argv)
                 }
                 return it->second;
             },
-            SettingsScope::TOOL);
+            SettingsScope::TOOL, [&] {
+                ArchiveSettingsKeys keys; // the BRIDGE_ names the flags map to, bound by the chosen journal
+                keys.profile = options.profile;
+                return keys;
+            }());
         if (!parsed.ok())
         {
             for (const auto &e : parsed.errors)
@@ -338,7 +361,9 @@ int run(int argc, char **argv)
         lastInvoke = now;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     };
-    SourceSet sources(*settings, aeron, monitor, invoker, metrics, &observer);
+    FollowSettings follow;
+    follow.profile = options.profile;
+    SourceSet sources(*settings, aeron, monitor, invoker, metrics, &observer, {}, follow);
     if (options.cursor)
     {
         sources.onReport(*options.epoch, *options.cursor); // proofs from skips at or below C (5.2 rule 1)

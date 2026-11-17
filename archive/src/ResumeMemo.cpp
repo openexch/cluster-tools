@@ -126,6 +126,7 @@ void ResumeMemo::invalidate(std::size_t source, MemoReason reason)
     }
     SourceMemo &memo = slot(source);
     memo.proofs.clear();
+    memo.seeds.clear();
     if (nullptr != m_metrics)
     {
         m_metrics->memoInvalidated(reason);
@@ -142,6 +143,7 @@ void ResumeMemo::invalidateAll(MemoReason reason)
     for (std::size_t i = 0; i < m_sources.size(); ++i)
     {
         m_sources[i].proofs.clear();
+        m_sources[i].seeds.clear();
         if (nullptr != m_metrics)
         {
             m_metrics->memoInvalidated(reason);
@@ -150,10 +152,10 @@ void ResumeMemo::invalidateAll(MemoReason reason)
     m_maxProven = 0;
 }
 
-void ResumeMemo::onReport(std::int64_t meEpoch, std::int64_t lastAppliedJournalSeq)
+void ResumeMemo::onReport(std::int64_t epoch, std::int64_t lastAppliedJournalSeq)
 {
     // Row 1: an ME re-genesis or another core. Row 2: the core restored or replaced.
-    if (0 != m_epoch && meEpoch != m_epoch)
+    if (0 != m_epoch && epoch != m_epoch)
     {
         invalidateAll(MemoReason::EPOCH_CHANGED);
     }
@@ -161,7 +163,7 @@ void ResumeMemo::onReport(std::int64_t meEpoch, std::int64_t lastAppliedJournalS
     {
         invalidateAll(MemoReason::CURSOR_REGRESSED);
     }
-    m_epoch = meEpoch;
+    m_epoch = epoch;
     m_cursor = lastAppliedJournalSeq;
 }
 
@@ -279,7 +281,102 @@ ListingOutcome ResumeMemo::onListing(std::size_t source, const std::vector<Recor
         [&](const auto &entry) { return nullptr == findByKey(chain, entry.first); }), memo.proofs.end());
     memo.chain = chain;
     memo.listed = true;
+    adoptSeeds(memo);
     return outcome;
+}
+
+void ResumeMemo::adoptSeeds(SourceMemo &memo)
+{
+    for (const auto &[key, proof] : memo.seeds)
+    {
+        const Recording *r = findByKey(memo.chain, key);
+        const bool inside = nullptr != r && proof.endPosition >= r->startPosition &&
+            (r->active() || proof.endPosition <= r->stopPosition);
+        // a seed for a recording the memo already proves further is superseded, not adopted
+        const Proof *have = findProof(memo, key);
+        if (!inside || 0 == m_epoch || proof.epoch != m_epoch || proof.seq > m_cursor ||
+            (nullptr != have && have->seq >= proof.seq))
+        {
+            if (nullptr != m_metrics)
+            {
+                ArchiveMetrics::add(m_metrics->memoSeedsDropped);
+            }
+            continue;
+        }
+        if (nullptr != have)
+        {
+            dropProof(memo, key);
+        }
+        memo.proofs.emplace_back(key, proof);
+        m_maxProven = std::max(m_maxProven, proof.seq);
+        if (nullptr != m_metrics)
+        {
+            ArchiveMetrics::add(m_metrics->memoSeedsAdopted);
+        }
+    }
+    memo.seeds.clear();
+}
+
+bool ResumeMemo::seed(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t epoch,
+    std::int64_t endPosition)
+{
+    SourceMemo &memo = slot(source);
+    if (0 == m_epoch || epoch != m_epoch || seq < 1 || seq > m_cursor || endPosition < 0 ||
+        endPosition % FRAME_ALIGNMENT != 0)
+    {
+        if (nullptr != m_metrics)
+        {
+            ArchiveMetrics::add(m_metrics->memoSeedsDropped);
+        }
+        return false;
+    }
+    memo.seeds.erase(std::remove_if(memo.seeds.begin(), memo.seeds.end(),
+        [&](const auto &entry) { return entry.first == key; }), memo.seeds.end());
+    memo.seeds.emplace_back(key, Proof{ seq, epoch, endPosition, true });
+    return true;
+}
+
+std::size_t ResumeMemo::pendingSeeds(std::size_t source) const
+{
+    return slot(source).seeds.size();
+}
+
+ReaderCheckpoint ResumeMemo::readerCheckpoint(std::size_t source, std::int64_t logicalSeq) const
+{
+    ReaderCheckpoint checkpoint;
+    checkpoint.sourceEpoch = m_epoch;
+    checkpoint.logicalSeq = logicalSeq;
+    const RecordingKey *bestKey = nullptr;
+    const Proof *best = nullptr;
+    auto consider = [&](const SourceMemo &memo) {
+        for (const auto &entry : memo.proofs)
+        {
+            if (nullptr == best || entry.second.seq > best->seq ||
+                (entry.second.seq == best->seq && entry.second.endPosition > best->endPosition))
+            {
+                best = &entry.second;
+                bestKey = &entry.first;
+            }
+        }
+    };
+    if (disabled(Rule::MEMO_CHECKPOINT_SOURCE))
+    {
+        for (const auto &memo : m_sources)
+        {
+            consider(memo); // RED shape: the best proof of any source
+        }
+    }
+    else
+    {
+        consider(slot(source));
+    }
+    if (nullptr != best)
+    {
+        checkpoint.archiveId = bestKey->archiveId;
+        checkpoint.recordingId = bestKey->recordingId;
+        checkpoint.position = best->endPosition;
+    }
+    return checkpoint;
 }
 
 ResumePoint ResumeMemo::resume(std::size_t source)
@@ -314,6 +411,7 @@ ResumePoint ResumeMemo::resume(std::size_t source)
     }
     const Recording &r = chain[k];
     point.memoFree = false;
+    point.seeded = proof->seeded;
     if (!r.active() && proof->endPosition == r.stopPosition)
     {
         point.index = k + 1;
@@ -382,21 +480,21 @@ bool ResumeMemo::proveFromSkip(std::size_t source, const RecordingKey &key, cons
     {
         return false;
     }
-    if (0 == m_epoch || peek.meEpoch != m_epoch || peek.journalSeq > m_cursor)
+    if (0 == m_epoch || peek.epoch() != m_epoch || peek.journalSeq > m_cursor)
     {
         return false;
     }
-    return record(source, key, Proof{ peek.journalSeq, peek.meEpoch, endPosition });
+    return record(source, key, Proof{ peek.journalSeq, peek.epoch(), endPosition });
 }
 
-bool ResumeMemo::prove(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t meEpoch,
+bool ResumeMemo::prove(std::size_t source, const RecordingKey &key, std::int64_t seq, std::int64_t epoch,
     std::int64_t endPosition)
 {
-    if (0 == m_epoch || meEpoch != m_epoch || seq > m_cursor || seq < 1)
+    if (0 == m_epoch || epoch != m_epoch || seq > m_cursor || seq < 1)
     {
         return false;
     }
-    return record(source, key, Proof{ seq, meEpoch, endPosition });
+    return record(source, key, Proof{ seq, epoch, endPosition });
 }
 
 void ResumeMemo::beginSync()

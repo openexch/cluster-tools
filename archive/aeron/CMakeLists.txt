@@ -10,7 +10,9 @@ set(CT_ARCHIVE_AERON_SOURCES src/ArchiveSource.cpp src/SourceSet.cpp src/Journal
 
 add_library(ct_archive_aeron STATIC ${CT_ARCHIVE_AERON_SOURCES})
 add_library(cluster_tools::archive_aeron ALIAS ct_archive_aeron)
-target_include_directories(ct_archive_aeron PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(ct_archive_aeron PROPERTIES EXPORT_NAME archive_aeron)
+target_include_directories(ct_archive_aeron PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(ct_archive_aeron
     PUBLIC ct_archive_core ct_aeron_archive_client ct_client_aeron
     PRIVATE ct_sbe_codecs)

@@ -41,36 +41,43 @@ std::uint16_t readLe16(const std::uint8_t *at) noexcept
 
 namespace {
 
-std::uint16_t expectedBlock(std::uint16_t templateId) noexcept
+std::uint16_t expectedBlock(const JournalProfile &profile, std::uint16_t templateId) noexcept
 {
-    const std::uint16_t block = blockLengthFor(templateId);
+    const std::uint16_t block = profile.blockFor(templateId);
     return disabled(Rule::PEEK_BLOCK_OFF_BY_ONE) ? static_cast<std::uint16_t>(block + 1) : block;
 }
 
-bool frameLengthMatches(std::uint16_t templateId, std::uint16_t block, const std::uint8_t *bytes, std::size_t length) noexcept
+bool frameLengthMatches(const JournalProfile &profile, std::uint16_t templateId, std::uint16_t block,
+    const std::uint8_t *bytes, std::size_t length) noexcept
 {
-    if (TEMPLATE_RELEASE != templateId)
+    if (0 == profile.groupTemplateId || profile.groupTemplateId != templateId)
     {
         return length == MESSAGE_HEADER_LENGTH + block;
     }
-    // Record 4: the group header is read only once the frame is long enough to hold it.
-    if (length < RELEASE_MIN_FRAME)
+    // The group template (ME record 4): the group header is read only once the frame is long enough to hold it.
+    const std::size_t minFrame = profile.groupMinFrame();
+    if (length < minFrame)
     {
         return false;
     }
-    const std::size_t groupAt = MESSAGE_HEADER_LENGTH + BLOCK_RELEASE;
+    const std::size_t groupAt = MESSAGE_HEADER_LENGTH + profile.blockFor(profile.groupTemplateId);
     const std::uint16_t entryBlock = readLe16(bytes + groupAt);
     const std::uint16_t entries = readLe16(bytes + groupAt + 2);
-    if (entryBlock != RELEASE_ENTRY_BLOCK || entries > RELEASE_MAX_ENTRIES)
+    if (entryBlock != profile.groupEntryBlock || entries > profile.groupMaxEntries)
     {
         return false;
     }
-    return length == RELEASE_MIN_FRAME + static_cast<std::size_t>(RELEASE_ENTRY_BLOCK) * entries;
+    return length == minFrame + static_cast<std::size_t>(profile.groupEntryBlock) * entries;
 }
 
 }
 
 Admission admitFrame(std::uint8_t flags, const std::uint8_t *bytes, std::size_t length) noexcept
+{
+    return admitFrame(ME_JOURNAL, flags, bytes, length);
+}
+
+Admission admitFrame(const JournalProfile &profile, std::uint8_t flags, const std::uint8_t *bytes, std::size_t length) noexcept
 {
     Admission result;
     // Row 1: one unfragmented frame, never reassembled.
@@ -79,8 +86,8 @@ Admission admitFrame(std::uint8_t flags, const std::uint8_t *bytes, std::size_t 
         result.refusal = Refusal::FRAGMENTED;
         return result;
     }
-    // Row 2: the schema 4 frame bound. Without it nothing below may read the header.
-    const bool lengthOk = length >= MIN_FRAME_LENGTH && length <= MAX_FRAME_LENGTH;
+    // Row 2: the profile's frame bound. Without it nothing below may read the header.
+    const bool lengthOk = length >= MIN_FRAME_LENGTH && length <= profile.maxFrameLength;
     if (!lengthOk && (!disabled(Rule::PEEK_LENGTH) || length < MIN_FRAME_LENGTH))
     {
         result.refusal = Refusal::LENGTH;
@@ -90,32 +97,32 @@ Admission admitFrame(std::uint8_t flags, const std::uint8_t *bytes, std::size_t 
     const std::uint16_t templateId = readLe16(bytes + 2);
     const std::uint16_t schemaId = readLe16(bytes + 4);
     const std::uint16_t version = readLe16(bytes + 6);
-    // Row 3: schema 4 v1 only; schema 3 or 1 is loud.
-    if ((JOURNAL_SCHEMA_ID != schemaId || JOURNAL_SCHEMA_VERSION != version) && !disabled(Rule::PEEK_SCHEMA))
+    // Row 3: the profile's schema and version only (ME: schema 3 or 1 is loud).
+    if ((profile.schemaId != schemaId || profile.schemaVersion != version) && !disabled(Rule::PEEK_SCHEMA))
     {
         result.refusal = Refusal::SCHEMA;
         return result;
     }
-    // Row 4: templates 1..5.
-    if ((templateId < TEMPLATE_TRADE || templateId > TEMPLATE_CONFIG) && !disabled(Rule::PEEK_TEMPLATE))
+    // Row 4: the profile's templates (ME: 1..5).
+    if ((templateId < 1 || templateId > profile.templateCount) && !disabled(Rule::PEEK_TEMPLATE))
     {
         result.refusal = Refusal::TEMPLATE;
         return result;
     }
     // Row 5: the template's root block.
-    if (block != expectedBlock(templateId) && !disabled(Rule::PEEK_BLOCK))
+    if (block != expectedBlock(profile, templateId) && !disabled(Rule::PEEK_BLOCK))
     {
         result.refusal = Refusal::BLOCK;
         return result;
     }
-    // Row 6: exact frame length (template 4: the group rule).
-    if (!frameLengthMatches(templateId, block, bytes, length) && !disabled(Rule::PEEK_FRAME_LENGTH))
+    // Row 6: exact frame length (the group template: the group rule).
+    if (!frameLengthMatches(profile, templateId, block, bytes, length) && !disabled(Rule::PEEK_FRAME_LENGTH))
     {
         result.refusal = Refusal::FRAME_LENGTH;
         return result;
     }
     // The head needs 32 bytes; every template's frame is at least 47 B, so only a seam can get here short.
-    if (length < FRAME_OFFSET_EGRESS_SEQ + 8)
+    if (length < profile.offsetPosition + 8)
     {
         result.refusal = Refusal::FRAME_LENGTH;
         return result;
@@ -123,10 +130,11 @@ Admission admitFrame(std::uint8_t flags, const std::uint8_t *bytes, std::size_t 
     const std::size_t shift = disabled(Rule::PEEK_OFFSETS_SHIFTED) ? 8 : 0;
     result.hasPeek = true;
     result.peek.templateId = templateId;
-    result.peek.journalSeq = readLe64(bytes + FRAME_OFFSET_JOURNAL_SEQ + shift);
-    result.peek.meEpoch = readLe64(bytes + FRAME_OFFSET_ME_EPOCH + shift);
-    result.peek.egressSeq = length >= FRAME_OFFSET_EGRESS_SEQ + 8 + shift ? readLe64(bytes + FRAME_OFFSET_EGRESS_SEQ + shift) : 0;
-    // Row 7: a behaviour-1 or pre-S3 ME writes 0/0.
+    result.peek.journalSeq = readLe64(bytes + profile.offsetSeq + shift);
+    result.peek.meEpoch = readLe64(bytes + profile.offsetEpoch + shift);
+    result.peek.egressSeq =
+        length >= profile.offsetPosition + 8 + shift ? readLe64(bytes + profile.offsetPosition + shift) : 0;
+    // Row 7: a sequence or an epoch below 1 (ME: a behaviour-1 or pre-S3 ME writes 0/0).
     if ((result.peek.journalSeq < 1 || result.peek.meEpoch < 1) && !disabled(Rule::PEEK_HEAD))
     {
         result.refusal = Refusal::HEAD;

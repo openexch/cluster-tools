@@ -19,7 +19,10 @@ set(CT_ARCHIVE_CORE_SOURCES
 
 add_library(ct_archive_core STATIC ${CT_ARCHIVE_CORE_SOURCES})
 add_library(cluster_tools::archive_core ALIAS ct_archive_core)
-target_include_directories(ct_archive_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(ct_archive_core PROPERTIES EXPORT_NAME archive_core)
+target_include_directories(ct_archive_core PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_compile_features(ct_archive_core PUBLIC cxx_std_20)
 target_compile_options(ct_archive_core PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
@@ -49,6 +52,20 @@ if(BUILD_TESTING)
         COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/run-negative-controls.sh" "$<TARGET_FILE:ct_archive_tests>"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/negative-controls.txt")
     set_tests_properties(archive.negative_controls PROPERTIES TIMEOUT 900)
+
+    # The follow library on the core order journal profile (a separate binary and table, so the bridge's
+    # ct_archive_tests and negative-controls.txt stay byte for byte what they were).
+    add_executable(ct_archive_profile_tests tests/TestMain.cpp tests/JournalProfileTest.cpp)
+    target_link_libraries(ct_archive_profile_tests PRIVATE ct_archive_core_seamed)
+    target_include_directories(ct_archive_profile_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party" "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_compile_definitions(ct_archive_profile_tests PRIVATE
+        CT_MEJOURNAL_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/mejournal")
+    target_compile_options(ct_archive_profile_tests PRIVATE -Wall -Wextra)
+    add_test(NAME archive.profile COMMAND ct_archive_profile_tests)
+    add_test(NAME archive.profile_negative_controls
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/run-negative-controls.sh" "$<TARGET_FILE:ct_archive_profile_tests>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/journal-profile-negative-controls.txt")
+    set_tests_properties(archive.profile_negative_controls PROPERTIES TIMEOUT 900)
 
     # 9.2 FixtureGuard: one edited byte, a regenerated dump without a lock bump, a placeholder pin.
     add_test(NAME archive.fixture_guard

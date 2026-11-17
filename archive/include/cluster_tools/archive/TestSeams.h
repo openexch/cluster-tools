@@ -80,6 +80,12 @@ enum class Rule : unsigned
     ADAPTER_INVOKER,          // 3.3: the archive Context gets no delegating invoker
     // app/journal-tail
     TAIL_TERMINATE_HANDLER,
+    // journal-neutral follow (the second profile and its owner's needs)
+    FOLLOW_RELIST_ON_STOP,    // RED shape: a recording that stopped and was drained is never left
+    FOLLOW_TIMED_RELIST,      // RED shape: no re-list while attached, a successor of an ACTIVE recording is never found
+    FOLLOW_EPOCH_FILTER,      // RED shape: a recording of another epoch is walked
+    MEMO_SEED_BELT,           // RED shape: a seeded proof is used without the resume belt
+    MEMO_CHECKPOINT_SOURCE,   // RED shape: the reader checkpoint takes its position from any source
     COUNT
 };
 

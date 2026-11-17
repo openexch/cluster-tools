@@ -286,6 +286,8 @@ ListResult ArchiveSource::list()
     {
         std::vector<Recording> recordings;
         bool consumerFailed = false;
+        // learned at connect: no control call
+        const std::int64_t archiveId = m_config.keyByArchiveId ? m_archive->archiveId() : ARCHIVE_ID_UNKNOWN;
         guarded([&] {
             m_archive->listRecordingsForUri(0, INT32_MAX, m_config.identity.channel, m_config.identity.journalStreamId,
                 [&](ac::RecordingDescriptor &d) {
@@ -299,6 +301,7 @@ ListResult ArchiveSource::list()
                         r.key.termBufferLength = d.m_termBufferLength;
                         r.key.mtuLength = d.m_mtuLength;
                         r.key.streamId = d.m_streamId;
+                        r.key.archiveId = archiveId;
                         r.startPosition = d.m_startPosition;
                         r.stopPosition = d.m_stopPosition;
                         recordings.push_back(r);
