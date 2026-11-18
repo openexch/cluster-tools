@@ -1,0 +1,37 @@
+Aeron 1.53.1 C media driver: a failed setup-eliciting status message no longer wedges the session.
+
+aeron_data_packet_dispatcher_elicit_setup_from_source marks the session PENDING_SETUP_FRAME, sends the status
+message that asks the source for a setup frame and, when that send fails (EPERM from a local firewall rule,
+ENETUNREACH or EHOSTUNREACH while inbound traffic has already recovered), returned -1 before
+aeron_driver_receiver_add_pending_setup. With no pending setup there is no timer to clear the state, every later
+frame of that session is ignored (on_data elicits only from the initial state) and a source that already had a
+connection sends setup frames only when asked: no image forms until a process restarts.
+
+The Java driver always adds the pending setup (DataPacketDispatcher.elicitSetupMessageFromSource; its
+ReceiveChannelEndpoint.sendTo logs a send error and returns). This patch does the same: the failed send is logged
+as the receiver logs its other send errors (distinct error log and the errors counter) and the pending setup is
+still registered, so after the pending-setup timeout the session is back in the initial state and the next frame
+elicits a setup again.
+
+Applied by cmake/VerifiedDependencies.cmake to the tree extracted from the tarball dependencies.lock pins; its
+sha256 is pinned there too (aeron_patches). Test: tests/aeron-driver (aeron_driver.elicit_setup_retry).
+
+--- a/aeron-driver/src/main/c/aeron_data_packet_dispatcher.c
++++ b/aeron-driver/src/main/c/aeron_data_packet_dispatcher.c
+@@ -641,8 +641,14 @@
+         endpoint, destination, control_addr, stream_id, session_id, 0, 0, 0,
+         AERON_STATUS_MESSAGE_HEADER_SEND_SETUP_FLAG) < 0)
+     {
+-        AERON_APPEND_ERR("%s", "");
+-        return -1;
++        /*
++         * Log the failed send as the receiver logs its other send errors and still register the pending setup, as the
++         * Java driver does (ReceiveChannelEndpoint.sendTo logs and returns, DataPacketDispatcher then adds the pending
++         * setup message). Returning here left the session in PENDING_SETUP_FRAME with no pending setup to time it
++         * out, so no later frame of that session could elicit a setup again and the image never formed.
++         */
++        AERON_APPEND_ERR("%s", "receiver send setup eliciting SM");
++        aeron_driver_receiver_log_error(dispatcher->receiver);
+     }
+ 
+     if (aeron_driver_receiver_add_pending_setup(

@@ -28,11 +28,11 @@ FAILED=0
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; FAILED=$((FAILED + 1)); }
 
-expect_refused() { # name needle cmake-args...
-    local name=$1 needle=$2
-    shift 2
+expect_refused_in() { # source-dir name needle cmake-args...
+    local src=$1 name=$2 needle=$3
+    shift 3
     local log="$WORK/$name.log"
-    if "$CMAKE" -S "$HERE" -B "$WORK/build-$name" -DWITH_AERON=ON -DCT_BUILD_MEDIA_DRIVER=OFF "$@" > "$log" 2>&1; then
+    if "$CMAKE" -S "$src" -B "$WORK/build-$name" -DWITH_AERON=ON -DCT_BUILD_MEDIA_DRIVER=OFF "$@" > "$log" 2>&1; then
         fail "$name: configure succeeded, must be refused"
     elif tr -s ' \n' ' ' < "$log" | grep -q -- "$needle"; then # cmake wraps its messages
         pass "$name: refused ($needle)"
@@ -41,6 +41,15 @@ expect_refused() { # name needle cmake-args...
         grep -A3 'CMake Error' "$log" | head -8
     fi
     rm -rf "$WORK/build-$name"
+}
+expect_refused() { # name needle cmake-args...
+    expect_refused_in "$HERE" "$@"
+}
+
+# A copy of this source tree (tracked and untracked files, not the ignored build dirs) whose lock or patches a case edits.
+copy_tree() { # dest
+    mkdir -p "$1"
+    git -C "$HERE" ls-files -z -co --exclude-standard | tar -C "$HERE" --null -T - -cf - | tar -C "$1" -xf -
 }
 
 # The money schema's root version is the lock's pin (money_schema_min_version); the cases below edit the ROOT
@@ -62,6 +71,34 @@ echo "/* tampered */" >> "$TOP/aeron-client/src/main/c/aeron_client_conductor.c"
 tar -czf "$WORK/aeron-tampered.tar.gz" -C "$WORK/tamper" "$(basename "$TOP")"
 expect_refused tampered-tarball "has sha256" -DAERON_TARBALL="$WORK/aeron-tampered.tar.gz" \
     -DSBE_CLASSPATH="$SBE_CP" -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
+
+# 1b. The Aeron patches (dependencies.lock aeron_patches): a patch edited without a lock change, a missing patch, and a
+# patch that no longer applies to the pinned tree (its lock sha256 updated, so only the apply check can refuse it).
+PATCH_REL=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["aeron_patches"][0]["path"])' "$HERE/dependencies.lock")
+copy_tree "$WORK/src-patch-sha"
+printf '\n' >> "$WORK/src-patch-sha/$PATCH_REL"
+expect_refused_in "$WORK/src-patch-sha" patch-sha-differs "Aeron patch $PATCH_REL has sha256" "${GOOD[@]}"
+rm -rf "$WORK/src-patch-sha"
+copy_tree "$WORK/src-patch-missing"
+rm "$WORK/src-patch-missing/$PATCH_REL"
+expect_refused_in "$WORK/src-patch-missing" patch-missing "aeron_patches) is missing" "${GOOD[@]}"
+rm -rf "$WORK/src-patch-missing"
+copy_tree "$WORK/src-patch-stale"
+python3 -I - "$WORK/src-patch-stale" "$PATCH_REL" <<'PY'
+import hashlib, json, sys
+root, rel = sys.argv[1], sys.argv[2]
+patch = open(f"{root}/{rel}").read()
+needle = "\n         AERON_STATUS_MESSAGE_HEADER_SEND_SETUP_FLAG) < 0)\n"  # a context line of the hunk
+assert patch.count(needle) == 1
+patch = patch.replace(needle, "\n         AERON_STATUS_MESSAGE_HEADER_SEND_SETUP_FLAG) <= 0)\n")
+open(f"{root}/{rel}", "w").write(patch)
+lock_path = f"{root}/dependencies.lock"
+lock = open(lock_path).read()
+old = json.loads(lock)["aeron_patches"][0]["sha256"]
+open(lock_path, "w").write(lock.replace(old, hashlib.sha256(patch.encode()).hexdigest()))
+PY
+expect_refused_in "$WORK/src-patch-stale" patch-does-not-apply "does not apply to the Aeron" "${GOOD[@]}"
+rm -rf "$WORK/src-patch-stale"
 
 # 2. A source tree as input (the tampered one, version.txt says 1.53.1): not accepted at all.
 expect_refused aeron-tree-input "AERON_SRC is not an input" -DAERON_SRC="$TOP" "${GOOD[@]}"
