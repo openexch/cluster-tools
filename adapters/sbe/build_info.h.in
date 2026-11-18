@@ -6,6 +6,8 @@
 namespace cluster_tools { namespace build_info {
 
 inline constexpr const char *AERON_VERSION = "@CT_AERON_VERSION@";
+// The patches applied to that Aeron tree (dependencies.lock aeron_patches): "<file>:<sha256>", ';'-separated.
+inline constexpr const char *AERON_PATCHES = "@CT_AERON_PATCHES@";
 inline constexpr const char *SBE_VERSION = "@CT_LOCK_SBE_VERSION@";
 inline constexpr int MONEY_SCHEMA_VERSION = @CT_MONEY_VERSION@;
 inline constexpr const char *MONEY_SCHEMA_SHA256 = "@CT_MONEY_SHA256@";

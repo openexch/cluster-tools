@@ -1,7 +1,8 @@
 # The verified-dependency gate for the WITH_CODECS / WITH_AERON builds (pattern:
 # oms/execution-projector). Nothing is trusted by path or by name: Aeron (WITH_AERON only) is
 # built only from the source TARBALL whose sha256 dependencies.lock pins (configure hashes it
-# and extracts it itself), the SBE jars are hashed and then executed from hashed copies inside
+# and extracts it itself) plus the reviewed patches the lock pins by sha256 (aeron_patches, applied
+# to the extracted tree, each one required to apply exactly), the SBE jars are hashed and then executed from hashed copies inside
 # the build tree, and every wire schema must have the schema id, version floor and templates
 # the lock names. A failure here stops configure; it never degrades to "use what is there".
 # WITH_CODECS needs Java only (codegen for money, order and ME-journal schemas); WITH_AERON
@@ -22,6 +23,7 @@ string(JSON CT_LOCK_AGRONA_SHA GET "${CT_DEPENDENCY_LOCK}" agrona_sha256)
 
 # ---- Aeron: the tarball is the input, never a tree.
 set(CT_AERON_VERSION "")
+set(CT_AERON_PATCHES "")
 if(WITH_AERON)
 if(DEFINED AERON_SRC AND NOT AERON_SRC STREQUAL "")
     message(FATAL_ERROR "AERON_SRC is not an input any more: a source tree cannot be hash-verified. "
@@ -36,20 +38,73 @@ if(NOT CT_AERON_TARBALL_SHA STREQUAL CT_LOCK_AERON_SHA)
     message(FATAL_ERROR "AERON_TARBALL ${AERON_TARBALL} has sha256 ${CT_AERON_TARBALL_SHA}; "
         "dependencies.lock pins ${CT_LOCK_AERON_SHA}")
 endif()
-# Extracted by configure into the build tree. Re-extracted whenever the stamp does not name
-# the verified hash (first configure, or a different tarball); kept otherwise so a reconfigure
-# does not rebuild Aeron.
+# The patches applied to the extracted tree: dependencies.lock aeron_patches, in order, each a file of this repository
+# pinned by sha256 (a patch edited without a lock change is refused, as is a missing one). CT_AERON_PATCHES names them
+# ("<file>:<sha256>", ';'-separated) for build_info.h and the configure log, so a build, and a cut built from it, can
+# say which driver source it runs.
+string(JSON CT_LOCK_AERON_PATCH_COUNT LENGTH "${CT_DEPENDENCY_LOCK}" aeron_patches)
+set(CT_AERON_PATCH_FILES)
+set(CT_AERON_PATCHES)
+if(CT_LOCK_AERON_PATCH_COUNT GREATER 0)
+    math(EXPR CT_AERON_PATCH_LAST "${CT_LOCK_AERON_PATCH_COUNT} - 1")
+    foreach(i RANGE ${CT_AERON_PATCH_LAST})
+        string(JSON patch_path GET "${CT_DEPENDENCY_LOCK}" aeron_patches ${i} path)
+        string(JSON patch_sha GET "${CT_DEPENDENCY_LOCK}" aeron_patches ${i} sha256)
+        set(patch_file "${PROJECT_SOURCE_DIR}/${patch_path}")
+        if(NOT EXISTS "${patch_file}")
+            message(FATAL_ERROR "Aeron patch ${patch_path} (dependencies.lock aeron_patches) is missing")
+        endif()
+        file(SHA256 "${patch_file}" patch_actual)
+        if(NOT patch_actual STREQUAL patch_sha)
+            message(FATAL_ERROR "Aeron patch ${patch_path} has sha256 ${patch_actual}; dependencies.lock pins ${patch_sha}")
+        endif()
+        list(APPEND CT_AERON_PATCH_FILES "${patch_file}")
+        get_filename_component(patch_name "${patch_path}" NAME)
+        list(APPEND CT_AERON_PATCHES "${patch_name}:${patch_sha}")
+    endforeach()
+    find_package(Git REQUIRED)
+    set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CT_AERON_PATCH_FILES})
+endif()
+
+# ct_aeron_git_apply(<tree> <patch> <result-var> <output-var> [args...]): git apply run inside the extracted tree as a
+# plain directory. GIT_CEILING_DIRECTORIES stops the repository search above it: inside a work tree (a build dir under
+# a checkout) git apply would take paths relative to that repository and silently skip the ones outside it.
+function(ct_aeron_git_apply tree patch result_var output_var)
+    get_filename_component(ceiling "${tree}" DIRECTORY)
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${ceiling}"
+            "${GIT_EXECUTABLE}" apply ${ARGN} "${patch}"
+        WORKING_DIRECTORY "${tree}" RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE out)
+    set(${result_var} "${rc}" PARENT_SCOPE)
+    set(${output_var} "${out}" PARENT_SCOPE)
+endfunction()
+
+# Extracted by configure into the build tree, then patched. Re-extracted whenever the stamp does not name the verified
+# tarball hash and the patch list, or when a patch no longer reverse-applies (the tree was edited after it was
+# patched); kept otherwise so a reconfigure does not rebuild Aeron.
 set(CT_AERON_EXTRACT_DIR "${CMAKE_BINARY_DIR}/_deps/aeron")
 set(CT_AERON_STAMP "${CT_AERON_EXTRACT_DIR}.sha256")
+set(CT_AERON_STAMP_WANT "${CT_AERON_TARBALL_SHA};${CT_AERON_PATCHES}")
 set(CT_AERON_STAMP_CONTENT "")
 if(EXISTS "${CT_AERON_STAMP}")
     file(READ "${CT_AERON_STAMP}" CT_AERON_STAMP_CONTENT)
 endif()
-if(NOT CT_AERON_STAMP_CONTENT STREQUAL CT_AERON_TARBALL_SHA OR NOT EXISTS "${CT_AERON_EXTRACT_DIR}")
+set(CT_AERON_FRESH FALSE)
+if(CT_AERON_STAMP_CONTENT STREQUAL CT_AERON_STAMP_WANT AND EXISTS "${CT_AERON_EXTRACT_DIR}")
+    file(GLOB CT_AERON_TOP LIST_DIRECTORIES true "${CT_AERON_EXTRACT_DIR}/*")
+    foreach(patch_file IN LISTS CT_AERON_PATCH_FILES)
+        ct_aeron_git_apply("${CT_AERON_TOP}" "${patch_file}" rc out --check --reverse)
+        if(NOT rc EQUAL 0)
+            message(STATUS "Aeron tree ${CT_AERON_TOP} no longer carries ${patch_file}: extracting it again")
+            set(CT_AERON_FRESH TRUE)
+        endif()
+    endforeach()
+else()
+    set(CT_AERON_FRESH TRUE)
+endif()
+if(CT_AERON_FRESH)
     file(REMOVE_RECURSE "${CT_AERON_EXTRACT_DIR}")
     file(REMOVE "${CT_AERON_STAMP}")
     file(ARCHIVE_EXTRACT INPUT "${AERON_TARBALL}" DESTINATION "${CT_AERON_EXTRACT_DIR}")
-    file(WRITE "${CT_AERON_STAMP}" "${CT_AERON_TARBALL_SHA}")
 endif()
 file(GLOB CT_AERON_TOP LIST_DIRECTORIES true "${CT_AERON_EXTRACT_DIR}/*")
 list(LENGTH CT_AERON_TOP CT_AERON_TOP_COUNT)
@@ -57,11 +112,33 @@ if(NOT CT_AERON_TOP_COUNT EQUAL 1 OR NOT IS_DIRECTORY "${CT_AERON_TOP}")
     message(FATAL_ERROR "AERON_TARBALL must hold exactly one top-level directory, found: ${CT_AERON_TOP}")
 endif()
 set(AERON_SRC "${CT_AERON_TOP}")
+if(CT_AERON_FRESH)
+    # Each patch must apply exactly (git apply takes no fuzz) and must then reverse-apply, which proves its result is
+    # in the tree. A patch that does not apply stops configure: the build never runs an unpatched driver by accident.
+    foreach(patch_file IN LISTS CT_AERON_PATCH_FILES)
+        ct_aeron_git_apply("${AERON_SRC}" "${patch_file}" rc out --check)
+        if(NOT rc EQUAL 0)
+            message(FATAL_ERROR "Aeron patch ${patch_file} does not apply to the Aeron ${CT_LOCK_AERON_VERSION} tree "
+                "of ${AERON_TARBALL}:\n${out}")
+        endif()
+        ct_aeron_git_apply("${AERON_SRC}" "${patch_file}" rc out)
+        if(NOT rc EQUAL 0)
+            message(FATAL_ERROR "Aeron patch ${patch_file} failed to apply:\n${out}")
+        endif()
+        ct_aeron_git_apply("${AERON_SRC}" "${patch_file}" rc out --check --reverse)
+        if(NOT rc EQUAL 0)
+            message(FATAL_ERROR "Aeron patch ${patch_file} applied but its result is not in the tree:\n${out}")
+        endif()
+        message(STATUS "Aeron patch applied: ${patch_file}")
+    endforeach()
+    file(WRITE "${CT_AERON_STAMP}" "${CT_AERON_STAMP_WANT}")
+endif()
 file(STRINGS "${AERON_SRC}/version.txt" CT_AERON_VERSION LIMIT_COUNT 1)
 if(NOT CT_AERON_VERSION STREQUAL CT_LOCK_AERON_VERSION)
     message(FATAL_ERROR "AERON_TARBALL holds Aeron ${CT_AERON_VERSION}; dependencies.lock pins ${CT_LOCK_AERON_VERSION}")
 endif()
 message(STATUS "Aeron ${CT_AERON_VERSION} from ${AERON_TARBALL} (sha256 ${CT_AERON_TARBALL_SHA}), extracted to ${AERON_SRC}")
+message(STATUS "Aeron patches: ${CT_AERON_PATCHES}")
 endif()
 
 # ---- SBE classpath: exactly the two pinned jars, each verified, then COPIED into the build

@@ -17,6 +17,7 @@
 # (forwarder.*); its integration run (app/forwarder/it/run-forwarder-it.sh) is local like the other integration runs.
 # The installed package is linked by a separate CMake project (package.consumer, tests/package-consumer), and the
 # test-only session stub (-DCT_SESSION_STUB=ON) runs its unit, negative-control and process tests (session_stub.*).
+# The patched Aeron C driver is proven by aeron_driver.elicit_setup_retry and its unpatched control.
 name: aeron
 
 on:
@@ -40,6 +41,7 @@ on:
       - 'poc/**'
       - 'runtime/**'
       - 'tests/**'
+      - 'third_party/**'
       - '.github/workflows/aeron.yml'
 
 jobs:

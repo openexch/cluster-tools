@@ -291,6 +291,12 @@ switch-behavior send-config --ingress ... --response-channel ... --file e2e/demo
 `switch-behavior --help` lists every option. `e2e/scripts/run-proof.sh` runs `send-config` end to end
 against a dockerized config-mode match cluster.
 
+## Aeron patches
+
+The Aeron C tree is built from the pinned tarball plus the patches `dependencies.lock` lists under `aeron_patches`, each pinned by sha256. Configure applies them in order and refuses a patch that is missing, edited without a lock change, or no longer applies exactly. The applied list is printed (`Aeron patches:`) and compiled into `build_info::AERON_PATCHES`.
+
+`0001-elicit-setup-keeps-pending-setup-on-send-failure.patch` fixes the 1.53.1 C driver. When the status message that asks a source for a setup frame failed to send (for example EPERM from a local firewall rule, or an unreachable route while inbound traffic had already recovered), the driver ignored that session until a restart. With the patch it logs the error and asks again after the pending-setup timeout, as the Java driver does. `aeron_driver.elicit_setup_retry` proves it, and `aeron_driver.elicit_setup_retry_unpatched_control` proves the test fails without the patch. `aeronmd` and `libaeron_driver.so` ship together, since the fix is in the library.
+
 ## Wire schema pins
 
 `dependencies.lock` pins money-schema v9 (core), order-schema v12 and ME journal schema 4 (match), and the

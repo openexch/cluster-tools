@@ -4,6 +4,9 @@
   "aeron_version": "1.53.1",
   "aeron_source_url": "https://codeload.github.com/aeron-io/aeron/tar.gz/refs/tags/1.53.1",
   "aeron_source_sha256": "f3acdcc07d90f1ca48c737f51fb6a32ff16f9c8bdbd1b13b786b8b82d0da3d66",
+  "aeron_patches": [
+    {"path": "third_party/aeron-patches/0001-elicit-setup-keeps-pending-setup-on-send-failure.patch", "sha256": "979cbf2f8471050007dcd4210990c1b91a72060fb580ef33b7174f22a904864a"}
+  ],
   "sbe_version": "1.40.1",
   "sbe_url": "https://repo1.maven.org/maven2/uk/co/real-logic/sbe-tool/1.40.1/sbe-tool-1.40.1.jar",
   "sbe_sha256": "a444bbe4098235ddebe3fa9a3b1fd387d8c6f15c1b53e6d78af30614b4685d6a",

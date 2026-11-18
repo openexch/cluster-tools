@@ -169,6 +169,9 @@ add_subdirectory(app/bridge) # ct_bridge_pure everywhere; ct-bridge and its app 
 # The installed package another repository links (cmake/Package.cmake): the client library and the runtime, by
 # component; and the session stub, a test-only program on the exported client (never installed or published).
 include(cmake/Package.cmake)
+if(WITH_AERON AND CT_BUILD_MEDIA_DRIVER AND BUILD_TESTING)
+    add_subdirectory(tests/aeron-driver) # The patched Aeron C media driver (dependencies.lock aeron_patches) and its RED control
+endif()
 if(CT_SESSION_STUB)
     add_subdirectory(app/session-stub)
 endif()
