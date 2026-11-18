@@ -19,7 +19,7 @@ Rules that replace Java behaviour, referenced in the notes:
   `seq <= cursor` is skipped; nothing is ever forwarded past a hole.
 - A resume proof comes only from a record at or below the cursor, on its own source and recording. Staged,
   unsent or unacknowledged records never prove.
-- Money schema v7 templates (unchanged in v8) replace the v5 shapes: trades go as one 62 batch (cap 64), terminals as a 63
+- Money schema v7 templates (unchanged in v8 and v9) replace the v5 shapes: trades go as one 62 batch (cap 64), terminals as a 63
   carrying the raw status. The v5 SettleBatch and TerminalRelease shapes are refused for the BRIDGE role.
 
 ## BridgeFilterTest (6)

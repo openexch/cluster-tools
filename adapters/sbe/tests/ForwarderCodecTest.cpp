@@ -37,7 +37,7 @@ std::vector<Dispatch> decodeBatch(const Bytes &frame)
     std::vector<Dispatch> out;
     const codec::Header h = headerOf(frame);
     REQUIRE(h.schemaId == 2);
-    REQUIRE(h.version == 8);
+    REQUIRE(h.version == 9);
     REQUIRE(codec::decodeDispatchBatch(frame.data(), frame.size(), h,
         [](void *context, const Dispatch &d) { static_cast<std::vector<Dispatch> *>(context)->push_back(d); }, &out));
     return out;

@@ -2,7 +2,7 @@
 #define CLUSTER_TOOLS_ADAPTERS_SBE_BRIDGE_CODEC_H
 
 // The C++ bridge's wire: the translation of an admitted ME journal schema 4 record into
-// the core feed (money v8: 61, 62, 63, 64, 67, 68) with the generated codecs on both sides, field by field, every
+// the core feed (money v9: 61, 62, 63, 64, 67, 68) with the generated codecs on both sides, field by field, every
 // value verbatim (no range check, no default, no conversion; the five enum fields written raw), the two control
 // encodes (QueryFeedPosition 7, FeedHalt 66) and the egress decode the domain needs (FeedPositionReport 17 v7,
 // AdminAck 110, SettleRejected 114). The staging decision is the domain's (domain/bridge Stager); this class only
@@ -23,7 +23,7 @@ using domain::bridge::SettleRejected;
 using domain::bridge::StagedTrade;
 
 inline constexpr std::uint16_t MONEY_SCHEMA_ID = 2;
-inline constexpr std::uint16_t MONEY_VERSION = 8;
+inline constexpr std::uint16_t MONEY_VERSION = 9;
 inline constexpr std::uint16_t JOURNAL_SCHEMA_ID = 4;
 inline constexpr std::uint16_t JOURNAL_VERSION = 1;
 inline constexpr std::size_t MESSAGE_HEADER_LENGTH = 8;
@@ -80,7 +80,7 @@ public:
     // Raw bytes for every enum (an unknown haltReason or reject reason is mapped by the domain, never thrown).
     static EgressKind decodeEgress(const std::uint8_t *frame, std::size_t length, EgressEvent &out) noexcept;
 
-    // OrderReject 101 / SettlementApplied 13: false when the frame is not that template at money v8 with its full
+    // OrderReject 101 / SettlementApplied 13: false when the frame is not that template at money v9 with its full
     // v7 block (EGRESS_VERSION_FLOOR RED: a v6 frame accepted).
     static bool decodeOrderReject(const std::uint8_t *frame, std::size_t length, OrderRejectView &out) noexcept;
     static bool decodeSettlementApplied(const std::uint8_t *frame, std::size_t length, std::int64_t &tradeId) noexcept;

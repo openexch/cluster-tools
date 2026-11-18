@@ -11,7 +11,7 @@
 // ForwarderCodec - the forwarder's wire. The only forwarder translation unit
 // that includes generated SBE headers; this header pulls in none.
 //
-// Core side (money-schema id 2, header version exactly 8): decode 104 MeDispatch, 105 MeDispatchBatch,
+// Core side (money-schema id 2, header version exactly 9): decode 104 MeDispatch, 105 MeDispatchBatch,
 // 108 PendingDispatchEnd, 109 AdmissionState, 101 OrderReject; encode 65 RequestPendingDispatch.
 // ME side (order-schema id 1, header version exactly 12): encode 9 DurableOrderCommand and 10
 // ReleaseCommandIds; decode 21 ClusterHeartbeat (meEpoch).
@@ -35,7 +35,7 @@ using domain::forwarder::PendingRequest;
 using domain::forwarder::ReleaseEntry;
 
 inline constexpr std::uint16_t MONEY_SCHEMA_ID = 2;
-inline constexpr std::uint16_t MONEY_VERSION = 8;
+inline constexpr std::uint16_t MONEY_VERSION = 9;
 inline constexpr std::uint16_t MATCH_SCHEMA_ID = 1;
 inline constexpr std::uint16_t MATCH_VERSION = 12;
 
@@ -85,7 +85,7 @@ struct Header
 // False if the frame is shorter than a message header.
 bool readHeader(const std::uint8_t *frame, std::size_t length, Header &header) noexcept;
 
-// ---- core frames (the caller already checked schemaId 2 and version 8)
+// ---- core frames (the caller already checked schemaId 2 and version 9)
 // A dispatchSeq below 1 makes the frame malformed (the core mints from 1, so only a corrupt core can send
 // one; it cannot be ordered, so nothing of the frame is delivered). *seqBelowOne (optional) says that was the reason.
 bool decodeDispatch(const std::uint8_t *frame, std::size_t length, const Header &header, Dispatch &out,
@@ -146,7 +146,7 @@ bool decodeBookDelta(const std::uint8_t *frame, std::size_t length, const Header
 // 26: the highest tradeId with its price; a malformed batch is dropped whole (nothing of it is used).
 bool decodeTradeBatch(const std::uint8_t *frame, std::size_t length, const Header &header, TradeFrame &out) noexcept;
 
-// ---- money 60 MarketTick (header version 8). Returns the frame length (60), 0 if out is too small.
+// ---- money 60 MarketTick (header version 9). Returns the frame length (60), 0 if out is too small.
 std::size_t encodeMarketTick(std::uint8_t *out, std::size_t capacity, const MarketTick &tick) noexcept;
 
 }}}
