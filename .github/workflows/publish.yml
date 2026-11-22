@@ -54,14 +54,16 @@ jobs:
       # ct-forwarder, the production forwarder (exit 78 on a missing env is its start smoke below).
       # ct-bridge, the production settlement bridge (the embedded driver mode links aeron_driver_static from the
       # same verified tree: no new shared library; the same start smoke).
-      BINARIES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so
+      # ct-genesis, the genesis tool (one verb per phase; the same strict env and embedded driver mode, the same
+      # start smoke).
+      BINARIES: switch-behavior ct-forwarder ct-bridge ct-genesis aeronmd libaeron_driver.so libaeron.so
       # The external media driver's launch files: driver.properties (match's file at the commit the
       # lock pins, sha256-verified by scripts/stage-driver-properties.sh) and this repo's two profile
       # overlays. The console launches every external driver as
       # `aeronmd driver.properties driver-<dev|prod>.properties` from this set; nothing on the box
       # reads a match checkout.
       DRIVER_FILES: driver.properties driver-dev.properties driver-prod.properties
-      FILES: switch-behavior ct-forwarder ct-bridge aeronmd libaeron_driver.so libaeron.so driver.properties driver-dev.properties driver-prod.properties
+      FILES: switch-behavior ct-forwarder ct-bridge ct-genesis aeronmd libaeron_driver.so libaeron.so driver.properties driver-dev.properties driver-prod.properties
       # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
       # scripts/fetch-deps.sh + scripts/fetch-schemas.sh fetch and sha256-verify them.
       CMAKE_VERSION: 3.31.6
@@ -211,6 +213,13 @@ jobs:
           if echo " ${FILES} " | grep -qE 'ct_bridge_(nc|tc)_|ct_bridge_negctl'; then
             echo "::error::FILES names a bridge test build"; exit 1
           fi
+          # The same for the genesis tool's test build (CT_GENESIS_TEST_BUILDS is not set)
+          if find build -type f -name 'ct_genesis_tc*' | grep -q .; then
+            echo "::error::a ct_genesis_tc test build is in the publish tree"; exit 1
+          fi
+          if echo " ${FILES} " | grep -q 'ct_genesis_tc'; then
+            echo "::error::FILES names the genesis test build"; exit 1
+          fi
           # The session stub is a test-only program (CT_SESSION_STUB is not set): never in the publish tree, never in FILES
           if find build -type f -name 'ct_session_stub*' | grep -q .; then
             echo "::error::ct_session_stub (a test-only program) is in the publish tree"; exit 1
@@ -221,10 +230,11 @@ jobs:
           cp build/app/switch-behavior/switch-behavior dist/
           cp build/app/forwarder/ct-forwarder dist/
           cp build/app/bridge/ct-bridge dist/
+          cp build/app/genesis/ct-genesis dist/
           cp "${AERONMD}" dist/aeronmd
           cp "${LIBDRIVER}" dist/libaeron_driver.so
           cp "${LIBAERON}" dist/libaeron.so
-          strip dist/switch-behavior dist/ct-forwarder dist/ct-bridge dist/aeronmd
+          strip dist/switch-behavior dist/ct-forwarder dist/ct-bridge dist/ct-genesis dist/aeronmd
           # --strip-unneeded for the shared libraries: keep the dynamic symbols
           # the loader resolves against, drop the rest.
           strip --strip-unneeded dist/libaeron_driver.so dist/libaeron.so
@@ -270,6 +280,14 @@ jobs:
           env -i ./ct-bridge > bridge-smoke.txt 2>&1 || rc=$?
           [ "$rc" -eq 78 ] || { echo "::error::ct-bridge without env exited $rc, expected 78"; exit 1; }
           grep -q "BRIDGE_DRIVER_MODE is required" bridge-smoke.txt || { echo "::error::ct-bridge did not name its config errors"; exit 1; }
+          # ct-genesis: no arguments = usage 64; a verb with no environment = 78 naming the keys
+          rc=0
+          ./ct-genesis >/dev/null 2>&1 || rc=$?
+          [ "$rc" -eq 64 ] || { echo "::error::ct-genesis without arguments exited $rc, expected 64"; exit 1; }
+          rc=0
+          env -i ./ct-genesis status /nonexistent.json > genesis-smoke.txt 2>&1 || rc=$?
+          [ "$rc" -eq 78 ] || { echo "::error::ct-genesis without env exited $rc, expected 78"; exit 1; }
+          grep -q "GENESIS_DRIVER_MODE is required" genesis-smoke.txt || { echo "::error::ct-genesis did not name its config errors"; exit 1; }
           # aeronmd runs until killed; surviving the 2s timeout (rc 124) IS the
           # pass: an instant exit would be a load or boot failure. Run it the way the
           # console launches it, on the shipped properties and each overlay, so a value

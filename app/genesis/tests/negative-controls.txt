@@ -1,0 +1,4 @@
+# ct-genesis negative controls (run-negative-controls.sh): test | rule | why | expected text in the failure output
+second genesis on a live cluster is refused|EMPTINESS_CHECK|me_genesis runs on a cluster with history|genesis ran on a cluster with history
+full genesis sets the request cap|LIMITS_STEP|configure_risk without CoreLimitsSet leaves the genesis record (cap 256)|genesis left the request cap unset
+a partial fund refuses the rerun|PREFIX_CHECK|a phase verb runs from a partial state|genesis continued from an unknown state

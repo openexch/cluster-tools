@@ -42,6 +42,7 @@ option(CT_BRIDGE_TEST_BUILDS "Build the never-published ct_bridge_nc_* / ct_brid
 # never published (publish.yml refuses it).
 option(CT_SESSION_STUB "Build the never-published ct_session_stub (requires WITH_AERON; drill dry runs)" OFF)
 option(CT_FORWARDER_TEST_BUILDS "Build the never-published ct_forwarder_nc_* / ct_forwarder_tc_* binaries (T1 negative controls)" OFF)
+option(CT_GENESIS_TEST_BUILDS "Build the never-published ct_genesis_tc (the seams and the killed-genesis exit; genesis integration run)" OFF)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -165,6 +166,7 @@ if(WITH_BRIDGE)
     add_subdirectory(app/journal-tail)
 endif()
 add_subdirectory(app/bridge) # ct_bridge_pure everywhere; ct-bridge and its app tests with WITH_AERON AND WITH_BRIDGE
+add_subdirectory(app/genesis) # ct_genesis_pure everywhere; the runner WITH_CODECS; ct-genesis WITH_AERON
 
 # The installed package another repository links (cmake/Package.cmake): the client library and the runtime, by
 # component; and the session stub, a test-only program on the exported client (never installed or published).

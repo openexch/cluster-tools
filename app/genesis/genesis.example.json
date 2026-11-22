@@ -1,0 +1,256 @@
+{
+  "genesisId": 7301000000000001,
+  "me": {
+    "configVersion": 1,
+    "impl": "array",
+    "bookCapacity": 65536,
+    "maxMatchesPerOrder": 10000,
+    "maxOrdersPerLevel": 0,
+    "behaviorVersion": 2,
+    "commandLedgerCapacity": 100000,
+    "maxWireVersion": 12,
+    "markets": [
+      {
+        "marketId": 1,
+        "symbol": "BTC-USD",
+        "minPrice": 1000000,
+        "maxPrice": 10000000000,
+        "tickSize": 1000000
+      },
+      {
+        "marketId": 2,
+        "symbol": "ETH-USD",
+        "minPrice": 1000000,
+        "maxPrice": 10000000000,
+        "tickSize": 1000000
+      },
+      {
+        "marketId": 3,
+        "symbol": "SOL-USD",
+        "minPrice": 1000000,
+        "maxPrice": 10000000000,
+        "tickSize": 1000000
+      },
+      {
+        "marketId": 4,
+        "symbol": "XRP-USD",
+        "minPrice": 1000000,
+        "maxPrice": 10000000000,
+        "tickSize": 1000000
+      },
+      {
+        "marketId": 5,
+        "symbol": "DOGE-USD",
+        "minPrice": 1000000,
+        "maxPrice": 10000000000,
+        "tickSize": 1000000
+      }
+    ]
+  },
+  "core": {
+    "markets": [
+      {
+        "marketId": 1,
+        "symbol": "BTC-USD",
+        "baseAssetId": 1,
+        "quoteAssetId": 0,
+        "tickSize": 1,
+        "minPrice": 1,
+        "maxPrice": 1000000000000000,
+        "lotSize": 0
+      },
+      {
+        "marketId": 2,
+        "symbol": "ETH-USD",
+        "baseAssetId": 2,
+        "quoteAssetId": 0,
+        "tickSize": 1,
+        "minPrice": 1,
+        "maxPrice": 1000000000000000,
+        "lotSize": 0
+      },
+      {
+        "marketId": 3,
+        "symbol": "SOL-USD",
+        "baseAssetId": 3,
+        "quoteAssetId": 0,
+        "tickSize": 1,
+        "minPrice": 1,
+        "maxPrice": 1000000000000000,
+        "lotSize": 0
+      },
+      {
+        "marketId": 4,
+        "symbol": "XRP-USD",
+        "baseAssetId": 4,
+        "quoteAssetId": 0,
+        "tickSize": 1,
+        "minPrice": 1,
+        "maxPrice": 1000000000000000,
+        "lotSize": 0
+      },
+      {
+        "marketId": 5,
+        "symbol": "DOGE-USD",
+        "baseAssetId": 5,
+        "quoteAssetId": 0,
+        "tickSize": 1,
+        "minPrice": 1,
+        "maxPrice": 1000000000000000,
+        "lotSize": 0
+      }
+    ],
+    "assets": [
+      {
+        "assetId": 0,
+        "code": "USD",
+        "scale": 8
+      },
+      {
+        "assetId": 1,
+        "code": "BTC",
+        "scale": 8
+      },
+      {
+        "assetId": 2,
+        "code": "ETH",
+        "scale": 8
+      },
+      {
+        "assetId": 3,
+        "code": "SOL",
+        "scale": 8
+      },
+      {
+        "assetId": 4,
+        "code": "XRP",
+        "scale": 8
+      },
+      {
+        "assetId": 5,
+        "code": "DOGE",
+        "scale": 8
+      }
+    ]
+  },
+  "risk": {
+    "configVersion": 1,
+    "markets": [
+      {
+        "marketId": 1,
+        "minQuantity": 1,
+        "maxQuantity": 100000000000000,
+        "minNotional": 0,
+        "maxNotional": 9223372036854775807,
+        "priceCollarBps": 5000,
+        "maxOrdersPerSec": 1000,
+        "maxOrdersPerMin": 30000,
+        "maxOpenOrders": 5000,
+        "maxPositionPerMarket": 9223372036854775807,
+        "marketBuySlippageBps": 100
+      },
+      {
+        "marketId": 2,
+        "minQuantity": 1,
+        "maxQuantity": 100000000000000,
+        "minNotional": 0,
+        "maxNotional": 9223372036854775807,
+        "priceCollarBps": 5000,
+        "maxOrdersPerSec": 1000,
+        "maxOrdersPerMin": 30000,
+        "maxOpenOrders": 5000,
+        "maxPositionPerMarket": 9223372036854775807,
+        "marketBuySlippageBps": 100
+      },
+      {
+        "marketId": 3,
+        "minQuantity": 1,
+        "maxQuantity": 100000000000000,
+        "minNotional": 0,
+        "maxNotional": 9223372036854775807,
+        "priceCollarBps": 5000,
+        "maxOrdersPerSec": 1000,
+        "maxOrdersPerMin": 30000,
+        "maxOpenOrders": 5000,
+        "maxPositionPerMarket": 9223372036854775807,
+        "marketBuySlippageBps": 100
+      },
+      {
+        "marketId": 4,
+        "minQuantity": 1,
+        "maxQuantity": 100000000000000,
+        "minNotional": 0,
+        "maxNotional": 9223372036854775807,
+        "priceCollarBps": 5000,
+        "maxOrdersPerSec": 1000,
+        "maxOrdersPerMin": 30000,
+        "maxOpenOrders": 5000,
+        "maxPositionPerMarket": 9223372036854775807,
+        "marketBuySlippageBps": 100
+      },
+      {
+        "marketId": 5,
+        "minQuantity": 1,
+        "maxQuantity": 100000000000000,
+        "minNotional": 0,
+        "maxNotional": 9223372036854775807,
+        "priceCollarBps": 5000,
+        "maxOrdersPerSec": 1000,
+        "maxOrdersPerMin": 30000,
+        "maxOpenOrders": 5000,
+        "maxPositionPerMarket": 9223372036854775807,
+        "marketBuySlippageBps": 100
+      }
+    ]
+  },
+  "limits": {
+    "configVersion": 1,
+    "requestTtlMs": 900000,
+    "requestPerUserCap": 2048,
+    "orderEventRingCapacity": 65536
+  },
+  "funding": [
+    {
+      "userId": 1,
+      "assetId": 0,
+      "amount": 100000000000000000,
+      "requestIdHigh": 2,
+      "requestIdLow": 1
+    },
+    {
+      "userId": 1,
+      "assetId": 1,
+      "amount": 1000000000000,
+      "requestIdHigh": 2,
+      "requestIdLow": 2
+    },
+    {
+      "userId": 2,
+      "assetId": 0,
+      "amount": 100000000000000000,
+      "requestIdHigh": 2,
+      "requestIdLow": 3
+    },
+    {
+      "userId": 2,
+      "assetId": 1,
+      "amount": 1000000000000,
+      "requestIdHigh": 2,
+      "requestIdLow": 4
+    },
+    {
+      "userId": 3,
+      "assetId": 0,
+      "amount": 100000000000000000,
+      "requestIdHigh": 2,
+      "requestIdLow": 5
+    },
+    {
+      "userId": 4,
+      "assetId": 0,
+      "amount": 100000000000000000,
+      "requestIdHigh": 2,
+      "requestIdLow": 6
+    }
+  ]
+}
