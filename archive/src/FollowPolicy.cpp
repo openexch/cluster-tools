@@ -76,6 +76,28 @@ const char *archiveErrorName(ArchiveErrorKind kind) noexcept
     return "?";
 }
 
+std::optional<StallReason> stallReasonOf(FaultKind kind) noexcept
+{
+    switch (kind)
+    {
+        case FaultKind::NEVER_CONNECTED: return StallReason::NEVER_CONNECTED;
+        case FaultKind::IMAGE_LOST: return StallReason::IMAGE_LOST;
+        case FaultKind::ARCHIVE_GONE: return StallReason::ARCHIVE_GONE;
+        case FaultKind::STALL: return StallReason::STALL;
+        case FaultKind::STALL_AFTER_STOP: return StallReason::STALL_AFTER_STOP;
+        case FaultKind::STALL_BOUNDED_STUCK: return StallReason::BOUNDED_STUCK;
+        case FaultKind::EARLY_EOF: return StallReason::EARLY_EOF;
+        case FaultKind::ARCHIVE_ERROR: return StallReason::ARCHIVE_ERROR;
+        default: return std::nullopt;
+    }
+}
+
+bool checkedClean(const StallVerdicts &verdicts, TimePoint now, std::chrono::milliseconds maxAge) noexcept
+{
+    return verdicts.lastPassAt && !verdicts.sincePass && now >= *verdicts.lastPassAt &&
+        now - *verdicts.lastPassAt <= maxAge;
+}
+
 bool isControlCall(ControlStep step) noexcept
 {
     switch (step)
@@ -975,6 +997,10 @@ void FollowPolicy::afterPoll(const ImageObservation &image, const AsyncErrorPoll
         return;
     }
     const bool bounded = !r->active();
+    if (disabled(Rule::FOLLOW_VERDICT_EVERY_POLL))
+    {
+        sourcePassed(now);
+    }
     if (image.imageCount > 0)
     {
         m_imageSeen = true;
@@ -1040,6 +1066,7 @@ void FollowPolicy::afterPoll(const ImageObservation &image, const AsyncErrorPoll
         m_nextBoundedCheckAt = now + m_settings.probeInterval;
         if (!m_paused || disabled(Rule::FOLLOW_PAUSE_RULE))
         {
+            const bool judged = m_boundedBaseline.has_value(); // the first check after an attach only sets the baseline
             if (m_boundedBaseline && *m_boundedBaseline == m_consumed && m_consumed < r->stopPosition &&
                 !disabled(Rule::FOLLOW_ROW12B_BOUNDED_STUCK))
             {
@@ -1049,6 +1076,10 @@ void FollowPolicy::afterPoll(const ImageObservation &image, const AsyncErrorPoll
                 return;
             }
             m_boundedBaseline = m_consumed;
+            if (judged)
+            {
+                sourcePassed(now);
+            }
         }
     }
     // Row 13: an async archive error (e.g. "no connection established for replayChannel").
@@ -1181,6 +1212,7 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
         // Row 11.
         if (!m_paused || disabled(Rule::FOLLOW_PAUSE_RULE))
         {
+            const bool judged = m_probeBaseline.has_value(); // the first probe after an attach only sets the baseline
             if (m_probeBaseline && *m_probeBaseline == m_consumed && m_consumed < stop &&
                 !disabled(Rule::FOLLOW_ROW11_STALL_AFTER_STOP))
             {
@@ -1190,6 +1222,10 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
                 return;
             }
             m_probeBaseline = m_consumed;
+            if (judged)
+            {
+                sourcePassed(now);
+            }
         }
         return;
     }
@@ -1233,6 +1269,8 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
     // Row 12 (the 07-10 lesson): recorded grew while the replay stayed put.
     if (!m_paused || disabled(Rule::FOLLOW_PAUSE_RULE))
     {
+        // Judged: a baseline to compare with, or nothing recorded beyond the read (nothing to be stuck on).
+        const bool judged = m_probeBaseline.has_value() || recorded <= m_consumed;
         if (m_probeBaseline && recorded > m_consumed && *m_probeBaseline == m_consumed &&
             !disabled(Rule::FOLLOW_ROW12_STALL))
         {
@@ -1242,17 +1280,31 @@ void FollowPolicy::onProbe(const ProbeResult &result, TimePoint now)
             return;
         }
         m_probeBaseline = m_consumed;
+        if (judged)
+        {
+            sourcePassed(now);
+        }
+    }
+    else if (recorded <= m_consumed)
+    {
+        sourcePassed(now); // paused, but caught up: nothing to be stuck on
     }
 }
 
 // ---- helpers
+
+void FollowPolicy::sourcePassed(TimePoint now) noexcept
+{
+    m_verdicts.lastPassAt = now;
+    m_verdicts.sincePass.reset();
+}
 
 const Recording *FollowPolicy::currentRecording() const noexcept
 {
     return m_index < m_chain.size() ? &m_chain[m_index] : nullptr;
 }
 
-void FollowPolicy::fault(FaultKind kind, TimePoint, std::string detail, Refusal refusal, std::uint8_t openFailure)
+void FollowPolicy::fault(FaultKind kind, TimePoint now, std::string detail, Refusal refusal, std::uint8_t openFailure)
 {
     SourceFault report;
     report.source = m_source;
@@ -1265,20 +1317,16 @@ void FollowPolicy::fault(FaultKind kind, TimePoint, std::string detail, Refusal 
     report.refusal = refusal;
     report.openFailure = openFailure;
     report.detail = std::move(detail);
-    if (nullptr != m_metrics)
+    if (const std::optional<StallReason> stall = stallReasonOf(kind); stall)
     {
-        switch (kind)
+        if (nullptr != m_metrics)
         {
-            case FaultKind::NEVER_CONNECTED: m_metrics->stall(StallReason::NEVER_CONNECTED); break;
-            case FaultKind::IMAGE_LOST: m_metrics->stall(StallReason::IMAGE_LOST); break;
-            case FaultKind::ARCHIVE_GONE: m_metrics->stall(StallReason::ARCHIVE_GONE); break;
-            case FaultKind::STALL: m_metrics->stall(StallReason::STALL); break;
-            case FaultKind::STALL_AFTER_STOP: m_metrics->stall(StallReason::STALL_AFTER_STOP); break;
-            case FaultKind::STALL_BOUNDED_STUCK: m_metrics->stall(StallReason::BOUNDED_STUCK); break;
-            case FaultKind::EARLY_EOF: m_metrics->stall(StallReason::EARLY_EOF); break;
-            case FaultKind::ARCHIVE_ERROR: m_metrics->stall(StallReason::ARCHIVE_ERROR); break;
-            default: break;
+            m_metrics->stall(*stall);
         }
+        m_verdicts.sincePass = stall;
+        m_verdicts.last = stall;
+        m_verdicts.lastAt = now;
+        ++m_verdicts.count;
     }
     if (FaultKind::SEQ_REGRESSION_IN_RECORDING == kind)
     {

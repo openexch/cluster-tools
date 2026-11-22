@@ -75,13 +75,31 @@ target_compile_options(ct_adapter_sbe PRIVATE -Wall -Wextra)
 # The forwarder's wire (money 104/105/108/109/101 decode, 65 encode; order 9/10 encode, 21 decode).
 # The domain value types come from domain/forwarder (headers only): consumers link the domain flavour they
 # want (production or seamed), so the codec never pulls a second copy in.
+# The installed package exports it as cluster_tools::forwarder_codec (cmake/Package.cmake); there its interface links
+# the production cluster_tools::forwarder_domain, the one flavour a package carries.
 add_library(ct_forwarder_codec STATIC src/ForwarderCodec.cpp)
 add_library(cluster_tools::forwarder_codec ALIAS ct_forwarder_codec)
+set_target_properties(ct_forwarder_codec PROPERTIES EXPORT_NAME forwarder_codec)
 add_dependencies(ct_forwarder_codec ct_sbe_generate)
-target_include_directories(ct_forwarder_codec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${PROJECT_SOURCE_DIR}/domain/forwarder/include")
-target_link_libraries(ct_forwarder_codec PRIVATE ct_sbe_codecs)
+target_include_directories(ct_forwarder_codec PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/domain/forwarder/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_compile_features(ct_forwarder_codec PUBLIC cxx_std_20)
+target_link_libraries(ct_forwarder_codec PRIVATE ct_sbe_codecs
+    INTERFACE "$<INSTALL_INTERFACE:cluster_tools::forwarder_domain>")
 target_compile_options(ct_forwarder_codec PRIVATE -Wall -Wextra)
+
+# The decode of ME journal record 1 (Trade), the one copy: the bridge codec reads its rows through it, and the
+# installed package exports it as cluster_tools::journal_codec for a reader of the public tape. No seams, no bridge
+# or archive type: the header pulls in nothing but <cstdint>.
+add_library(ct_journal_codec STATIC src/JournalTradeCodec.cpp)
+add_library(cluster_tools::journal_codec ALIAS ct_journal_codec)
+set_target_properties(ct_journal_codec PROPERTIES EXPORT_NAME journal_codec)
+add_dependencies(ct_journal_codec ct_sbe_generate)
+target_include_directories(ct_journal_codec PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_compile_features(ct_journal_codec PUBLIC cxx_std_20)
+target_link_libraries(ct_journal_codec PRIVATE ct_sbe_codecs)
+target_compile_options(ct_journal_codec PRIVATE -Wall -Wextra)
 
 # The bridge's wire (schema 4 records -> money v9 feed 61-64, 67, 68; FeedHalt 66, Query 7; the
 # egress 17 v7, 110, 114). The domain's value types and ports come from domain/bridge (headers), the frame shapes
@@ -91,7 +109,7 @@ add_library(cluster_tools::bridge_codec ALIAS ct_bridge_codec)
 add_dependencies(ct_bridge_codec ct_sbe_generate)
 target_include_directories(ct_bridge_codec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${PROJECT_SOURCE_DIR}/domain/bridge/include" "${PROJECT_SOURCE_DIR}/archive/include")
-target_link_libraries(ct_bridge_codec PRIVATE ct_sbe_codecs)
+target_link_libraries(ct_bridge_codec PRIVATE ct_journal_codec ct_sbe_codecs)
 target_compile_options(ct_bridge_codec PRIVATE -Wall -Wextra)
 
 if(BUILD_TESTING)
@@ -100,7 +118,7 @@ if(BUILD_TESTING)
     add_dependencies(ct_bridge_codec_seamed ct_sbe_generate)
     target_include_directories(ct_bridge_codec_seamed PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
     target_compile_definitions(ct_bridge_codec_seamed PUBLIC CT_TEST_SEAMS=1)
-    target_link_libraries(ct_bridge_codec_seamed PUBLIC ct_bridge_domain_seamed PRIVATE ct_sbe_codecs)
+    target_link_libraries(ct_bridge_codec_seamed PUBLIC ct_bridge_domain_seamed PRIVATE ct_journal_codec ct_sbe_codecs)
     target_compile_options(ct_bridge_codec_seamed PRIVATE -Wall -Wextra)
 
     add_executable(ct_bridge_codec_tests tests/TestMain.cpp tests/BridgeCodecTest.cpp)
@@ -159,6 +177,15 @@ if(BUILD_TESTING)
     else()
         message(STATUS "no CT_FEED_HARNESS_JAR: the E2 differential and the real-core oracle are not built")
     endif()
+
+    # The shared record 1 decode against the ME's own Java bytes.
+    add_executable(ct_journal_codec_tests tests/JournalTradeCodecTest.cpp)
+    target_link_libraries(ct_journal_codec_tests PRIVATE ct_journal_codec)
+    target_include_directories(ct_journal_codec_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_definitions(ct_journal_codec_tests PRIVATE
+        CT_MEJOURNAL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/archive/tests/fixtures/mejournal")
+    target_compile_options(ct_journal_codec_tests PRIVATE -Wall -Wextra)
+    add_test(NAME adapters.sbe_journal_trade_codec COMMAND ct_journal_codec_tests)
 
     add_executable(ct_forwarder_codec_tests tests/ForwarderCodecTest.cpp)
     # The seamed domain flavour, so the 4.2 frame-validation rules (MarketData.cpp) can be switched off

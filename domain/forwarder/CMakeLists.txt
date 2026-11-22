@@ -18,7 +18,10 @@ set(CT_FORWARDER_DOMAIN_SOURCES
 
 add_library(ct_forwarder_domain STATIC ${CT_FORWARDER_DOMAIN_SOURCES})
 add_library(cluster_tools::forwarder_domain ALIAS ct_forwarder_domain)
-target_include_directories(ct_forwarder_domain PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(ct_forwarder_domain PROPERTIES EXPORT_NAME forwarder_domain) # the package component (cmake/Package.cmake)
+target_include_directories(ct_forwarder_domain PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_compile_features(ct_forwarder_domain PUBLIC cxx_std_20)
 target_compile_options(ct_forwarder_domain PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING OR CT_FORWARDER_TEST_BUILDS)

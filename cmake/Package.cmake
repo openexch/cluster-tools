@@ -22,7 +22,16 @@
 #   WITH_AERON and CT_BUILD_MEDIA_DRIVER
 #                         runtime_embedded_driver, aeron_driver_static   the embedded media driver (list it first)
 #   every configuration   archive_core   the archive follow library: journal profiles, the frame gate, the chain
-#                                        model, the follow policy and loop, the resume memo, prefixed settings
+#                                        model, the follow policy and loop, the resume memo, prefixed settings,
+#                                        the per-source stall verdicts (FollowPolicy::stallVerdicts)
+#                         forwarder_domain   the forwarder's pure core, production flavour: the book ladder
+#                                        (BookStitcher, BookLadder.h), the frame rules (MarketData.h) and the
+#                                        dispatch, send ring, resync and epoch machinery
+#   WITH_AERON            forwarder_codec  the ME book egress decode (22 BookSnapshot, 25 BookDelta, 21
+#                                        ClusterHeartbeat; ForwarderCodec.h) and the rest of the forwarder's wire;
+#                                        links forwarder_domain
+#                         journal_codec  the decode of ME journal record 1 (Trade; JournalTradeCodec.h), the one the
+#                                        bridge uses; the order and user ids are read only on request
 #   WITH_BRIDGE           archive_aeron  the follow library on the Aeron archive client (ArchiveSource, ChainFollower,
 #                                        SourceSet)
 #                         aeron_archive_client   the Aeron C archive client and its C++ wrapper, from the verified
@@ -42,11 +51,13 @@ if(CT_SOURCE_SHA_EFFECTIVE STREQUAL "unknown")
         "pin check will refuse it. Pass -DCT_BUILD_SOURCE_SHA=<40-hex sha> when building from a source tarball.")
 endif()
 
-set(CT_PACKAGE_TARGETS ct_client_core ct_runtime ct_archive_core)
-set(CT_PACKAGE_COMPONENTS client_core runtime archive_core)
+set(CT_PACKAGE_TARGETS ct_client_core ct_runtime ct_archive_core ct_forwarder_domain)
+set(CT_PACKAGE_COMPONENTS client_core runtime archive_core forwarder_domain)
 if(WITH_AERON)
-    list(APPEND CT_PACKAGE_TARGETS ct_sbe_codecs ct_client ct_client_aeron ct_runtime_aeron aeron_static aeron_client_wrapper)
-    list(APPEND CT_PACKAGE_COMPONENTS sbe_codecs client client_aeron runtime_aeron aeron_static aeron_client_wrapper)
+    list(APPEND CT_PACKAGE_TARGETS ct_sbe_codecs ct_client ct_client_aeron ct_runtime_aeron aeron_static aeron_client_wrapper
+        ct_forwarder_codec ct_journal_codec)
+    list(APPEND CT_PACKAGE_COMPONENTS sbe_codecs client client_aeron runtime_aeron aeron_static aeron_client_wrapper
+        forwarder_codec journal_codec)
     # Aeron's own targets carry $<INSTALL_INTERFACE:include/aeron> and include/wrapper; the headers go there.
     set_target_properties(aeron_static PROPERTIES EXPORT_NAME aeron_static)
     set_target_properties(aeron_client_wrapper PROPERTIES EXPORT_NAME aeron_client_wrapper)
@@ -74,6 +85,8 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/runtime/include/" DESTINATION "${CMAKE_
     FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/archive/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/domain/forwarder/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    FILES_MATCHING PATTERN "*.h")
 if(WITH_BRIDGE)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/archive/aeron/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
         FILES_MATCHING PATTERN "*.h")
@@ -86,6 +99,10 @@ endif()
 if(WITH_AERON)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/client/aeron/include/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
         FILES_MATCHING PATTERN "*.h")
+    # Only the two exported codecs' headers: BridgeCodec.h and EngineConfigCodec.h belong to the binaries.
+    install(FILES "${PROJECT_SOURCE_DIR}/adapters/sbe/include/cluster_tools/adapters/sbe/ForwarderCodec.h"
+        "${PROJECT_SOURCE_DIR}/adapters/sbe/include/cluster_tools/adapters/sbe/JournalTradeCodec.h"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/cluster_tools/adapters/sbe")
     install(DIRECTORY "${CT_SBE_GEN_DIR}/cluster/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/cluster_tools/sbe/cluster"
         FILES_MATCHING PATTERN "*.h")
     install(DIRECTORY "${CT_SBE_GEN_DIR}/money/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/cluster_tools/sbe/money"

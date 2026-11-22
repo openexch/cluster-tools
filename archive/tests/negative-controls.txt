@@ -65,3 +65,6 @@ FollowPolicyTest.sinkAbortBackPressureIsNotAStall|FOLLOW_ABORT_IS_PAUSE|Seam off
 FollowPolicyTest.stopAfterPaddingIsDrainedNotEarlyEof|FOLLOW_PADDING_REACHED|Seam off: a stop after padding is EARLY_EOF on every attach|CHECK_FALSE( h.observer.sawFault(FaultKind::EARLY_EOF) )
 ResumeMemoTest.secondPurgeRaceAfterAFaultStillTrims|FOLLOW_RELIST_RESET|Seam off: a second purge race invalidates the memo|CHECK( h.metrics.invalidations(MemoReason::POSITION_REJECTED) == 0 )
 ResumeMemoTest.believedHoleIsVerifiedAndStopsForcingColdWalks|MEMO_VERIFIED_MARKER|Seam off: a believed hole forces cold walks for the sync|CHECK_FALSE( memo.holeVerificationPending(0) )
+StallVerdictsTest.aStuckReplayIsNotCleanUntilALaterCheckPasses|FOLLOW_VERDICT_EVERY_POLL|every poll a check: the re-attached stuck follower reads clean|CHECK_FALSE( everClean )
+StallVerdictsTest.aStuckReplayIsNotCleanUntilALaterCheckPasses|FOLLOW_ROW12_STALL|row 12 off: no stall verdict on the stuck replay|sawFault(FaultKind::STALL)
+StallVerdictsTest.aPausedFollowerPassesOnlyWhenCaughtUp|FOLLOW_VERDICT_EVERY_POLL|every poll a check: a paused follower with a backlog reads clean|CHECK_FALSE( clean(h) )

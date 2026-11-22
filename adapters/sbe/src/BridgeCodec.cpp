@@ -1,4 +1,5 @@
 #include "cluster_tools/adapters/sbe/BridgeCodec.h"
+#include "cluster_tools/adapters/sbe/JournalTradeCodec.h"
 
 #include "cluster_tools/archive/FramePeek.h"
 #include "cluster_tools/domain/bridge/TestSeams.h"
@@ -55,6 +56,8 @@ static_assert(money::FeedPositionReport::sbeTemplateId() == bridge::T_FEED_POSIT
 static_assert(money::AdminAck::sbeTemplateId() == bridge::T_ADMIN_ACK);
 static_assert(money::SettleRejected::sbeTemplateId() == bridge::T_SETTLE_REJECTED);
 static_assert(jr::Trade::sbeTemplateId() == archive::TEMPLATE_TRADE);
+static_assert(journal_codec::TEMPLATE_TRADE == archive::TEMPLATE_TRADE);
+static_assert(journal_codec::TRADE_RECORD_LENGTH == bridge::TRADE_RECORD_LENGTH);
 static_assert(jr::Terminal::sbeTemplateId() == archive::TEMPLATE_TERMINAL);
 static_assert(jr::CommandOutcome::sbeTemplateId() == archive::TEMPLATE_OUTCOME);
 static_assert(jr::CommandRelease::sbeTemplateId() == archive::TEMPLATE_RELEASE);
@@ -216,30 +219,31 @@ typename E::Value raw(std::uint8_t b) noexcept
     return static_cast<typename E::Value>(b);
 }
 
-// One schema 4 Trade at `record` (header included) into a 61 row (the same encoder calls for the 62 entry).
+// One schema 4 Trade at `record` (header included, already admitted) into a 61 row (the same encoder calls for the
+// 62 entry). The record is read by the shared record 1 decode (JournalTradeCodec), parties included.
 template<typename Out>
 void tradeRow(const std::uint8_t *record, Out &e) noexcept
 {
-    jr::Trade d;
-    d.wrapForDecode(asChars(record), MESSAGE_HEADER_LENGTH, jr::Trade::sbeBlockLength(), JOURNAL_VERSION,
-        bridge::TRADE_RECORD_LENGTH);
+    journal_codec::TradeRecord d;
+    journal_codec::TradeParties p;
+    journal_codec::readTrade(record, d, &p);
     const bool swap = disabled(Rule::CODEC_SWAP_TAKER_MAKER_ORDER);
     const bool head = disabled(Rule::CODEC_HEAD_NOT_PERMUTED);
-    e.egressSeq(head ? d.journalSeq() : d.egressSeq())
-        .tradeId(d.tradeId())
-        .marketId(d.marketId())
-        .takerOrderId(swap ? d.makerOrderId() : d.takerOrderId())
-        .takerUserId(d.takerUserId())
-        .makerOrderId(swap ? d.takerOrderId() : d.makerOrderId())
-        .makerUserId(d.makerUserId())
-        .price(d.price())
-        .quantity(d.quantity())
-        .takerIsBuy(raw<money::BoolFlag>(d.takerIsBuyRaw()))
-        .meTimestamp(d.timestamp())
-        .takerOmsOrderId(d.takerOmsOrderId())
-        .makerOmsOrderId(d.makerOmsOrderId())
-        .meEpoch(d.meEpoch())
-        .journalSeq(head ? d.egressSeq() : d.journalSeq());
+    e.egressSeq(head ? d.journalSeq : p.egressSeq)
+        .tradeId(d.tradeId)
+        .marketId(d.marketId)
+        .takerOrderId(swap ? p.makerOrderId : p.takerOrderId)
+        .takerUserId(p.takerUserId)
+        .makerOrderId(swap ? p.takerOrderId : p.makerOrderId)
+        .makerUserId(p.makerUserId)
+        .price(d.price)
+        .quantity(d.quantity)
+        .takerIsBuy(raw<money::BoolFlag>(d.takerIsBuyRaw))
+        .meTimestamp(d.timestamp)
+        .takerOmsOrderId(p.takerOmsOrderId)
+        .makerOmsOrderId(p.makerOmsOrderId)
+        .meEpoch(d.meEpoch)
+        .journalSeq(head ? p.egressSeq : d.journalSeq);
 }
 
 }

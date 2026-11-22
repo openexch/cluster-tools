@@ -192,4 +192,12 @@ if(BUILD_TESTING)
             "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/package-archive-consumer"
             ${CT_PACKAGE_ARCHIVE_JAR})
     set_tests_properties(package.archive_consumer PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
+    # What a market data service links from the INSTALLED package (tests/package-marketdata-consumer): the forwarder
+    # domain and codec, the ME journal record 1 decode and the stall verdicts. The codecs are WITH_AERON components.
+    if(WITH_AERON)
+        add_test(NAME package.marketdata_consumer
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/package-marketdata-consumer/check-marketdata-package.sh"
+                "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/package-marketdata-consumer")
+        set_tests_properties(package.marketdata_consumer PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE)
+    endif()
 endif()
