@@ -25,6 +25,7 @@ implements it in C++ on top of the official Aeron C/C++ client.
 | `ct-forwarder` | Sends every pending core order dispatch to the ME (`DurableOrderCommand` 9, `ReleaseCommandIds` 10) and turns the ME's book egress into `MarketTick` 60 messages for the core. Stateless. |
 | `ct-bridge` | The settlement bridge: reads the ME journal (schema 4) from the ME archives and feeds every record to the core exactly once and in order, or halts. Stateless. |
 | `ct-journal-tail` | Read-only operator tool: prints ME journal records from an archive. |
+| `ct-genesis` | Operator tool: the genesis of an empty ME and core pair, one verb per phase, plus `status` and `verify`. |
 | `switch-behavior` | Operator CLI: `probe` (connect and print egress frames) and `send-config` (send a logged `EngineConfig` to match from a JSON file). |
 
 ## Layout
@@ -51,6 +52,7 @@ tests/package-consumer/  a separate CMake project that links the installed packa
 app/forwarder/       ct-forwarder
 app/bridge/          ct-bridge
 app/journal-tail/    ct-journal-tail
+app/genesis/         ct-genesis
 app/switch-behavior/ switch-behavior
 poc/                 the original single-file cluster client proof of concept (see poc/README.md)
 e2e/                 dockerized send-config proof against a config-mode match cluster
@@ -280,6 +282,48 @@ ct-journal-tail --aeron-dir /dev/shm/aeron --archive 10.0.0.1:9010 --control-str
 `REFUSED <reason> ...` and the tail continues. `--cursor C --epoch E` seeds the resume memo. Exit 0 after
 `--to-seq`, 75 on `--timeout-ms`, 78 on a usage error, 70 on a fatal error.
 
+### ct-genesis
+
+The genesis of an empty ME and core pair from one input file (`app/genesis/genesis.example.json`), one phase
+per invocation, so the operator (or the console) starts processes between the phases:
+
+```bash
+ct-genesis <verb> genesis.json
+```
+
+| Verb | Sends | Done when the clusters show |
+|---|---|---|
+| `me_genesis` | ME `EngineConfig` FRESH (ADMIN) | the ME epoch equals the input's `genesisId` |
+| `arm_money_journal` | `SetMoneyJournal` on (ADMIN) | the feed report says the journal is armed |
+| `core_genesis` | `CoreConfig` 1, 2, 3, then the ADMIN OPEN of the global gate, retried until a bridge's bind of the ME epoch is in the log | config 3 with the input's `genesisId`, gate OPEN |
+| `configure_risk` | a `RiskConfigSet` per input row, then `CoreLimitsSet` (request cap, default 2048) | every risk row and the limits record equal to the input |
+| `fund` | the TOOL deposits | the balances equal the funding table, no hold |
+| `verify_funded` | nothing (a check) | the funded balances, no hold, no order, the journal armed, the gate OPEN |
+| `activate` | `CoreConfig` 4 (behaviour 4), then the activation record file | behaviour 4 and a record naming this `genesisId` |
+| `status` | nothing | prints every phase, the last complete one and the next |
+| `verify` | nothing | exit 0 only for a complete genesis: every phase, behaviour 4, the request cap, the gate OPEN, the record |
+
+The order between the phases: `me_genesis`, `arm_money_journal`, start the money projector and the bridges,
+`core_genesis`, `configure_risk`, `fund`, `verify_funded`, start the forwarders, `activate`, then the
+gateway set. `InitTradeHighWater` is never part of a genesis; an input that names it is refused.
+
+Every verb first reads the replicated state (never a log position): the ME epoch, the core's feed report,
+config report and balance, hold and order snapshots. `me_genesis` runs only on an empty pair, else
+`cluster is not empty: genesis refused`. Every other verb runs only when the state is the exact prefix of
+the phases before it, else `genesis state is not a prefix of the plan: <detail>`. A genesis that stopped in
+the middle of a phase is not a prefix: wipe both clusters and start again (before the gate OPEN nothing
+outside the clusters has seen it). A stop between two phases is a prefix: run the next verb.
+
+Settings (environment): `GENESIS_DRIVER_MODE` (`embedded` or `external`, required), `AERON_DIR` (external)
+or `GENESIS_DRIVER_DIR` (embedded, with `GENESIS_INSTANCE_ID`, default 1), `GENESIS_CORE_INGRESS`,
+`GENESIS_ME_INGRESS`, `GENESIS_RESPONSE_CHANNEL`, `GENESIS_CORE_ADMIN_CREDENTIAL`,
+`GENESIS_CORE_TOOL_CREDENTIAL` (fund), `GENESIS_ME_ADMIN_CREDENTIAL`, `GENESIS_ACTIVATION_RECORD` (all
+required); waits with defaults: `GENESIS_CONNECT_TIMEOUT_MS` 60000, `GENESIS_REPLY_TIMEOUT_MS` 30000,
+`GENESIS_ME_EPOCH_TIMEOUT_MS` 30000, `GENESIS_JOURNAL_ARM_TIMEOUT_MS` 30000, `GENESIS_GATE_OPEN_RETRIES` 600,
+`GENESIS_GATE_OPEN_RETRY_INTERVAL_MS` 100, `GENESIS_DRIVER_TIMEOUT_MS` 10000, `GENESIS_INGRESS_CHANNEL`
+`aeron:udp`. Exit 0 done, 1 the phase did not complete (or `verify`: not done), 3 refused before anything
+was sent, 64 usage, 78 configuration or input, 70 a fatal Aeron error.
+
 ### switch-behavior
 
 ```bash
@@ -311,7 +355,7 @@ also moves the feed harness pin (`feed_harness_core_ref`, `feed_harness_url`, `f
 ## Artifacts
 
 `publish.yml` builds on arm64 Linux, runs the tests, and publishes `switch-behavior`, `ct-forwarder`,
-`ct-bridge`, `aeronmd`, `libaeron_driver.so`, `libaeron.so`, the external media driver's `driver.properties`,
+`ct-bridge`, `ct-genesis`, `aeronmd`, `libaeron_driver.so`, `libaeron.so`, the external media driver's `driver.properties`,
 `driver-dev.properties` and `driver-prod.properties`, and a `manifest.json` with per-file sha256 under the
 commit sha (or the tag). Run them with `LD_LIBRARY_PATH` pointing at the artifact directory; run a driver as
 `aeronmd driver.properties driver-<dev|prod>.properties`.
