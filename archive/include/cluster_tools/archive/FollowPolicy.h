@@ -91,6 +91,32 @@ struct ReplayRequest
     std::string endpoint;    // the resolved replay endpoint (START_REPLAY)
 };
 
+// The stall verdict a source fault counts as (ArchiveMetrics::sourceStalls); empty for a fault that is not a stall
+// (a connect, list, open or frame fault, FATAL). FollowPolicy counts its faults with exactly this mapping.
+std::optional<StallReason> stallReasonOf(FaultKind kind) noexcept;
+
+// The stall verdicts of one follower, for an owner that judges its source's freshness itself (one that is not the
+// bridge; the bridge judges by the fault reports and the counters). A source check is the periodic look at the
+// source while FOLLOWING, every probeInterval: the recording-state probe of an active or stopped recording (rows 11
+// and 12) or the stuck check of a bounded replay (row 12b, which makes no archive call). A check passes when it
+// judged the read and found it moving, or found nothing recorded beyond it. A check that cannot judge does not pass:
+// the first one after an attach only sets the stuck rules' baseline, and while the owner pauses the follower the
+// stuck rules do not judge (the pause rule), so a paused follower passes only when it is caught up. Every stall
+// verdict (stallReasonOf, from any path) lands after the last pass. Times are the owner's clock (the TimePoint it
+// passes in).
+struct StallVerdicts
+{
+    std::optional<TimePoint> lastPassAt;   // the last source check that passed; empty before the first
+    std::optional<StallReason> sincePass;  // a stall verdict reached after that pass; empty = none
+    std::optional<StallReason> last;       // the last stall verdict of this follower, at lastAt
+    TimePoint lastAt{};
+    std::uint64_t count = 0;               // stall verdicts of this follower
+};
+
+// True when the last passed check is at most maxAge old at `now` and no stall verdict came after it. A follower that
+// is not FOLLOWING makes no check, so its verdicts age out: false.
+bool checkedClean(const StallVerdicts &verdicts, TimePoint now, std::chrono::milliseconds maxAge) noexcept;
+
 enum class FrameCheck : std::uint8_t
 {
     OK,
@@ -170,6 +196,7 @@ public:
     const std::optional<SourceFault> &lastFault() const noexcept { return m_lastFault; }
     void clearLastFault() noexcept { m_lastFault.reset(); }
     std::uint64_t faultCount() const noexcept { return m_faults; }
+    const StallVerdicts &stallVerdicts() const noexcept { return m_verdicts; }
     bool wantsDisconnect() const noexcept { return m_disconnectRequested; }
     void onDisconnected() noexcept;
 
@@ -195,6 +222,7 @@ private:
     void beginDetach(AfterDetach next, bool stopReplay);
     void backoff(TimePoint now, Phase next);
     void setAttachedGauge(bool attached) noexcept;
+    void sourcePassed(TimePoint now) noexcept;
 
     std::size_t m_source;
     FollowSettings m_settings;
@@ -252,6 +280,7 @@ private:
 
     std::optional<SourceFault> m_lastFault;
     std::uint64_t m_faults = 0;
+    StallVerdicts m_verdicts;
 
     std::optional<std::int64_t> m_expectedEpoch;
     std::vector<RecordingKey> m_foreign;               // recordings of another epoch on this source

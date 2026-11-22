@@ -86,6 +86,7 @@ enum class Rule : unsigned
     FOLLOW_EPOCH_FILTER,      // RED shape: a recording of another epoch is walked
     MEMO_SEED_BELT,           // RED shape: a seeded proof is used without the resume belt
     MEMO_CHECKPOINT_SOURCE,   // RED shape: the reader checkpoint takes its position from any source
+    FOLLOW_VERDICT_EVERY_POLL, // RED shape: every poll while FOLLOWING counts as a source check (a stuck source reads clean)
     COUNT
 };
 

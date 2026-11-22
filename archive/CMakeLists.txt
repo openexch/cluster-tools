@@ -37,6 +37,7 @@ if(BUILD_TESTING)
         tests/ChainModelTest.cpp
         tests/ResumeMemoTest.cpp
         tests/FollowPolicyTest.cpp
+        tests/StallVerdictsTest.cpp
         tests/ChainWalkPropertyTest.cpp
         tests/ArchiveSettingsTest.cpp)
     target_link_libraries(ct_archive_tests PRIVATE ct_archive_core_seamed)

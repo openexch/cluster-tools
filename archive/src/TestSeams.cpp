@@ -77,6 +77,7 @@ const char *ruleName(Rule rule) noexcept
         case Rule::FOLLOW_EPOCH_FILTER: return "FOLLOW_EPOCH_FILTER";
         case Rule::MEMO_SEED_BELT: return "MEMO_SEED_BELT";
         case Rule::MEMO_CHECKPOINT_SOURCE: return "MEMO_CHECKPOINT_SOURCE";
+        case Rule::FOLLOW_VERDICT_EVERY_POLL: return "FOLLOW_VERDICT_EVERY_POLL";
         case Rule::COUNT: break;
     }
     return "?";
