@@ -212,7 +212,8 @@ public final class ItCoreDriver {
             for (long v = 1; v <= 3; v++) {
                 final long corr = 0x7000 + v;
                 final CoreConfigEncoder e = new CoreConfigEncoder().wrapAndApplyHeader(admin.out, 0, admin.header)
-                        .correlationId(corr).configVersion(v).behaviorVersion(v).genesisId(genesisId);
+                        .correlationId(corr).configVersion(v).behaviorVersion(v).genesisId(genesisId)
+                        .maxWireVersion(10); // money v10: the wire ceiling, [10, 65534] or the core refuses it INVALID
                 final CoreConfigEncoder.MarketsEncoder m = e.marketsCount(Market.ALL.length);
                 for (final Market d : Market.ALL) {
                     m.next().marketId(d.marketId()).symbol(d.symbol()).baseAssetId(d.baseAsset().id())

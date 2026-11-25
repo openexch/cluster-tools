@@ -15,6 +15,7 @@
 #include "genesis/GenesisPlan.h"
 #include "genesis/GenesisRunner.h"
 #include "genesis/GenesisSeams.h"
+#include "genesis/GenesisWire.h"
 
 namespace gn = cluster_tools::app::genesis;
 namespace fk = cluster_tools::app::genesis::fake;
@@ -165,6 +166,7 @@ TEST_CASE("full genesis: every phase in the cut's order, the gate OPEN inside co
     CHECK(0 == h.sentOf(gn::wire::T_INIT_TRADE_HIGH_WATER));
     CHECK(4 == h.clusters.configVersion);
     CHECK(4 == h.clusters.behaviorVersion);
+    CHECK(10 == h.clusters.maxWireVersion); // the wire ceiling every CoreConfig of the ladder carries
     CHECK(0 == h.clusters.gate);
     CHECK(2048 == h.clusters.cap);
     CHECK(1 == h.store.writes);
@@ -367,4 +369,58 @@ TEST_CASE("a second genesis after a wipe starts clean with a new genesis id")
     CHECK(7301000000000003 == h.clusters.meEpoch);
     CHECK(contains(h.store.text, "\"genesisId\": 7301000000000003"));
     CHECK(gn::EXIT_OK == h.verify());
+}
+
+TEST_CASE("the genesis CoreConfig is money v10 with the wire ceiling 10, read by its header block length")
+{
+    gn::seams::resetForTest();
+    const gn::GenesisPlan p = plan();
+    for (std::uint32_t v = 1; v <= 4; v++)
+    {
+        CAPTURE(v);
+        const gn::wire::Bytes b = gn::wire::coreConfig(0x7000 + v, v, v, p);
+        REQUIRE(b.size() >= fk::money::MessageHeader::encodedLength());
+        char *buf = const_cast<char *>(reinterpret_cast<const char *>(b.data()));
+        fk::money::MessageHeader h(buf, b.size());
+        CHECK(70 == h.templateId());
+        CHECK(2 == h.schemaId());
+        CHECK(10 == h.version());
+        CHECK(26 == h.blockLength()); // v10 root: 24 + maxWireVersion uint16 at offset 24
+        fk::money::CoreConfig m;
+        m.wrapForDecode(buf, fk::money::MessageHeader::encodedLength(), h.blockLength(), h.version(), b.size());
+        CHECK(0x7000 + v == m.correlationId());
+        CHECK(v == m.configVersion());
+        CHECK(v == m.behaviorVersion());
+        CHECK(p.genesisId == m.genesisId());
+        CHECK(10 == m.maxWireVersion());
+        CHECK(24 == fk::money::CoreConfig::maxWireVersionEncodingOffset());
+        // the raw bytes at the field's offset, little endian: no codec on either side can hide a moved field
+        CHECK(10 == (b[fk::money::MessageHeader::encodedLength() + 24] | (b[fk::money::MessageHeader::encodedLength() + 25] << 8)));
+        CHECK(p.markets.size() == m.markets().count());
+    }
+}
+
+TEST_CASE("the fake core refuses a CoreConfig whose wire ceiling is outside [10, 65534] as INVALID")
+{
+    gn::seams::resetForTest();
+    const gn::GenesisPlan p = plan();
+    for (const std::uint16_t ceiling : { std::uint16_t{ 0 }, std::uint16_t{ 9 }, std::uint16_t{ 65535 } })
+    {
+        CAPTURE(ceiling);
+        Harness h;
+        gn::wire::Bytes b = gn::wire::coreConfig(0x7001, 1, 1, p);
+        fk::money::CoreConfig m;
+        m.wrapForEncode(reinterpret_cast<char *>(b.data()), fk::money::MessageHeader::encodedLength(), b.size());
+        m.maxWireVersion(ceiling);
+        fk::FakeLink link(h.clusters, fk::Principal::CORE_ADMIN);
+        std::string error;
+        REQUIRE(link.send(b, 0, error));
+        REQUIRE(1 == link.inbox().size());
+        const gn::wire::CoreFrame ack = gn::wire::decodeCore(link.inbox().front().data(), link.inbox().front().size());
+        CHECK(gn::wire::CoreFrame::Kind::ADMIN_ACK == ack.kind);
+        CHECK(gn::wire::ADMIN_REJECTED == ack.result);
+        CHECK(15 == ack.reason); // INVALID
+        CHECK(0 == h.clusters.configVersion);
+        CHECK(0 == h.clusters.maxWireVersion);
+    }
 }

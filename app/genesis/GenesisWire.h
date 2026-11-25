@@ -37,6 +37,11 @@ inline constexpr std::uint16_t T_DEPOSIT = 1;
 inline constexpr std::uint16_t T_SET_MONEY_JOURNAL = 32;
 inline constexpr std::uint16_t T_INIT_TRADE_HIGH_WATER = 30; // never encoded by this tool
 
+// CoreConfig.maxWireVersion (money v10, id 5): the wire ceiling every CoreConfig of the ladder carries. The core records
+// it at ADOPT and only lets it rise; it refuses a CoreConfig whose ceiling is outside [10, 65534] as INVALID, and a
+// DUPLICATE needs the same ceiling, so CoreConfig 1 to 4 all send this one value. 10 is the core's wire floor.
+inline constexpr std::uint16_t CORE_MAX_WIRE_VERSION = 10;
+
 // ---- encode (core) ----
 Bytes setMoneyJournal(std::int64_t correlationId, bool enabled);
 Bytes coreConfig(std::int64_t correlationId, std::uint32_t configVersion, std::uint32_t behaviorVersion,

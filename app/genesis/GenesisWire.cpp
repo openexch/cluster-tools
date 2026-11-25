@@ -46,7 +46,10 @@ static_assert(money::CoreLimitsSet::sbeTemplateId() == T_CORE_LIMITS_SET);
 static_assert(money::Deposit::sbeTemplateId() == T_DEPOSIT);
 static_assert(money::SetMoneyJournal::sbeTemplateId() == T_SET_MONEY_JOURNAL);
 static_assert(money::MessageHeader::sbeSchemaId() == 2);
-static_assert(money::MessageHeader::sbeSchemaVersion() >= 9); // the genesisId on CoreConfigReport (v9)
+static_assert(money::MessageHeader::sbeSchemaVersion() >= 10); // CoreConfig.maxWireVersion (v10), CoreConfigReport.genesisId (v9)
+// The ceiling the genesis records is the wire this tool speaks: a later schema bump decides the ceiling again.
+static_assert(money::MessageHeader::sbeSchemaVersion() == CORE_MAX_WIRE_VERSION);
+static_assert(money::CoreConfig::maxWireVersionSinceVersion() == 10);
 static_assert(me::MessageHeader::sbeSchemaId() == 1);
 static_assert(money::GateState::OPEN == GATE_OPEN && money::GateState::SUSPENDED == GATE_SUSPENDED);
 static_assert(money::MessageHeader::encodedLength() == me::MessageHeader::encodedLength());
@@ -121,7 +124,8 @@ Bytes coreConfig(std::int64_t correlationId, std::uint32_t configVersion, std::u
 {
     Bytes b;
     auto m = wrapOut<money::CoreConfig>(b, 256 + 64 * plan.markets.size() + 32 * plan.assets.size());
-    m.correlationId(correlationId).configVersion(configVersion).behaviorVersion(behaviorVersion).genesisId(plan.genesisId);
+    m.correlationId(correlationId).configVersion(configVersion).behaviorVersion(behaviorVersion).genesisId(plan.genesisId)
+        .maxWireVersion(CORE_MAX_WIRE_VERSION);
     auto &markets = m.marketsCount(static_cast<std::uint16_t>(plan.markets.size()));
     for (const CoreMarket &row : plan.markets)
     {

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Regenerates golden_frames.inc from the engines' own Java encoders. Run after a wire schema
-# bump (money v9, order v12) with jars built from the commits dependencies.lock pins:
+# bump (money v10, order v12) with jars built from the commits dependencies.lock pins:
 #   adapters/sbe/tests/golden/regen.sh <core-cluster.jar> <match-cluster.jar> [<core-feed-harness.jar> [<e1-dir>]]
 #
 # With the third argument, the harness jar (pinned by feed_harness_sha256 in
