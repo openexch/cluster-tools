@@ -1,5 +1,5 @@
 // The per-source resume memo: every row of the 5.3 table, the
-// 5.2 rules, and the ChainResumeMemoTest cases carried or retired (archive/tests/PARITY.md).
+// 5.2 rules, and the Java bridge's ChainResumeMemoTest cases carried or retired.
 #include "doctest/doctest.h"
 
 #include "SimArchive.h"

@@ -53,6 +53,10 @@ KEYS="1:ADMIN:$(printf '11%.0s' {1..32})::users=*;2:TOOL:$(printf '22%.0s' {1..3
 ME_KEYS="5:GATEWAY:$(printf '55%.0s' {1..32})::users=*"
 CORE_BASE=22000
 ME_BASE=23000
+# An engine member's HTTP endpoint (/health, /ready, /metrics): base + node x CLUSTER_PORT_STRIDE (100 here) + the node
+# endpoint offset of the cluster port rule (beside the UDP offsets 1..5)
+NODE_ENDPOINT_OFFSET=6
+node_port() { echo $(($1 + 100 * $2 + NODE_ENDPOINT_OFFSET)); }
 HOST=127.0.0.1
 JAVA_OPTS=(--add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED
     -Xms256m -Xmx512m -XX:+UseZGC)
@@ -62,7 +66,7 @@ start_ae_node() {
     local i=$1
     mkdir -p "$W/ae$i"
     env CLUSTER_NODE="$i" CLUSTER_ADDRESSES=localhost,localhost,localhost CLUSTER_PORT_BASE=$CORE_BASE \
-        CLUSTER_PORT_STRIDE=100 BASE_DIR="$W/ae$i" CORE_AUTH_KEYS="$KEYS" CORE_NODE_PORT=$((CORE_BASE + 90 + i)) \
+        CLUSTER_PORT_STRIDE=100 BASE_DIR="$W/ae$i" CORE_AUTH_KEYS="$KEYS" CORE_NODE_PORT=$(node_port $CORE_BASE $i) \
         java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/ae" -jar "$CORE_JAR" > "$W/ae$i.log" 2>&1 &
     CORE_PID[$i]=$!
     PIDS+=($!)
@@ -97,7 +101,7 @@ start_driver "$DRIVER_DIR" "$W/aeronmd.log"
 for i in 0 1 2; do start_ae_node "$i"; done
 mkdir -p "$W/me0"
 env CLUSTER_NODE=0 CLUSTER_ADDRESSES=localhost CLUSTER_PORT_BASE=$ME_BASE BASE_DIR="$W/me0" ME_AUTH_KEYS="$ME_KEYS" \
-    METRICS_PORT=$((ME_BASE + 90)) java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/me" -jar "$ME_JAR" > "$W/me0.log" 2>&1 &
+    METRICS_PORT=$(node_port $ME_BASE 0) java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/me" -jar "$ME_JAR" > "$W/me0.log" 2>&1 &
 PIDS+=($!)
 
 CORE_INGRESS="0=localhost:$((CORE_BASE + 2)),1=localhost:$((CORE_BASE + 102)),2=localhost:$((CORE_BASE + 202))"

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# A cluster-tools worker with the external media driver (the prod mode): ct-worker@ct-bridge.service,
+# ct-worker@ct-forwarder.service. Needs aeronmd@<same name>.service.
+# The same file on every host. Settings: /etc/openexchange/cluster-tools/<name>.env (the worker reads and checks
+# them all, exit 78 on any problem); secrets in <name>.secrets.env (root:root 0600, read by systemd before it drops
+# privileges); CPU_SET there pins the worker.
+
+[Unit]
+Description=Open Exchange %i (external media driver)
+Documentation=https://github.com/openexch/cluster-tools/tree/main/deploy
+# Stops when its driver stops or dies, starts after a usable driver, comes back with a restarted driver.
+BindsTo=aeronmd@%i.service
+After=aeronmd@%i.service
+After=network-online.target
+Wants=network-online.target
+Conflicts=ct-worker-embedded@%i.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=openexchange
+Group=openexchange
+Environment=AERON_DIR=/dev/shm/aeron-openexchange-%i
+EnvironmentFile=/etc/openexchange/cluster-tools/%i.env
+EnvironmentFile=-/etc/openexchange/cluster-tools/%i.secrets.env
+ExecStart=/opt/openexchange/cluster-tools/bin/worker-launch external %i
+Restart=on-failure
+RestartSec=2s
+RestartSteps=6
+RestartMaxDelaySec=60s
+RestartPreventExitStatus=78
+TimeoutStopSec=30s
+LimitNOFILE=65536
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target aeronmd@%i.service

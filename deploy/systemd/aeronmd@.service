@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The external Aeron media driver of one process: aeronmd@<name>.service, <name> the process that uses it
+# (core, match, core-replica, ct-bridge, oe-gateway, ...). One driver per process, as the prod profile runs them.
+# The same file on every host; per-driver knobs go in /etc/openexchange/aeronmd/<name>.env:
+#   AERON_DIR             default /dev/shm/aeron-openexchange-<name>; the client unit sets the same default
+#   AERON_DRIVER_PROFILE  dev | prod (default prod): the overlay loaded after driver.properties
+#   DRIVER_CPU_SET        a taskset CPU list for the driver (empty: unpinned)
+# The unit turns active only once cnc.dat exists (ExecStartPost), so a client ordered After= this unit starts
+# against a usable driver. Its clients bind to it (BindsTo=): they stop when it stops or dies, and they are
+# WantedBy= it, so a driver that systemd restarts brings them back.
+
+[Unit]
+Description=Aeron media driver for %i
+Documentation=https://github.com/openexch/cluster-tools/tree/main/deploy
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=openexchange
+Group=openexchange
+Environment=AERON_DIR=/dev/shm/aeron-openexchange-%i
+Environment=AERON_DRIVER_PROFILE=prod
+EnvironmentFile=-/etc/openexchange/aeronmd/%i.env
+ExecStart=/opt/openexchange/cluster-tools/bin/aeronmd-launch run
+ExecStartPost=/opt/openexchange/cluster-tools/bin/aeronmd-launch wait-cnc
+Restart=always
+RestartSec=1s
+RestartSteps=5
+RestartMaxDelaySec=30s
+RestartPreventExitStatus=78
+# aeronmd ends a SIGTERM stop with status 15.
+SuccessExitStatus=15
+TimeoutStopSec=30s
+LimitNOFILE=65536
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

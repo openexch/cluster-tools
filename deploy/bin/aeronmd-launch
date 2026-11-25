@@ -1,0 +1,66 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# aeronmd-launch: run the published aeronmd on the published properties, or wait for it to be usable.
+#
+# Usage: aeronmd-launch run        exec aeronmd: driver.properties, then the driver-<profile>.properties overlay
+#        aeronmd-launch wait-cnc   exit 0 once <AERON_DIR>/cnc.dat exists, 1 after AERONMD_CNC_WAIT_MS
+#
+# aeronmd@<name>.service runs `run` as its main process and `wait-cnc` as ExecStartPost, so the unit turns active
+# only once a client can connect: a member ordered After= the driver starts against a usable driver.
+#
+# Knobs (env):
+#   AERON_DIR             required: the driver directory (shared memory, for example /dev/shm/aeron-openexchange-core).
+#   AERON_DRIVER_PROFILE  required: dev (SHARED threading, backoff idles) or prod (DEDICATED, busy-spin idles).
+#   DRIVER_CPU_SET        optional: a taskset CPU list for the driver's threads; empty runs unpinned.
+#   AERONMD_CNC_WAIT_MS   optional: the wait-cnc bound, default 10000.
+#   CT_HOME               optional: the published cluster-tools set, default /opt/openexchange/cluster-tools.
+#
+# Exit: 78 a refused setting (the unit does not restart it); otherwise aeronmd's own status (exec).
+set -eu
+
+refuse() {
+    echo "aeronmd-launch: refusing to start: $*" >&2
+    exit 78
+}
+
+[ $# -eq 1 ] || refuse "usage: aeronmd-launch run|wait-cnc"
+[ -n "${AERON_DIR:-}" ] || refuse "AERON_DIR is required"
+
+case "$1" in
+    wait-cnc)
+        wait_ms=${AERONMD_CNC_WAIT_MS:-10000}
+        case "$wait_ms" in '' | *[!0-9]*) refuse "AERONMD_CNC_WAIT_MS='$wait_ms' is not a number of ms" ;; esac
+        waited=0
+        while [ ! -e "$AERON_DIR/cnc.dat" ]; do
+            if [ "$waited" -ge "$wait_ms" ]; then
+                echo "aeronmd-launch: no $AERON_DIR/cnc.dat after ${wait_ms} ms" >&2
+                exit 1
+            fi
+            sleep 0.1
+            waited=$((waited + 100))
+        done
+        exit 0
+        ;;
+    run) ;;
+    *) refuse "unknown command '$1' (expected run|wait-cnc)" ;;
+esac
+
+home=${CT_HOME:-/opt/openexchange/cluster-tools}
+case "${AERON_DRIVER_PROFILE:-}" in
+    dev | prod) ;;
+    *) refuse "AERON_DRIVER_PROFILE='${AERON_DRIVER_PROFILE:-}' must be dev or prod" ;;
+esac
+for f in "$home/aeronmd" "$home/driver.properties" "$home/driver-$AERON_DRIVER_PROFILE.properties"; do
+    [ -r "$f" ] || refuse "$f is missing (the published cluster-tools set at CT_HOME=$home)"
+done
+LD_LIBRARY_PATH=$home${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export AERON_DIR LD_LIBRARY_PATH
+
+set -- "$home/aeronmd" "$home/driver.properties" "$home/driver-$AERON_DRIVER_PROFILE.properties"
+if [ -n "${DRIVER_CPU_SET:-}" ]; then
+    case "$DRIVER_CPU_SET" in *[!0-9,-]*) refuse "DRIVER_CPU_SET='$DRIVER_CPU_SET' is not a CPU list" ;; esac
+    command -v taskset >/dev/null 2>&1 || refuse "DRIVER_CPU_SET is set but taskset is not installed"
+    exec taskset -c "$DRIVER_CPU_SET" "$@"
+fi
+exec "$@"

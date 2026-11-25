@@ -61,6 +61,10 @@ hex() { printf "$1%.0s" $(seq 1 32); }
 CORE_KEYS="1:ADMIN:$(hex 11)::users=*;2:TOOL:$(hex 22)::users=*;3:BRIDGE:$(hex 33)::users=*;10:BRIDGE:$(hex aa)::users=*;11:BRIDGE:$(hex bb)::users=*;5:GATEWAY:$(hex 55)::users=*;6:FORWARDER:$(hex 66)::users=*;9:TREASURY:$(hex 99)::users=*"
 BRIDGE_KEY="3:BRIDGE:$(hex 33)"
 CORE_BASE=24000
+# An engine member's HTTP endpoint (/health, /ready, /metrics): base + node x CLUSTER_PORT_STRIDE (100 here) + the node
+# endpoint offset of the cluster port rule (beside the UDP offsets 1..5)
+NODE_ENDPOINT_OFFSET=6
+node_port() { echo $(($1 + 100 * $2 + NODE_ENDPOINT_OFFSET)); }
 J_BASE=25000
 BPORT=26080
 JAVA_OPTS=(--add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xms128m -Xmx1g -XX:+UseZGC)
@@ -112,7 +116,7 @@ start_ae() { # node
     local i=$1
     mkdir -p "$D/ae$i"
     env "${NODE_ENV[@]}" CLUSTER_NODE="$i" CLUSTER_ADDRESSES="$(ae_addresses)" CLUSTER_PORT_BASE=$CORE_BASE \
-        CLUSTER_PORT_STRIDE=100 BASE_DIR="$D/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$((CORE_BASE + 90 + i)) \
+        CLUSTER_PORT_STRIDE=100 BASE_DIR="$D/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$(node_port $CORE_BASE $i) \
         java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/ae$i" -jar "$CORE_JAR" >> "$D/ae$i.log" 2>&1 &
     PID[ae$i]=$!
 }
@@ -153,11 +157,11 @@ live_slots() {
 }
 leader_of() {
     for i in $(seq 0 $((NCORE - 1))); do
-        [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + i))/metrics" core_cluster_role)" = "2" ] && { echo "$i"; return 0; }
+        [ "$(metric "http://127.0.0.1:$(node_port $CORE_BASE $i)/metrics" core_cluster_role)" = "2" ] && { echo "$i"; return 0; }
     done
     return 1
 }
-ae_metric() { local l; l=$(leader_of) || { echo ""; return; }; metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" "$1"; }
+ae_metric() { local l; l=$(leader_of) || { echo ""; return; }; metric "http://127.0.0.1:$(node_port $CORE_BASE $l)/metrics" "$1"; }
 wait_leader() { for _ in $(seq 1 600); do leader_of > /dev/null && return 0; sleep 0.1; done; return 1; }
 
 T1ENV=()
@@ -1145,7 +1149,7 @@ member_back() {
             MEMBER_BACK="exited $rc after $(elapsed "$t0" "$(now_s)") s, restarted by the runner"
             break
         fi
-        if [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" core_cluster_role)" = "0" ]; then
+        if [ "$(metric "http://127.0.0.1:$(node_port $CORE_BASE $l)/metrics" core_cluster_role)" = "0" ]; then
             MEMBER_BACK="follower by itself after $(elapsed "$t0" "$(now_s)") s"
             return 0
         fi
@@ -1157,7 +1161,7 @@ member_back() {
     fi
     local left; left=$(python3 -I -c "import sys; print(max(1, int(60 - float(sys.argv[1]))))" "$(elapsed "$t0" "$(now_s)")")
     for _ in $(seq 1 $((left * 10 + 300))); do
-        [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" core_cluster_role)" = "0" ] && { MEMBER_BACK="$MEMBER_BACK; follower after $(elapsed "$t0" "$(now_s)") s"; return 0; }
+        [ "$(metric "http://127.0.0.1:$(node_port $CORE_BASE $l)/metrics" core_cluster_role)" = "0" ] && { MEMBER_BACK="$MEMBER_BACK; follower after $(elapsed "$t0" "$(now_s)") s"; return 0; }
         sleep 0.1
     done
     MEMBER_BACK="$MEMBER_BACK; NOT a follower after $(elapsed "$t0" "$(now_s)") s"
@@ -1193,7 +1197,7 @@ stop_leader_under_load() {
         # the frozen member's /metrics does not answer: ask only the others
         for i in $(seq 0 $((NCORE - 1))); do
             [ "$i" = "$l" ] && continue
-            [ "$(metric "http://127.0.0.1:$((CORE_BASE + 90 + i))/metrics" core_cluster_role)" = "2" ] && { newl=$i; break; }
+            [ "$(metric "http://127.0.0.1:$(node_port $CORE_BASE $i)/metrics" core_cluster_role)" = "2" ] && { newl=$i; break; }
         done
         [ -n "$newl" ] && { tnew=$(now_s); break; }
         sleep 0.1

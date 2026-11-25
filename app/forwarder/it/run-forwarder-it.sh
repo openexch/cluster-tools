@@ -120,6 +120,10 @@ FWDB_CORE="7:FORWARDER:$(hex 77)"; FWDB_ME="7:FORWARDER:$(hex 7a)"
 
 CORE_BASE=22000
 ME_BASE=23000
+# An engine member's HTTP endpoint (/health, /ready, /metrics): base + node x CLUSTER_PORT_STRIDE (100 here) + the node
+# endpoint offset of the cluster port rule (beside the UDP offsets 1..5)
+NODE_ENDPOINT_OFFSET=6
+node_port() { echo $(($1 + 100 * $2 + NODE_ENDPOINT_OFFSET)); }
 CORE_INGRESS="0=localhost:$((CORE_BASE + 2)),1=localhost:$((CORE_BASE + 102)),2=localhost:$((CORE_BASE + 202))"
 ME_INGRESS="0=localhost:$((ME_BASE + 2)),1=localhost:$((ME_BASE + 102)),2=localhost:$((ME_BASE + 202))"
 JAVA_OPTS=(--add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xms128m -Xmx384m -XX:+UseZGC)
@@ -142,7 +146,7 @@ start_ae() { # node
     local i=$1
     mkdir -p "$W/ae$i"
     env "${NODE_ENV[@]}" CLUSTER_NODE="$i" CLUSTER_ADDRESSES=localhost,localhost,localhost CLUSTER_PORT_BASE=$CORE_BASE \
-        CLUSTER_PORT_STRIDE=100 BASE_DIR="$W/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$((CORE_BASE + 90 + i)) \
+        CLUSTER_PORT_STRIDE=100 BASE_DIR="$W/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$(node_port $CORE_BASE $i) \
         java "${JAVA_OPTS[@]}" -Daeron.dir="$SHM/ae" -jar "$CORE_JAR" >> "$W/ae$i.log" 2>&1 &
     PID[ae$i]=$!
 }
@@ -154,7 +158,7 @@ start_me() { # node
     local journalEnv=()
     [ -n "${IT_BRIDGE:-}" ] && journalEnv=(SETTLEMENT_JOURNAL_ENABLED=true SETTLEMENT_JOURNAL_DIR="$W/me-journal")
     env "${NODE_ENV[@]}" "${journalEnv[@]}" CLUSTER_NODE="$i" CLUSTER_ADDRESSES=localhost,localhost,localhost CLUSTER_PORT_BASE=$ME_BASE \
-        CLUSTER_PORT_STRIDE=100 BASE_DIR="$W/me$i" ME_AUTH_KEYS="$ME_KEYS" METRICS_PORT=$((ME_BASE + 90 + i)) \
+        CLUSTER_PORT_STRIDE=100 BASE_DIR="$W/me$i" ME_AUTH_KEYS="$ME_KEYS" METRICS_PORT=$(node_port $ME_BASE $i) \
         MATCH_ENGINE_FROM_CONFIG=true java "${JAVA_OPTS[@]}" -Xmx768m -Daeron.dir="$SHM/me" -jar "$ME_JAR" >> "$W/me$i.log" 2>&1 &
     PID[me$i]=$!
 }
@@ -197,19 +201,19 @@ leader_of() { # ae|me -> node index of the leader
     local kind=$1 base=$CORE_BASE name=core_cluster_role
     [ "$kind" = me ] && { base=$ME_BASE; name=match_cluster_role; }
     for i in 0 1 2; do
-        if [ "$(metric "http://127.0.0.1:$((base + 90 + i))/metrics" "$name")" = "2" ]; then echo "$i"; return 0; fi
+        if [ "$(metric "http://127.0.0.1:$(node_port $base $i)/metrics" "$name")" = "2" ]; then echo "$i"; return 0; fi
     done
     return 1
 }
 ae_counter() { # name -> value on the core leader
     local l
     l=$(leader_of ae) || { echo 0; return; }
-    metric "http://127.0.0.1:$((CORE_BASE + 90 + l))/metrics" "$1"
+    metric "http://127.0.0.1:$(node_port $CORE_BASE $l)/metrics" "$1"
 }
 me_counter() { # name -> value on the ME leader
     local l
     l=$(leader_of me) || { echo 0; return; }
-    metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" "$1"
+    metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" "$1"
 }
 # Waits for a child to exit (a zombie counts: kill -0 still succeeds on one) and reaps it. Runs in THIS shell, never
 # in $(...), so `wait` can collect the child's status. Sets WAIT_RC (255 = still running at the timeout).
@@ -363,7 +367,7 @@ bridge_rows() {
     local l next cursor halts halted
     for _ in $(seq 1 60); do
         l=$(leader_of me) || { sleep 1; continue; }
-        next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+        next=$(metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" match_engine_next_journal_seq)
         cursor=$(bridge_metric bridge_core_cursor)
         [ -n "$next" ] && [ -n "$cursor" ] && [ "$cursor" = "$((next - 1))" ] && break
         sleep 1
@@ -450,7 +454,7 @@ run_scenario() {
             local split="" splitOk=0
             if [ -n "$BRIDGE_BIN" ]; then
                 local l next sent first
-                l=$(leader_of me); next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+                l=$(leader_of me); next=$(metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" match_engine_next_journal_seq)
                 sent=$(fwd_metric 24001 'forwarder_dispatch_sent_total{template="9"}') # commands; template 10 carries release entries (record 4)
                 "$JTAIL" --aeron-dir "$DRIVER_DIR" --archive "localhost:$((ME_BASE + 100 * l + 10))" --control-stream 4010 \
                     --journal-stream 4001 --channel aeron:ipc --replay-stream 9130 --local-host localhost --journal-mtu 1408 \
@@ -631,9 +635,9 @@ run_scenario() {
         load_bg "$SECONDS_LOAD"; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
         local ok=0; oracle t1f 24001 24002 || ok=1
         local backlog=""
-        for _ in $(seq 1 20); do backlog=$(metric "http://127.0.0.1:$((CORE_BASE + 90 + $(leader_of ae)))/metrics" core_release_backlog); [ "$backlog" = 0 ] && break; sleep 0.5; done
+        for _ in $(seq 1 20); do backlog=$(metric "http://127.0.0.1:$(node_port $CORE_BASE $(leader_of ae))/metrics" core_release_backlog); [ "$backlog" = 0 ] && break; sleep 0.5; done
         local n1; n1=$(me_counter match_release_noop_frames_total)
-        local l next; l=$(leader_of me); next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+        local l next; l=$(leader_of me); next=$(metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" match_engine_next_journal_seq)
         "$JTAIL" --aeron-dir "$DRIVER_DIR" --archive "localhost:$((ME_BASE + 100 * l + 10))" --control-stream 4010 \
             --journal-stream 4001 --channel aeron:ipc --replay-stream 9120 --local-host localhost --journal-mtu 1408 \
             --from-seq 1 --to-seq $((next - 1)) --hex --timeout-ms 120000 > "$W/t1f-me$l.txt" 2> "$W/t1f-me$l.err"
@@ -670,7 +674,7 @@ PY
         else result t1f fail "$applied (rc $arc); noop $n0 -> $n1; backlog $backlog; bridge 67 $b67; re-sends (rc $rs): $T1F_RESEND_DETAIL; $ORACLE_DETAIL"; fi ;;
     of2) # O-F2: the ME journal replayed through the C++ reader (ct-journal-tail --hex) over each ME archive: one
         # record 3 per command id; the ME's suppressed duplicates are not journalled twice
-        local l next; l=$(leader_of me); next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+        local l next; l=$(leader_of me); next=$(metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" match_engine_next_journal_seq)
         local all_ok=0 detail=""
         for i in 0 1 2; do
             "$JTAIL" --aeron-dir "$DRIVER_DIR" --archive "localhost:$((ME_BASE + 100 * i + 10))" --control-stream 4010 \
@@ -927,7 +931,7 @@ gate_events_stop() {
 GATE_JNEXT=""
 gate_journal() { # outFile replayStream fromSeq
     local l; l=$(leader_of me) || { GATE_JNEXT=""; return 1; }
-    GATE_JNEXT=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+    GATE_JNEXT=$(metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" match_engine_next_journal_seq)
     [ -n "$GATE_JNEXT" ] && [ "$GATE_JNEXT" -gt "$3" ] || { : > "$1"; return 0; }
     "$JTAIL" --aeron-dir "$DRIVER_DIR" --archive "localhost:$((ME_BASE + 100 * l + 10))" --control-stream 4010 \
         --journal-stream 4001 --channel aeron:ipc --replay-stream "$2" --local-host localhost --journal-mtu 1408 \
@@ -937,7 +941,7 @@ gate_journal() { # outFile replayStream fromSeq
 gate_bridge_caught_up() { # [fromSeq]
     local l next cursor
     for _ in $(seq 1 30); do
-        l=$(leader_of me) && next=$(metric "http://127.0.0.1:$((ME_BASE + 90 + l))/metrics" match_engine_next_journal_seq)
+        l=$(leader_of me) && next=$(metric "http://127.0.0.1:$(node_port $ME_BASE $l)/metrics" match_engine_next_journal_seq)
         cursor=$(bridge_metric bridge_core_cursor)
         [ -n "${next:-}" ] && [ -n "$cursor" ] && [ "$cursor" = "$((next - 1))" ] && [ "$next" -gt "${1:-0}" ] && return 0
         sleep 1
@@ -1311,9 +1315,9 @@ mt_line() { # ok|fail text
 mt_info() { log "INFO $*"; MT_INFO+=("$*"); }
 tick_sample() { # file: the 100 ms sampler of fwdA, fwdB, the ME and core nodes (one thread per target, 0.3 s timeouts)
     python3 -I "$TICKPY" sample "$1" 0.1 fwdA=http://127.0.0.1:24001/metrics fwdB=http://127.0.0.1:24002/metrics \
-        me0=http://127.0.0.1:$((ME_BASE + 90))/metrics me1=http://127.0.0.1:$((ME_BASE + 91))/metrics \
-        me2=http://127.0.0.1:$((ME_BASE + 92))/metrics ae0=http://127.0.0.1:$((CORE_BASE + 90))/metrics \
-        ae1=http://127.0.0.1:$((CORE_BASE + 91))/metrics ae2=http://127.0.0.1:$((CORE_BASE + 92))/metrics > "$1.err" 2>&1 &
+        me0=http://127.0.0.1:$(node_port $ME_BASE 0)/metrics me1=http://127.0.0.1:$(node_port $ME_BASE 1)/metrics \
+        me2=http://127.0.0.1:$(node_port $ME_BASE 2)/metrics ae0=http://127.0.0.1:$(node_port $CORE_BASE 0)/metrics \
+        ae1=http://127.0.0.1:$(node_port $CORE_BASE 1)/metrics ae2=http://127.0.0.1:$(node_port $CORE_BASE 2)/metrics > "$1.err" 2>&1 &
     PID[sampler]=$!
 }
 scrape() { curl -s --max-time 2 "$1" 2> /dev/null > "$2"; }
@@ -1326,14 +1330,14 @@ mt_row_start() { # label port...
     MT_LABEL=$1; shift; MT_FAILS=(); MT_INFO=(); MT_ROW_T0=$(date +%s.%N) # O-T1 "row seconds" start (fix)
     local i impl bad=""
     for i in 0 1 2; do
-        impl=$(metric "http://127.0.0.1:$((ME_BASE + 90 + i))/metrics" match_engine_effective_impl)
+        impl=$(metric "http://127.0.0.1:$(node_port $ME_BASE $i)/metrics" match_engine_effective_impl)
         [ -n "$impl" ] && [ "${impl%.*}" = 0 ] || bad="$bad me$i=${impl:-?}"
     done
     [ -z "$bad" ] && mt_line ok "match_engine_effective_impl 0 (ARRAY) on me0..me2 at row start" ||
         mt_line fail "match_engine_effective_impl not 0 at row start:$bad"
     local l; l=$(leader_of ae) || l=0
     MT_CORE_MEMBER=$(( (l + 1) % 3 )) # a follower: no row restarts it (TK-F kills the leader)
-    scrape "http://127.0.0.1:$((CORE_BASE + 90 + MT_CORE_MEMBER))/metrics" "$W/mt-$MT_LABEL-ae$MT_CORE_MEMBER-start.prom"
+    scrape "http://127.0.0.1:$(node_port $CORE_BASE $MT_CORE_MEMBER)/metrics" "$W/mt-$MT_LABEL-ae$MT_CORE_MEMBER-start.prom"
     for p in "$@"; do scrape "http://127.0.0.1:$p/metrics" "$W/mt-$MT_LABEL-fwd$p-start.prom"; done
     MT_SAMPLER="$W/mt-$MT_LABEL-sampler.txt"; rm -f "$MT_SAMPLER"; tick_sample "$MT_SAMPLER"
     mt_info "row $MT_LABEL: core leader $l, counter member ae$MT_CORE_MEMBER; ME leader $(leader_of me); ME markets $T1_ME_MARKETS"
@@ -1382,8 +1386,8 @@ tick_oracle() { # label port...
         names="$names${names:+,}\"$p\": \"$n\""
     done
     lead=$(leader_of ae) || lead=$MT_CORE_MEMBER
-    scrape "http://127.0.0.1:$((CORE_BASE + 90 + lead))/metrics" "$W/mt-$label-ae-leader-end.prom"
-    scrape "http://127.0.0.1:$((CORE_BASE + 90 + MT_CORE_MEMBER))/metrics" "$W/mt-$label-ae$MT_CORE_MEMBER-end.prom"
+    scrape "http://127.0.0.1:$(node_port $CORE_BASE $lead)/metrics" "$W/mt-$label-ae-leader-end.prom"
+    scrape "http://127.0.0.1:$(node_port $CORE_BASE $MT_CORE_MEMBER)/metrics" "$W/mt-$label-ae$MT_CORE_MEMBER-end.prom"
     me_driver book "$DRIVER_DIR" "$ME_INGRESS" > "$W/book-$label.txt" 2>&1
     cat > "$spec" <<JSON
 {"barrier_ok": $([ $ok -eq 1 ] && echo true || echo false), "barrier_s": $bs, "barrier_detail": "$detail",
@@ -1408,7 +1412,7 @@ mt_breaks() { # port -> chain breaks of market 1 by cause, and the ME's dropped 
     for c in from_mismatch level_op depth crossed malformed; do
         out="$out $c=$(fwd_sum "$1" forwarder_book_chain_breaks_total "market=\"1\",cause=\"$c\"")"
     done
-    local i d=""; for i in 0 1 2; do d="$d me$i=$(metric "http://127.0.0.1:$((ME_BASE + 90 + i))/metrics" match_dropped_market_msgs_total)"; done
+    local i d=""; for i in 0 1 2; do d="$d me$i=$(metric "http://127.0.0.1:$(node_port $ME_BASE $i)/metrics" match_dropped_market_msgs_total)"; done
     echo "market 1 chain breaks:$out; match_dropped_market_msgs_total$d"
 }
 mt_drain_capped() { # the max sampled match_egress_drain_capped_total per ME node over the row (8.1)
@@ -1423,7 +1427,7 @@ leader_wait_except() { # node seconds -> the first node != $1 whose match_cluste
     while [ "$(date +%s%N)" -lt "$deadline" ]; do
         for i in 0 1 2; do
             [ "$i" = "$1" ] && continue
-            v=$(curl -s --max-time 0.5 "http://127.0.0.1:$((ME_BASE + 90 + i))/metrics" 2> /dev/null | awk '$1 == "match_cluster_role" { print $2; exit }')
+            v=$(curl -s --max-time 0.5 "http://127.0.0.1:$(node_port $ME_BASE $i)/metrics" 2> /dev/null | awk '$1 == "match_cluster_role" { print $2; exit }')
             [ "$v" = 2 ] && { echo "$i"; return 0; }
         done
         sleep 0.1
@@ -1431,7 +1435,7 @@ leader_wait_except() { # node seconds -> the first node != $1 whose match_cluste
     return 1
 }
 core_quote() { # aeIndex market -> "bid ask"
-    curl -s --max-time 0.5 "http://127.0.0.1:$((CORE_BASE + 90 + $1))/metrics" 2> /dev/null |
+    curl -s --max-time 0.5 "http://127.0.0.1:$(node_port $CORE_BASE $1)/metrics" 2> /dev/null |
         awk -v m="$2" '$1 == "core_market_best_bid{market=\"" m "\"}" { b = $2 } $1 == "core_market_best_ask{market=\"" m "\"}" { a = $2 }
             END { printf "%d %d\n", b, a }'
 }
@@ -1648,7 +1652,7 @@ PY
     tk-g)
         mt_row_start tk-g 24001
         load_bg 3; wait "$LOAD_PID"; grep LOAD "$W/load$LOAD_TAG.log"
-        local mp="http://127.0.0.1:$((CORE_BASE + 90 + MT_CORE_MEMBER))/metrics" a0 a1
+        local mp="http://127.0.0.1:$(node_port $CORE_BASE $MT_CORE_MEMBER)/metrics" a0 a1
         a0=$(prom_val "$W/mt-tk-g-ae$MT_CORE_MEMBER-start.prom" core_ticks_applied_total)
         for _ in $(seq 1 50); do a1=$(metric "$mp" core_ticks_applied_total); [ "${a1%.*}" -gt "${a0:-0}" ] 2> /dev/null && break; sleep 0.1; done
         [ "${a1%.*}" -gt "${a0:-0}" ] 2> /dev/null && mt_line ok "core_ticks_applied_total delta > 0 before the re-genesis: $a0 -> ${a1%.*}" ||
@@ -1726,7 +1730,7 @@ PY
             log "SIGKILL ME follower $f"; kill -9 "${PID[me$f]}"; wait_exit "me$f" 5; sleep 12; start_me "$f"
             local r=""; for _ in $(seq 1 120); do
                 kill -0 "${PID[me$f]}" 2> /dev/null || { r=dead; break; }
-                r=$(curl -s --max-time 0.5 "http://127.0.0.1:$((ME_BASE + 90 + f))/metrics" | awk '$1 == "match_cluster_role" { print $2; exit }')
+                r=$(curl -s --max-time 0.5 "http://127.0.0.1:$(node_port $ME_BASE $f)/metrics" | awk '$1 == "match_cluster_role" { print $2; exit }')
                 [ "$r" = 0 ] && break; sleep 0.5; done
             log "follower $f role ${r:-none}"; [ "$r" = 0 ] || ok=0
             grep -q 'loadSnapshot called' "$W/me$f.log" && restored="$restored me$f" || ok=0

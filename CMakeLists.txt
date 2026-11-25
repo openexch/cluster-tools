@@ -50,7 +50,7 @@ include(GNUInstallDirs)
 # Cache variables retired by the rename of the engine to core. A configure that still sets one was written for the
 # old names: it is refused, naming the new name; the old name is never read (an empty value, the default an older
 # build directory carries in its cache, is not a setting). scripts/check-configure-gate.sh pins the refusal.
-foreach(_ct_retired IN ITEMS "CT_IT_ASSETS_JAR=CT_IT_CORE_JAR" "CT_PARITY_ASSETS_TREE=CT_PARITY_CORE_TREE")
+foreach(_ct_retired IN ITEMS "CT_IT_ASSETS_JAR=CT_IT_CORE_JAR")
     string(REPLACE "=" ";" _ct_pair "${_ct_retired}")
     list(GET _ct_pair 0 _ct_old)
     list(GET _ct_pair 1 _ct_new)
@@ -121,6 +121,29 @@ add_subdirectory(domain/bridge)   # The bridge domain (pure, every configuration
 if(BUILD_TESTING)
     add_test(NAME driver_properties.stage_gate
         COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-stage-driver-properties.sh")
+
+    # One SBE schema id names one wire schema: sbe-schema-ids.txt lists every id in use (the same file in every
+    # repo). The lock's schema ids, the hand-written id constants and, when given, the fetched schemas must
+    # equal it; a new constant has to be mapped below. Every configuration (python3 only).
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(_ct_sbe_ids_args
+        --root "${CMAKE_CURRENT_SOURCE_DIR}" --owner cluster-tools
+        --lock-key "dependencies.lock:money_schema_id=com.openexchange.core.infrastructure.generated"
+        --lock-key "dependencies.lock:match_schema_id=com.match.infrastructure.generated"
+        --lock-key "dependencies.lock:me_journal_schema_id=com.match.infrastructure.mejournal.generated"
+        --constant "MONEY_SCHEMA_ID=com.openexchange.core.infrastructure.generated"
+        --constant "MATCH_SCHEMA_ID=com.match.infrastructure.generated"
+        --constant "JOURNAL_SCHEMA_ID=com.match.infrastructure.mejournal.generated"
+        --constant "CORE_ORDER_JOURNAL_SCHEMA_ID=com.openexchange.core.infrastructure.orderjournal.generated")
+    foreach(_schema IN ITEMS "${MONEY_SCHEMA}" "${MATCH_SCHEMA}" "${ME_JOURNAL_SCHEMA}")
+        if(_schema)
+            list(APPEND _ct_sbe_ids_args --copy "${_schema}")
+        endif()
+    endforeach()
+    add_test(NAME sbe_schema_ids
+        COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-sbe-schema-ids.py" ${_ct_sbe_ids_args})
+    add_test(NAME sbe_schema_ids.negative_controls
+        COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-sbe-schema-ids.py" --self-test)
 endif()
 find_package(Threads REQUIRED)
 
