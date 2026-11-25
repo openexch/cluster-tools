@@ -72,6 +72,7 @@ struct Clusters
     std::uint32_t configVersion = 0;
     std::uint32_t behaviorVersion = 0;
     std::int64_t genesisId = 0;
+    std::uint16_t maxWireVersion = 0; // recorded CoreConfig wire ceiling (money v10), 0 while none is recorded
     std::vector<std::pair<std::int32_t, std::string>> markets; // recorded CoreConfig markets
     std::size_t assets = 0;
     std::uint8_t gate = 1;            // SUSPENDED
@@ -253,6 +254,12 @@ private:
                     m_inbox.push_back(orderReject(m.correlationId(), t, 20));
                     return;
                 }
+                // the core's structural row: a wire ceiling outside [10, 65534] is INVALID (REJECTED, reason 15)
+                if (m.maxWireVersion() < 10 || m.maxWireVersion() > 65534)
+                {
+                    m_inbox.push_back(adminAck(m.correlationId(), t, 2, 15, m_c.configVersion));
+                    return;
+                }
                 std::uint8_t result = 4; // STALE
                 if (m.configVersion() == m_c.configVersion + 1)
                 {
@@ -260,6 +267,7 @@ private:
                     m_c.configVersion = m.configVersion();
                     m_c.behaviorVersion = m.behaviorVersion();
                     m_c.genesisId = m.genesisId();
+                    m_c.maxWireVersion = m.maxWireVersion();
                     m_c.markets.clear();
                     auto &markets = m.markets();
                     while (markets.hasNext())
@@ -397,7 +405,7 @@ private:
                     .orderEventRingCapacity(m_c.ring)
                     .gateState(money::GateState::get(m_c.gate));
                 r.gateReasons().rawValue(m_c.gateReasons);
-                r.asOfLogPosition(1).genesisId(m_c.genesisId);
+                r.asOfLogPosition(1).genesisId(m_c.genesisId).maxWireVersion(m_c.maxWireVersion);
                 auto &markets = r.marketsCount(static_cast<std::uint16_t>(m_c.markets.size()));
                 for (const auto &[id, symbol] : m_c.markets)
                 {

@@ -2,7 +2,7 @@
 # generated code is committed. One output directory per schema, each regenerated whole:
 #   cluster  - the Aeron cluster session protocol (schema 111, from the Aeron tree configure
 #              extracted from the verified tarball; WITH_AERON only)
-#   money    - the core money-schema (schema 2, MONEY_SCHEMA; v9)
+#   money    - the core money-schema (schema 2, MONEY_SCHEMA; v10)
 #   match    - the ME order-schema (schema 1, MATCH_SCHEMA; v12)
 #   journal  - the ME settlement journal (schema 4, ME_JOURNAL_SCHEMA; v1)
 # ct_sbe_codecs exposes the include paths plus build_info.h (pins + schema hashes).
@@ -101,7 +101,7 @@ target_compile_features(ct_journal_codec PUBLIC cxx_std_20)
 target_link_libraries(ct_journal_codec PRIVATE ct_sbe_codecs)
 target_compile_options(ct_journal_codec PRIVATE -Wall -Wextra)
 
-# The bridge's wire (schema 4 records -> money v9 feed 61-64, 67, 68; FeedHalt 66, Query 7; the
+# The bridge's wire (schema 4 records -> money v10 feed 61-64, 67, 68; FeedHalt 66, Query 7; the
 # egress 17 v7, 110, 114). The domain's value types and ports come from domain/bridge (headers), the frame shapes
 # from archive (FramePeek, header-only constants); consumers link the domain flavour they want.
 add_library(ct_bridge_codec STATIC src/BridgeCodec.cpp)

@@ -1,5 +1,5 @@
 // ForwarderAgent<ClusterClient<FakeTransport>, ClusterClient<FakeTransport>> with a
-// manual clock. Every frame the agent sees is a real money-schema v9 / order-schema v12 encoding; every frame
+// manual clock. Every frame the agent sees is a real money-schema v10 / order-schema v12 encoding; every frame
 // it offers is decoded back.
 #include "doctest/doctest.h"
 
