@@ -87,6 +87,8 @@ def walk(root, suffixes):
         top = subprocess.run(['git', '-C', root, 'rev-parse', '--show-prefix'], capture_output=True, check=True)
         if top.stdout.strip() == b'':
             for rel in sorted(out.decode('utf-8', 'replace').split('\0')):
+                if any(part in SKIP_DIRS or part.startswith('build-') for part in rel.split('/')[:-1]):
+                    continue                          # a build tree inside the checkout that git does not ignore
                 if rel.endswith(suffixes) and os.path.isfile(os.path.join(root, rel)):
                     yield os.path.join(root, rel)
             return
