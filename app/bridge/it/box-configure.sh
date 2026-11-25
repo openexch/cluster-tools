@@ -31,5 +31,4 @@ nice -n 10 "$CMAKE" -S . -B "$BUILD" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_AE
     -DCT_IT_CORE_JAR="$JARS/core-cluster.jar" \
     -DCT_IT_MATCH_JAR="$MATCH_TREE/match-cluster/target/match-cluster.jar" \
     -DCT_IT_FORWARDER_MATCH_JAR="$MATCH_TREE/match-cluster/target/match-cluster.jar" \
-    -DCT_IT_AERON_ALL_JAR="$AERON_ALL" \
-    -DCT_PARITY_CORE_TREE="$CORE_TREE"
+    -DCT_IT_AERON_ALL_JAR="$AERON_ALL"

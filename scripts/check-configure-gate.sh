@@ -117,8 +117,6 @@ expect_refused unpinned-jar "is not a jar dependencies.lock pins" -DAERON_TARBAL
 # control below configures without them).
 expect_refused retired-it-jar "the cache variable CT_IT_ASSETS_JAR is retired; it is now CT_IT_CORE_JAR" \
     "${GOOD[@]}" -DCT_IT_ASSETS_JAR="$MONEY"
-expect_refused retired-parity-tree "the cache variable CT_PARITY_ASSETS_TREE is retired; it is now CT_PARITY_CORE_TREE" \
-    "${GOOD[@]}" -DCT_PARITY_ASSETS_TREE="$WORK"
 
 # 5-7. Schemas: missing, below the floor, required template removed. The negatives the
 # pin rules name: the v11 order schema, the previous money-schema version, an ME journal whose hash differs,
@@ -177,6 +175,8 @@ fi
 expect_refused bridge-without-aeron "WITH_BRIDGE=ON requires WITH_AERON=ON" "${GOOD[@]}" -DWITH_BRIDGE=ON -DWITH_AERON=OFF
 expect_refused bridge-no-journal-schema "is required" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$MONEY" -DMATCH_SCHEMA="$MATCH"
+# the cases below get past the harness check only with a harness: without one they are the skipped ones
+if [ -n "$HARNESS" ]; then
 sed "0,/version=\"$MONEY_V\"/s//version=\"$MONEY_V\" /" "$MONEY" > "$WORK/money-edited.xml"
 expect_refused bridge-money-hash-differs "the bridge needs the exact core wire" "${SCHEMAS[@]}" "${BRIDGE[@]}" \
     -DMONEY_SCHEMA="$WORK/money-edited.xml" -DMATCH_SCHEMA="$MATCH" -DME_JOURNAL_SCHEMA="$JOURNAL"
@@ -204,6 +204,7 @@ else
     grep -A3 'CMake Error' "$WORK/bridge.log" | head -8
 fi
 rm -rf "$WORK/build-bridge"
+fi
 
 # ct-forwarder links aeron_driver_static too (its embedded driver mode), so WITH_AERON needs the driver
 expect_refused forwarder-without-driver "ct-forwarder (WITH_AERON) needs CT_BUILD_MEDIA_DRIVER=ON" "${GOOD[@]}"

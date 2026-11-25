@@ -61,7 +61,7 @@ TEST_CASE("FramePeekTest.refusesEveryRow")
     // Row 3: schema.
     {
         Bytes b = makeFrame(TEMPLATE_TRADE, 1, 1);
-        putLe16(b, 4, 3); // schema 3 v1: the frozen settlement journal
+        putLe16(b, 4, 3); // schema 3 v1: a foreign schema (the core money journal)
         rows.push_back({ "schema 3 v1", b, 0xC0, Refusal::SCHEMA });
         Bytes c = makeFrame(TEMPLATE_TRADE, 1, 1);
         putLe16(c, 6, 2);

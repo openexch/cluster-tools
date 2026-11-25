@@ -76,6 +76,10 @@ CORE_KEYS="1:ADMIN:$(hex 11)::users=*;2:TOOL:$(hex 22)::users=*;3:BRIDGE:$(hex 3
 ME_KEYS="4:ADMIN:$(hex 44)::users=*"
 CORE_BASE=32000
 ME_BASE=33000
+# An engine member's HTTP endpoint (/health, /ready, /metrics): base + node x CLUSTER_PORT_STRIDE (100 here) + the node
+# endpoint offset of the cluster port rule (beside the UDP offsets 1..5)
+NODE_ENDPOINT_OFFSET=6
+node_port() { echo $(($1 + 100 * $2 + NODE_ENDPOINT_OFFSET)); }
 BRIDGE_PORT=34009
 CORE_INGRESS="0=localhost:$((CORE_BASE + 2)),1=localhost:$((CORE_BASE + 102)),2=localhost:$((CORE_BASE + 202))"
 ME_INGRESS="0=localhost:$((ME_BASE + 2)),1=localhost:$((ME_BASE + 102)),2=localhost:$((ME_BASE + 202))"
@@ -95,7 +99,7 @@ leader_of() { # ae|me
     local base=$CORE_BASE name=core_cluster_role
     [ "$1" = me ] && { base=$ME_BASE; name=match_cluster_role; }
     for i in 0 1 2; do
-        [ "$(metric "http://127.0.0.1:$((base + 90 + i))/metrics" "$name")" = "2" ] && { echo "$i"; return 0; }
+        [ "$(metric "http://127.0.0.1:$(node_port $base $i)/metrics" "$name")" = "2" ] && { echo "$i"; return 0; }
     done
     return 1
 }
@@ -132,7 +136,7 @@ start_ae() {
     mkdir -p "$D/ae$i"
     # shellcheck disable=SC2046 # the driver keys are words
     env "${NODE_ENV[@]}" $(engine_driver_env ae "$i") CLUSTER_NODE="$i" CLUSTER_ADDRESSES=localhost,localhost,localhost CLUSTER_PORT_BASE=$CORE_BASE \
-        CLUSTER_PORT_STRIDE=100 BASE_DIR="$D/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$((CORE_BASE + 90 + i)) \
+        CLUSTER_PORT_STRIDE=100 BASE_DIR="$D/ae$i" CORE_AUTH_KEYS="$CORE_KEYS" CORE_NODE_PORT=$(node_port $CORE_BASE $i) \
         java "${JAVA_OPTS[@]}" $(engine_dir_opt ae "$i") -jar "$CORE_JAR" >> "$D/ae$i.log" 2>&1 &
     PID[ae$i]=$!
 }
@@ -142,7 +146,7 @@ start_me() {
     # shellcheck disable=SC2046
     env "${NODE_ENV[@]}" $(engine_driver_env me "$i") SETTLEMENT_JOURNAL_ENABLED=true SETTLEMENT_JOURNAL_DIR="$D/me-journal$i" CLUSTER_NODE="$i" \
         CLUSTER_ADDRESSES=localhost,localhost,localhost CLUSTER_PORT_BASE=$ME_BASE CLUSTER_PORT_STRIDE=100 \
-        BASE_DIR="$D/me$i" ME_AUTH_KEYS="$ME_KEYS" METRICS_PORT=$((ME_BASE + 90 + i)) MATCH_ENGINE_FROM_CONFIG=true \
+        BASE_DIR="$D/me$i" ME_AUTH_KEYS="$ME_KEYS" METRICS_PORT=$(node_port $ME_BASE $i) MATCH_ENGINE_FROM_CONFIG=true \
         java "${JAVA_OPTS[@]}" -Xmx768m $(engine_dir_opt me "$i") -jar "$ME_JAR" >> "$D/me$i.log" 2>&1 &
     PID[me$i]=$!
 }

@@ -181,13 +181,6 @@ if(WITH_AERON AND WITH_BRIDGE)
                 ENVIRONMENT "CT_BRIDGE_E3_APP_STORIES=10")
         endif()
 
-        # 12.7 E4 parity: every Java bridge @Test has a PARITY.md row (needs the core tree at the money pin)
-        set(CT_PARITY_CORE_TREE "" CACHE PATH "core checkout at money_schema_ref (bridge.parity reads core-bridge/src/test)")
-        if(EXISTS "${CT_PARITY_CORE_TREE}/core-bridge/src/test")
-            add_test(NAME bridge.parity COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/it/parity-check.sh"
-                "${CT_PARITY_CORE_TREE}" "${PROJECT_SOURCE_DIR}/domain/bridge/tests/PARITY.md"
-                "${PROJECT_SOURCE_DIR}/archive/tests/PARITY.md")
-        endif()
     endif()
 
     # 12.4 T1-BR: the drills on real clusters (the runner is also run drill by drill on the build box)

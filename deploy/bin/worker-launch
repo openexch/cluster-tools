@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# worker-launch: start one cluster-tools worker (ct-bridge, ct-forwarder) in the driver mode its unit names.
+#
+# Usage: worker-launch <external|embedded> <ct-bridge|ct-forwarder>
+#
+# The driver mode comes from the unit (or the image command), never from the env file: an env file whose
+# <PREFIX>_DRIVER_MODE says otherwise is refused, so an external unit never runs an embedded driver behind its
+# driver dependency. Every other setting is the worker's to read and refuse (it lists every problem, exit 78).
+#
+# Knobs (env):
+#   CPU_SET   optional: a taskset CPU list; empty runs unpinned.
+#   CT_HOME   optional: the published cluster-tools set, default /opt/openexchange/cluster-tools.
+#   AERON_DIR required with external (the unit sets it to its driver's directory).
+#
+# Exit: 78 a refused setting; otherwise the worker's own status (exec).
+set -eu
+
+refuse() {
+    echo "worker-launch: refusing to start: $*" >&2
+    exit 78
+}
+
+[ $# -eq 2 ] || refuse "usage: worker-launch <external|embedded> <ct-bridge|ct-forwarder>"
+mode=$1
+name=$2
+case "$mode" in external | embedded) ;; *) refuse "unknown driver mode '$mode' (expected external|embedded)" ;; esac
+case "$name" in
+    ct-bridge) prefix=BRIDGE ;;
+    ct-forwarder) prefix=FWD ;;
+    *) refuse "unknown worker '$name' (expected ct-bridge|ct-forwarder)" ;;
+esac
+
+var=${prefix}_DRIVER_MODE
+eval "current=\${$var:-}"
+if [ -n "$current" ] && [ "$current" != "$mode" ]; then
+    refuse "$var=$current in the environment, but this unit runs the $mode driver"
+fi
+eval "$var=\$mode"
+export "${var?}"
+if [ "$mode" = external ]; then
+    [ -n "${AERON_DIR:-}" ] || refuse "AERON_DIR is required with the external driver"
+fi
+
+home=${CT_HOME:-/opt/openexchange/cluster-tools}
+[ -x "$home/$name" ] || refuse "$home/$name is missing (the published cluster-tools set at CT_HOME=$home)"
+
+if [ -n "${CPU_SET:-}" ]; then
+    case "$CPU_SET" in *[!0-9,-]*) refuse "CPU_SET='$CPU_SET' is not a CPU list" ;; esac
+    command -v taskset >/dev/null 2>&1 || refuse "CPU_SET is set but taskset is not installed"
+    exec taskset -c "$CPU_SET" "$home/$name"
+fi
+exec "$home/$name"

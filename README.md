@@ -67,6 +67,11 @@ tarball; `scripts/fetch-schemas.sh` extracts the schemas from core and match che
 sha256, so the checkouts must be at `money_schema_ref` and `match_schema_ref`. Configure re-verifies
 everything.
 
+SBE schema ids are unique across the repos: `sbe-schema-ids.txt` lists every id in use (the same file in core,
+match, cluster-tools, gateway and tools). The `sbe_schema_ids` test (every configuration, python3 only) holds the
+lock's schema ids, every hand-written `*_SCHEMA_ID` constant and, when configured, the fetched schemas to it; a
+new constant has to be mapped to its schema in `CMakeLists.txt`.
+
 | Configuration | Needs | Builds | CI |
 |---|---|---|---|
 | `-DWITH_AERON=OFF` (default) | cmake >= 3.16, a C++20 compiler | domain, ports, json adapter, pure client, archive, forwarder and bridge cores, their tests | `ci.yml` job `domain` |
@@ -105,8 +110,9 @@ app/forwarder/it/run-forwarder-it.sh <build> <core-cluster.jar> <match-cluster.j
 app/bridge/it/run-bridge-it.sh <build> <core-cluster.jar> <harness.jar> <drill|all>    # bridge drills
 ```
 
-`bridge.parity` (registered when `-DCT_PARITY_CORE_TREE` points at a core checkout) checks that every
-Java bridge test has a row in `archive/tests/PARITY.md` or `domain/bridge/tests/PARITY.md`.
+The Java settlement bridge is gone from core at the pinned `money_schema_ref` (its jar keeps only the `dump` and
+`set-money-journal` commands), so the `bridge.parity` check that mapped every Java bridge test to a C++ test, and
+its two `PARITY.md` tables, are retired. The tables are in this repository's history.
 
 ## Using the client library from another repository
 
