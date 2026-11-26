@@ -160,6 +160,7 @@ check_launcher() { # bin-dir
         chmod +x "$tmp/$f"
     done
     : > "$tmp/driver.properties"; : > "$tmp/driver-dev.properties"; : > "$tmp/driver-prod.properties"
+    : > "$tmp/driver-idle-busy_spin.properties"; : > "$tmp/driver-idle-backoff.properties"; : > "$tmp/driver-idle-sleep.properties"
     run() { # expected-rc launcher VAR=value... -- args...
         local want=$1 launcher=$2 vars=()
         shift 2
@@ -179,6 +180,14 @@ check_launcher() { # bin-dir
             { fail launcher "unexpected aeronmd command: $(tr '\n' ' ' < "$tmp/args")"; ok=0; }
     else
         fail launcher "a valid aeronmd start did not exec (rc $rc): $out"; ok=0
+    fi
+    run 78 aeronmd-launch AERON_DIR=/x AERON_DRIVER_PROFILE=dev AERON_DRIVER_IDLE_MODE=yield -- run ||
+        { fail launcher "an unknown AERON_DRIVER_IDLE_MODE was not refused with 78 (rc $rc)"; ok=0; }
+    if run 0 aeronmd-launch AERON_DIR=/dev/shm/d AERON_DRIVER_PROFILE=prod AERON_DRIVER_IDLE_MODE=sleep -- run; then
+        [ "$(tr '\n' ' ' < "$tmp/args")" = "$tmp/aeronmd /dev/shm/d   $tmp/driver.properties $tmp/driver-prod.properties $tmp/driver-idle-sleep.properties " ] ||
+            { fail launcher "the idle overlay is not loaded last: $(tr '\n' ' ' < "$tmp/args")"; ok=0; }
+    else
+        fail launcher "an aeronmd start with AERON_DRIVER_IDLE_MODE=sleep did not exec (rc $rc): $out"; ok=0
     fi
     run 1 aeronmd-launch AERON_DIR="$tmp/drv" AERONMD_CNC_WAIT_MS=300 -- wait-cnc ||
         { fail launcher "wait-cnc without a cnc.dat did not fail (rc $rc)"; ok=0; }

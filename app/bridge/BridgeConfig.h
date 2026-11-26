@@ -9,11 +9,15 @@
 #include "cluster_tools/archive/ArchiveSettings.h"
 #include "cluster_tools/client/ClientSettings.h"
 #include "cluster_tools/client/Credentials.h"
+#include "cluster_tools/runtime/IdleMode.h"
 
 // BridgeConfig - the strict environment: every variable is
 // required, a missing or malformed one refuses to start (exit 78, row C1), and parse() returns EVERY
 // problem in the variable order of the table. The driver mode decides which driver keys are required
-// (BRIDGE_DRIVER_MODE embedded|external, no default). BRIDGE_HALT_ON_GAP present is refused. Nothing
+// (BRIDGE_DRIVER_MODE embedded|external, no default). BRIDGE_HALT_ON_GAP present is refused. The one optional key is
+// BRIDGE_IDLE_MODE (busy_spin | backoff | sleep, runtime/include/cluster_tools/runtime/IdleMode.h): unset = backoff
+// (BRIDGE_IDLE, today's policy), any other value, an empty one included, refused; the bridge-duty thread and, in
+// embedded mode, the driver's agents follow it. Nothing
 // else is read: every timer and capacity is a named constant in code. Pure: the environment and the file system are
 // read through the two getters, so the tests need no process environment and WITH_AERON=OFF builds it.
 
@@ -42,6 +46,7 @@ struct BridgeConfig
     std::string aeronDir;                 // AERON_DIR (external only)
     std::string driverDir;                // BRIDGE_DRIVER_DIR (embedded only)
     std::int64_t driverTimeoutMs = 0;     // BRIDGE_DRIVER_TIMEOUT_MS (required, no default)
+    runtime::IdleMode idleMode = runtime::IdleMode::BACKOFF; // BRIDGE_IDLE_MODE (optional: unset = backoff)
     std::vector<std::string> coreHosts;   // BRIDGE_CORE_CLUSTER_ADDRESSES, member order
     std::int32_t corePortBase = 0;        // BRIDGE_CORE_PORT_BASE
     std::int32_t portStride = 0;          // CLUSTER_PORT_STRIDE
@@ -74,6 +79,9 @@ DirProbe systemDirProbe();
 const std::vector<std::string> &configKeys();
 
 ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe = systemDirProbe());
+
+// The bridge-duty thread's idle policy for the configured mode (backoff = runtime::BRIDGE_IDLE).
+runtime::IdlePolicy bridgeIdlePolicy(const BridgeConfig &config) noexcept;
 
 // ClusterPorts.port(i, base, CLIENT_FACING_OFFSET) with the stride: base + i * stride + 2 (12.1 golden).
 std::int64_t ingressPort(std::int32_t base, std::int32_t stride, std::size_t memberIndex) noexcept;

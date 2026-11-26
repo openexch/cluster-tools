@@ -100,6 +100,11 @@ std::int64_t forwarderIdentity(const ForwarderConfig &config)
     return config.instanceId;
 }
 
+runtime::IdlePolicy forwarderIdlePolicy(const ForwarderConfig &config) noexcept
+{
+    return runtime::idlePolicyFor(config.idleMode, runtime::FORWARDER_IDLE);
+}
+
 std::string endpointOf(const std::string &channel)
 {
     const std::size_t at = channel.find("endpoint=");
@@ -255,6 +260,24 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const runtime::DirPro
             {
                 e.push_back(error);
             }
+        }
+    }
+    // The idle mode: unset = backoff; a value it does not know refuses, never mapped to a nearby one
+    if (nullptr != getenv("FORWARDER_IDLE_MODE"))
+    {
+        e.push_back(std::string("FORWARDER_IDLE_MODE is not a ct-forwarder setting: the idle mode is FWD_IDLE_MODE (") +
+            runtime::IDLE_MODE_VALUES + "); rename it");
+    }
+    {
+        const char *raw = getenv("FWD_IDLE_MODE");
+        std::string error;
+        if (const auto idle = runtime::parseIdleModeSetting("FWD_IDLE_MODE", nullptr != raw, trimmed(raw), error))
+        {
+            c.idleMode = *idle;
+        }
+        else
+        {
+            e.push_back(error);
         }
     }
     // 8.2 rule 3: the instance id, both modes

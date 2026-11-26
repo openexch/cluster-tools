@@ -82,6 +82,7 @@ struct AgentSettings
     std::int64_t identity = 0; // FWD_INSTANCE_ID (diagnostics only at the core)
     std::uint8_t driverMode = 0;           // DriverMode: /health driverMode, forwarder_driver_mode
     std::uint64_t driverDirReclaimed = 0;  // 1 when the embedded per-instance dir was a stale one reused at start
+    std::uint8_t idleMode = static_cast<std::uint8_t>(runtime::IdleMode::BACKOFF); // FWD_IDLE_MODE: forwarder_idle_mode
     client::SessionClass coreCredentialClass = client::SessionClass::FORWARDER;
     const char *version = "dev";
     const char *build = "unknown"; // source_sha, /health.build
@@ -236,6 +237,7 @@ public:
         s.identity = m_settings.identity;
         s.driverMode = m_settings.driverMode;
         s.driverDirReclaimed = m_settings.driverDirReclaimed;
+        s.idleMode = m_settings.idleMode;
         s.storageStarvedSeconds = m_storageAny.starvedSeconds(m_now); // wall seconds with either publication starved
         s.meEpoch = m_binder.epoch();
         std::snprintf(s.version, sizeof(s.version), "%s", m_settings.version);

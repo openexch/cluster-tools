@@ -315,6 +315,8 @@ std::string renderPrometheus(const BridgeSnapshot &s, const BridgeMetrics &m, Ar
         "\",me_epoch=\"" + std::to_string(s.view.syncEpoch) + "\"", 1);
     p.family("bridge_driver_mode", "gauge", "The media driver mode in force (external: the host aeronmd; embedded: dev/demo)");
     p.labelled("bridge_driver_mode", label("mode", x.driverMode), 1);
+    p.family("bridge_idle_mode", "gauge", "The idle mode in force (BRIDGE_IDLE_MODE: busy_spin, backoff or sleep)");
+    p.labelled("bridge_idle_mode", label("mode", x.idleMode), 1);
     p.gauge("bridge_core_connected", "1 while the core session is CONNECTED (the Java meaning)", s.coreConnected ? 1 : 0);
     p.gauge("bridge_registered", "1 while registered in this session and term (C3)", s.registered ? 1 : 0);
     p.gauge("bridge_ready", "1 when /ready answers 200", 0 == bits ? 1 : 0);

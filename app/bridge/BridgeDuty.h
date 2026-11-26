@@ -17,7 +17,8 @@
 // The bridge-duty thread body and the bridge-http routes.
 //
 // Duty: one agent iteration, the heartbeat every iteration (main's watchdog), the StatusBoard snapshot every
-// 100 ms, then the idle strategy when the iteration did no work (runtime::BRIDGE_IDLE: spin 0, yield 10, park 1 ms).
+// 100 ms, then the idle strategy when the iteration did no work (BRIDGE_IDLE_MODE, bridgeIdlePolicy: backoff =
+// runtime::BRIDGE_IDLE, spin 0, yield 10, park 1 ms; sleep = park 1 ms; busy_spin = never a yield or a sleep).
 // The stop flag is main's (SIGTERM / SIGINT). SIGHUP is the Supervisor's COUNT_ONLY policy: nothing reaches the agent.
 
 namespace cluster_tools { namespace app { namespace bridge {
@@ -44,12 +45,13 @@ inline constexpr std::int64_t PUBLISH_INTERVAL_NS = 100'000'000LL;
 inline constexpr std::int64_t MAX_CYCLE_WINDOW_NS = 10'000'000'000LL;
 
 // errorCount: the Aeron monitor's error count (bridge_aeron_errors_total); may be empty.
+// idlePolicy: bridgeIdlePolicy(config), the BRIDGE_IDLE_MODE in force.
 template<typename Agent>
 int runBridgeDuty(Agent &agent, runtime::Supervisor &supervisor, BridgeBoard &board,
-    const std::function<std::uint64_t()> &errorCount)
+    const std::function<std::uint64_t()> &errorCount, runtime::IdlePolicy idlePolicy)
 {
     BridgeSnapshot snapshot;
-    runtime::IdleStrategy idle(runtime::BRIDGE_IDLE);
+    runtime::IdleStrategy idle(idlePolicy);
     std::int64_t nextPublish = 0;
     std::int64_t windowStart = runtime::Supervisor::monotonicNs();
     std::uint64_t windowMax = 0;
@@ -104,6 +106,7 @@ struct HttpContext
     std::function<bool()> conductorStale;
     std::size_t sourceCount = 1;
     const char *driverMode = "external";
+    const char *idleMode = "backoff"; // BRIDGE_IDLE_MODE in force (bridge_idle_mode)
     std::uint64_t driverDirReclaimed = 0;
 };
 
@@ -119,6 +122,7 @@ inline HttpExtras extrasOf(const HttpContext &c)
     x.driverDirReclaimed = c.driverDirReclaimed;
     x.sourceCount = c.sourceCount;
     x.driverMode = c.driverMode;
+    x.idleMode = c.idleMode;
     return x;
 }
 

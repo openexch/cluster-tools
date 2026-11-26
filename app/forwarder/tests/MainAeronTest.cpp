@@ -18,6 +18,10 @@
 //   liveDriverInDirRefusesTheStart  in-process: a LIVE driver dir with no lock held refuses the start and is kept (RED
 //                           EMBEDDED_LIVE_CHECK: read as stale, deleted under the live driver)
 //   embeddedDirIsPerInstance  in-process: the stale dir of this instance is reclaimed (RED EMBEDDED_DIR_PER_PID)
+//   embeddedDriverFollowsTheIdleMode  in-process: each idle mode puts Aeron's strategy on every agent role of the
+//                           embedded driver (backoff: Aeron's default, untouched), and the driver runs a client on it
+//   idleModeSleepEndToEnd   the real binary, FWD_IDLE_MODE=sleep embedded: healthy, forwarder_idle_mode{mode="sleep"},
+//                           the start line names the mode and the driver's sleep-ns; FWD_IDLE_MODE=yield = 78
 //   conductorStallExits70   ct_forwarder_tc_conductorstall on a live aeronmd: SIGUSR2 parks the client conductor; exit 70
 //                           within the driver timeout + 2.5 s with the "conductor heartbeat stale" line, although the duty
 //                           heartbeat kept advancing (RED CONDUCTOR_WATCH_OFF: alive after 30 s)
@@ -634,4 +638,73 @@ TEST_CASE("MainAeronTest.conductorStallExits70")
     kill9(aeronmd);
     fs::remove_all(dir);
 #endif
+}
+
+TEST_CASE("MainAeronTest.embeddedDriverFollowsTheIdleMode")
+{
+    using cluster_tools::runtime::IdleMode;
+    for (IdleMode mode : { IdleMode::BACKOFF, IdleMode::SLEEP, IdleMode::BUSY_SPIN })
+    {
+        CAPTURE(cluster_tools::runtime::idleModeName(mode));
+        const std::string dir = workDir(std::string("idle-") + cluster_tools::runtime::idleModeName(mode));
+        cluster_tools::runtime::EmbeddedDriverOptions options = forwarderDriverOptions();
+        options.idleMode = mode;
+        EmbeddedDriver driver(options, [](const std::string &) {});
+        std::string error;
+        REQUIRE(driver.start(EmbeddedDriver::dirFor(dir, 21, options), false, error));
+        const char *want = cluster_tools::runtime::driverIdleFor(mode).strategy;
+        for (std::size_t role = 0; role < cluster_tools::runtime::DRIVER_IDLE_ROLES.size(); ++role)
+        {
+            CAPTURE(cluster_tools::runtime::DRIVER_IDLE_ROLES[role].strategyKey);
+            REQUIRE(nullptr != driver.idleStrategyName(role));
+            CHECK(std::string(driver.idleStrategyName(role)) == want);
+        }
+        CHECK(nullptr == driver.idleStrategyName(cluster_tools::runtime::DRIVER_IDLE_ROLES.size()));
+        // the driver is alive on that strategy: its CnC heartbeat is fresh well inside one timer interval + margin
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        CHECK(fs::exists(driver.dir() + "/cnc.dat"));
+        CHECK(driver.close(2000));
+        fs::remove_all(dir);
+    }
+}
+
+TEST_CASE("MainAeronTest.idleModeSleepEndToEnd")
+{
+    const std::string dir = workDir("idle-e2e");
+    {
+        const int port = freePort();
+        auto env = forwarderEnv("embedded", dir, port, 5000);
+        env["FWD_IDLE_MODE"] = "sleep";
+        Process fwd = spawn(CT_FORWARDER_BINARY, env, dir + "/../fwd-idle-sleep.log");
+        REQUIRE(waitHealthy(port, fwd));
+        // healthy over several watchdog / STALLED windows' worth of 1 ms parks
+        bool healthy = true;
+        for (int i = 0; i < 6 && healthy; ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            healthy = !waitExit(fwd, 0).has_value() && httpGet(port, "/health").rfind("HTTP/1.0 200", 0) == 0;
+        }
+        CHECK(healthy);
+        CHECK(httpGet(port, "/metrics").find("forwarder_idle_mode{mode=\"sleep\"} 1") != std::string::npos);
+        const std::string log = slurp(fwd.log);
+        CHECK(log.find("; idle sleep;") != std::string::npos);
+        CHECK(log.find("idle strategy sleep-ns") != std::string::npos);
+        ::kill(fwd.pid, SIGTERM);
+        const auto code = waitExit(fwd, 10000);
+        REQUIRE(code.has_value());
+        CHECK(*code == 0);
+        fs::remove(dir + "/../fwd-idle-sleep.log");
+    }
+    {
+        auto env = forwarderEnv("embedded", dir, freePort(), 5000);
+        env["FWD_IDLE_MODE"] = "yield";
+        Process fwd = spawn(CT_FORWARDER_BINARY, env, dir + "/../fwd-idle-bad.log");
+        const auto code = waitExit(fwd, 10000);
+        REQUIRE(code.has_value());
+        CHECK(*code == 78);
+        CHECK(slurp(fwd.log).find("FWD_IDLE_MODE must be exactly busy_spin, backoff or sleep") != std::string::npos);
+        CHECK(forwarderDirs(dir) == 0); // refused before any driver
+        fs::remove(dir + "/../fwd-idle-bad.log");
+    }
+    fs::remove_all(dir);
 }

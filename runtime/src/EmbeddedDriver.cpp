@@ -9,6 +9,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <mutex>
 
@@ -52,6 +53,45 @@ std::string lastAeronError(const char *step)
 {
     const char *message = aeron_errmsg();
     return std::string(step) + ": " + (nullptr == message || '\0' == *message ? std::string("(no detail)") : std::string(message));
+}
+
+// The idle mode on every agent role of the driver (DRIVER_IDLE_ROLES order: conductor, sender, receiver, shared,
+// sharednetwork). backoff touches nothing: aeron_driver_context_init already loaded Aeron's default "backoff" (or an
+// operator's AERON_*_IDLE_STRATEGY), exactly today's driver. Otherwise the init args go first: each
+// aeron_driver_context_set_*_idle_strategy loads the strategy at once with the init args the context holds then
+// (aeron_driver_context.c); "spin" takes none (aeron_idle_strategy_init_null), "sleep-ns" takes "1ms".
+int applyDriverIdle(aeron_driver_context_t *context, IdleMode mode)
+{
+    if (IdleMode::BACKOFF == mode)
+    {
+        return 0;
+    }
+    const DriverIdleStrategy idle = driverIdleFor(mode);
+    using InitArgsSetter = int (*)(aeron_driver_context_t *, const char *);
+    using StrategySetter = int (*)(aeron_driver_context_t *, const char *);
+    static constexpr InitArgsSetter initArgs[] = {
+        &aeron_driver_context_set_conductor_idle_strategy_init_args,
+        &aeron_driver_context_set_sender_idle_strategy_init_args,
+        &aeron_driver_context_set_receiver_idle_strategy_init_args,
+        &aeron_driver_context_set_shared_idle_strategy_init_args,
+        &aeron_driver_context_set_sharednetwork_idle_strategy_init_args,
+    };
+    static constexpr StrategySetter strategies[] = {
+        &aeron_driver_context_set_conductor_idle_strategy,
+        &aeron_driver_context_set_sender_idle_strategy,
+        &aeron_driver_context_set_receiver_idle_strategy,
+        &aeron_driver_context_set_shared_idle_strategy,
+        &aeron_driver_context_set_sharednetwork_idle_strategy,
+    };
+    static_assert(std::size(initArgs) == DRIVER_IDLE_ROLES.size() && std::size(strategies) == DRIVER_IDLE_ROLES.size());
+    for (std::size_t role = 0; role < DRIVER_IDLE_ROLES.size(); ++role)
+    {
+        if (initArgs[role](context, idle.initArgs) < 0 || strategies[role](context, idle.strategy) < 0)
+        {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 }
@@ -166,7 +206,8 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
         aeron_driver_context_set_timer_interval_ns(m_context, DRIVER_TIMER_INTERVAL_NS) < 0 ||
         aeron_driver_context_set_dir_delete_on_start(m_context, true) < 0 ||
         aeron_driver_context_set_dir_delete_on_shutdown(m_context, true) < 0 ||
-        aeron_driver_context_set_driver_termination_hook(m_context, &terminationHook, this) < 0)
+        aeron_driver_context_set_driver_termination_hook(m_context, &terminationHook, this) < 0 ||
+        applyDriverIdle(m_context, m_options.idleMode) < 0)
     {
         error = lastAeronError("the embedded driver context");
         aeron_driver_context_close(m_context);
@@ -212,6 +253,23 @@ bool EmbeddedDriver::start(const std::string &dir, bool manualMainLoop, std::str
         });
     }
     return true;
+}
+
+const char *EmbeddedDriver::idleStrategyName(std::size_t role) const noexcept
+{
+    if (nullptr == m_context)
+    {
+        return nullptr;
+    }
+    switch (role)
+    {
+        case 0: return aeron_driver_context_get_conductor_idle_strategy(m_context);
+        case 1: return aeron_driver_context_get_sender_idle_strategy(m_context);
+        case 2: return aeron_driver_context_get_receiver_idle_strategy(m_context);
+        case 3: return aeron_driver_context_get_shared_idle_strategy(m_context);
+        case 4: return aeron_driver_context_get_sharednetwork_idle_strategy(m_context);
+        default: return nullptr;
+    }
 }
 
 bool EmbeddedDriver::close(std::int64_t boundMs)

@@ -25,6 +25,7 @@ struct HttpExtras
     std::uint64_t driverDirReclaimed = 0;
     std::size_t sourceCount = 1;
     const char *driverMode = "external";
+    const char *idleMode = "backoff"; // BRIDGE_IDLE_MODE in force
 };
 
 // 9.1: the JSON body (keys in the frozen order) and the HTTP status (503 iff halted or STALLED).

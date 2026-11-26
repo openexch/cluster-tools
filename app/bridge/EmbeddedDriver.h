@@ -16,9 +16,11 @@
 
 namespace cluster_tools { namespace app { namespace bridge {
 
-inline runtime::EmbeddedDriverOptions bridgeDriverOptions()
+// idleMode: BRIDGE_IDLE_MODE (the driver's agents follow the process's mode; the dir and the lock do not depend on it).
+inline runtime::EmbeddedDriverOptions bridgeDriverOptions(runtime::IdleMode idleMode = runtime::IdleMode::BACKOFF)
 {
     runtime::EmbeddedDriverOptions o;
+    o.idleMode = idleMode;
     o.processName = "ct-bridge";
     o.dirPrefix = "ct-bridge-";
     o.instanceKey = "BRIDGE_INSTANCE_ID";
@@ -35,7 +37,10 @@ public:
         return runtime::EmbeddedDriver::dirFor(parent, instanceId, bridgeDriverOptions());
     }
 
-    explicit EmbeddedDriver(HookAction onTerminate) : runtime::EmbeddedDriver(bridgeDriverOptions(), std::move(onTerminate)) {}
+    EmbeddedDriver(runtime::IdleMode idleMode, HookAction onTerminate) :
+        runtime::EmbeddedDriver(bridgeDriverOptions(idleMode), std::move(onTerminate))
+    {
+    }
 };
 
 }}}

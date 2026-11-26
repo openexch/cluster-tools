@@ -130,7 +130,9 @@ TEST_CASE("BridgeConfigTest.everyKeyMissingIsRefusedAndNamed")
     CHECK(c.httpHost == "127.0.0.1");
     CHECK(c.httpPort == 9600);
     CHECK(c.credentials.sessionClass == cluster_tools::client::SessionClass::BRIDGE);
-    CHECK(configKeys().size() == 19);
+    CHECK(configKeys().size() == 20);
+    CHECK(c.idleMode == cluster_tools::runtime::IdleMode::BACKOFF); // BRIDGE_IDLE_MODE unset = backoff
+    CHECK(bridgeIdlePolicy(c) == cluster_tools::runtime::BRIDGE_IDLE);
 }
 
 TEST_CASE("BridgeConfigTest.retiredNamesAreRefusedNamingTheNewOne")
@@ -401,4 +403,49 @@ TEST_CASE("BridgeConfigTest.everyProblemReportedInOrder")
     CHECK(r.errors[2].find("CLUSTER_PORT_STRIDE") == 0);
     CHECK(r.errors[3].find("BRIDGE_INSTANCE_ID") == 0);
     CHECK(r.errors[4].find("BRIDGE_HTTP_BIND") == 0);
+}
+
+// BRIDGE_IDLE_MODE: the one optional key. Unset = backoff (BRIDGE_IDLE, today's policy); exactly busy_spin | backoff |
+// sleep otherwise; an unknown or empty value refuses (one problem, in table order, naming the key and the values).
+TEST_CASE("BridgeConfigTest.idleModeIsStrict")
+{
+    using cluster_tools::runtime::IdleMode;
+    const struct
+    {
+        const char *value;
+        IdleMode mode;
+    } good[] = { { "busy_spin", IdleMode::BUSY_SPIN }, { "backoff", IdleMode::BACKOFF }, { "sleep", IdleMode::SLEEP } };
+    for (const auto &g : good)
+    {
+        CAPTURE(g.value);
+        for (Env env : { external(), embedded() })
+        {
+            env["BRIDGE_IDLE_MODE"] = g.value;
+            const ConfigResult r = parse(env);
+            CAPTURE(all(r));
+            REQUIRE(r.ok());
+            CHECK(r.config.idleMode == g.mode);
+            CHECK(bridgeIdlePolicy(r.config) == cluster_tools::runtime::idlePolicyFor(g.mode, cluster_tools::runtime::BRIDGE_IDLE));
+        }
+    }
+    {
+        Env env = external();
+        env["BRIDGE_IDLE_MODE"] = "sleep";
+        const cluster_tools::runtime::IdlePolicy p = bridgeIdlePolicy(parse(env).config);
+        CHECK(p.yields == 0); // sleep: no yield (backoff yields 10 times first)
+        CHECK(p.parkNs == 1'000'000L);
+        env["BRIDGE_IDLE_MODE"] = "busy_spin";
+        CHECK(bridgeIdlePolicy(parse(env).config).busySpin);
+    }
+    for (const char *bad : { "", "yield", "Sleep", "busy-spin" })
+    {
+        CAPTURE(bad);
+        Env env = external();
+        env["BRIDGE_IDLE_MODE"] = bad;
+        const ConfigResult r = parse(env);
+        CAPTURE(all(r));
+        CHECK_FALSE(r.ok());
+        CHECK(r.errors.size() == 1);
+        CHECK(mentions(r, "BRIDGE_IDLE_MODE must be exactly busy_spin, backoff or sleep"));
+    }
 }

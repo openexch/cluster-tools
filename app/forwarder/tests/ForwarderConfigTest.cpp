@@ -442,10 +442,69 @@ TEST_CASE("ForwarderConfigTest.readmeExampleParses")
     CHECK(r.ok());
     CHECK(r.config.driverMode == DriverMode::EXTERNAL);
     // the env table names every driver key and the embedded tmpfs minimum
-    for (const char *key : { "FWD_DRIVER_MODE", "AERON_DIR", "FWD_DRIVER_DIR", "FWD_DRIVER_TIMEOUT_MS", "FWD_INSTANCE_ID" })
+    for (const char *key : { "FWD_DRIVER_MODE", "AERON_DIR", "FWD_DRIVER_DIR", "FWD_DRIVER_TIMEOUT_MS", "FWD_INSTANCE_ID",
+             "FWD_IDLE_MODE" })
     {
         CAPTURE(key);
         CHECK(section.find(std::string("| `") + key + "`") != std::string::npos);
     }
     CHECK(section.find("64 MB") != std::string::npos);
+}
+
+// FWD_IDLE_MODE: unset = backoff (FORWARDER_IDLE, today's policy); exactly busy_spin | backoff | sleep otherwise; an
+// unknown or empty value refuses naming the key and the allowed values; FORWARDER_IDLE_MODE (another repo's spelling)
+// refuses naming FWD_IDLE_MODE rather than being silently ignored.
+TEST_CASE("ForwarderConfigTest.idleModeIsStrict")
+{
+    using cluster_tools::runtime::IdleMode;
+    {
+        const ConfigResult r = parse(validEnv());
+        REQUIRE(r.ok());
+        CHECK(r.config.idleMode == IdleMode::BACKOFF);
+        CHECK(forwarderIdlePolicy(r.config) == cluster_tools::runtime::FORWARDER_IDLE);
+    }
+    const struct
+    {
+        const char *value;
+        IdleMode mode;
+    } good[] = { { "busy_spin", IdleMode::BUSY_SPIN }, { "backoff", IdleMode::BACKOFF }, { "sleep", IdleMode::SLEEP },
+        { " sleep ", IdleMode::SLEEP } }; // trimmed, as every other key
+    for (const auto &g : good)
+    {
+        CAPTURE(g.value);
+        for (auto env : { validEnv(), embeddedEnv() })
+        {
+            env["FWD_IDLE_MODE"] = g.value;
+            const ConfigResult r = parse(env);
+            REQUIRE(r.ok());
+            CHECK(r.config.idleMode == g.mode);
+            CHECK(forwarderIdlePolicy(r.config) ==
+                cluster_tools::runtime::idlePolicyFor(g.mode, cluster_tools::runtime::FORWARDER_IDLE));
+        }
+    }
+    {
+        auto env = validEnv();
+        env["FWD_IDLE_MODE"] = "sleep";
+        const cluster_tools::runtime::IdlePolicy p = forwarderIdlePolicy(parse(env).config);
+        CHECK(p.spins == 0);
+        CHECK(p.yields == 0);
+        CHECK(p.parkNs == 1'000'000L);
+        env["FWD_IDLE_MODE"] = "busy_spin";
+        CHECK(forwarderIdlePolicy(parse(env).config).busySpin);
+    }
+    for (const char *bad : { "", "   ", "yield", "SLEEP", "busy-spin", "noop" })
+    {
+        CAPTURE(bad);
+        auto env = validEnv();
+        env["FWD_IDLE_MODE"] = bad;
+        const ConfigResult r = parse(env);
+        CHECK_FALSE(r.ok());
+        CHECK(r.errors.size() == 1);
+        CHECK(mentions(r, "FWD_IDLE_MODE must be exactly busy_spin, backoff or sleep"));
+    }
+    auto env = validEnv();
+    env["FORWARDER_IDLE_MODE"] = "sleep";
+    const ConfigResult r = parse(env);
+    CHECK_FALSE(r.ok());
+    CHECK(mentions(r, "FORWARDER_IDLE_MODE is not a ct-forwarder setting: the idle mode is FWD_IDLE_MODE"));
 }

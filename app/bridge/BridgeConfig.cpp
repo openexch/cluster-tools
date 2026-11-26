@@ -46,6 +46,7 @@ const std::vector<std::string> &configKeys()
         "AERON_DIR",
         "BRIDGE_DRIVER_DIR",
         "BRIDGE_DRIVER_TIMEOUT_MS",
+        "BRIDGE_IDLE_MODE",
         "BRIDGE_CORE_CLUSTER_ADDRESSES",
         "BRIDGE_CORE_PORT_BASE",
         "CLUSTER_PORT_STRIDE",
@@ -184,6 +185,11 @@ private:
     std::vector<std::pair<int, std::string>> m_items;
 };
 
+}
+
+runtime::IdlePolicy bridgeIdlePolicy(const BridgeConfig &config) noexcept
+{
+    return runtime::idlePolicyFor(config.idleMode, runtime::BRIDGE_IDLE);
 }
 
 std::int64_t ingressPort(std::int32_t base, std::int32_t stride, std::size_t memberIndex) noexcept
@@ -335,6 +341,20 @@ ConfigResult parseBridgeConfig(const EnvGetter &getenv, const DirProbe &probe)
         else
         {
             problems.add("BRIDGE_DRIVER_TIMEOUT_MS", error);
+        }
+    }
+
+    // ---- the idle mode: optional (unset = backoff); a value it does not know refuses, never mapped to a nearby one
+    {
+        std::string error;
+        if (const auto idle = runtime::parseIdleModeSetting("BRIDGE_IDLE_MODE", present("BRIDGE_IDLE_MODE"),
+                value("BRIDGE_IDLE_MODE"), error))
+        {
+            c.idleMode = *idle;
+        }
+        else
+        {
+            problems.add("BRIDGE_IDLE_MODE", error);
         }
     }
 
