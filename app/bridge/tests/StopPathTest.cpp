@@ -42,7 +42,7 @@ struct Supervised
     int run()
     {
         rig.agent->start();
-        return supervisor->run([this] { return app::runBridgeDuty(*rig.agent, *supervisor, board, {}); }, nullptr);
+        return supervisor->run([this] { return app::runBridgeDuty(*rig.agent, *supervisor, board, {}, cluster_tools::runtime::BRIDGE_IDLE); }, nullptr);
     }
 };
 

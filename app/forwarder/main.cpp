@@ -121,12 +121,12 @@ int main()
     const std::int64_t identity = fwd::forwarderIdentity(c); // FWD_INSTANCE_ID on both cluster sessions
     std::fprintf(stderr,
         "ct-forwarder %s identity %" PRId64 " money v%d (%s) order v%d (%s) aeron %s; driver %s (%s, timeout %" PRId64
-        " ms); core %s, ME %s, http %s:%u\n",
+        " ms); idle %s; core %s, ME %s, http %s:%u\n",
         CT_FORWARDER_VERSION, identity, cluster_tools::build_info::MONEY_SCHEMA_VERSION,
         cluster_tools::build_info::MONEY_SCHEMA_SHA256, cluster_tools::build_info::MATCH_SCHEMA_VERSION,
         cluster_tools::build_info::MATCH_SCHEMA_SHA256, cluster_tools::build_info::AERON_VERSION,
         fwd::driverModeName(c.driverMode), fwd::DriverMode::EXTERNAL == c.driverMode ? c.aeronDir.c_str() : c.driverDir.c_str(),
-        c.driverTimeoutMs, c.coreIngress.c_str(), c.meIngress.c_str(), c.httpHost.c_str(), static_cast<unsigned>(c.httpPort));
+        c.driverTimeoutMs, runtime::idleModeName(c.idleMode), c.coreIngress.c_str(), c.meIngress.c_str(), c.httpHost.c_str(), static_cast<unsigned>(c.httpPort));
 
     // Everything a configuration error can refuse comes before Aeron is touched (a return after connectAeron would
     // let the client's close handler turn the 78 into a fatal 70).
@@ -151,11 +151,13 @@ int main()
     std::string aeronDir = c.aeronDir;
     if (fwd::DriverMode::EMBEDDED == c.driverMode)
     {
-        const std::string dir = runtime::EmbeddedDriver::dirFor(c.driverDir, c.instanceId, fwd::forwarderDriverOptions());
+        runtime::EmbeddedDriverOptions driverOptions = fwd::forwarderDriverOptions();
+        driverOptions.idleMode = c.idleMode; // FWD_IDLE_MODE on the driver's agents
+        const std::string dir = runtime::EmbeddedDriver::dirFor(c.driverDir, c.instanceId, driverOptions);
         runtime::StorageStarvation startStorage;
         for (;;)
         {
-            driver = std::make_unique<runtime::EmbeddedDriver>(fwd::forwarderDriverOptions(),
+            driver = std::make_unique<runtime::EmbeddedDriver>(driverOptions,
                 [](const std::string &why) { fwd::Supervisor::exitProcess(70, why); });
             if (driver->start(dir, false, error))
             {
@@ -197,7 +199,8 @@ int main()
             }
         }
         aeronDir = dir;
-        std::fprintf(stderr, "ct-forwarder: embedded media driver at %s%s\n", dir.c_str(),
+        std::fprintf(stderr, "ct-forwarder: embedded media driver at %s, idle strategy %s%s\n", dir.c_str(),
+            nullptr == driver->idleStrategyName(3) ? "?" : driver->idleStrategyName(3), // SHARED threading: the one agent
             driver->reclaimed() ? " (a stale dir of this instance was reused and cleaned)" : "");
     }
 
@@ -243,6 +246,7 @@ int main()
     agentSettings.build = CT_BUILD_SOURCE_SHA;
     agentSettings.driverMode = static_cast<std::uint8_t>(c.driverMode);
     agentSettings.driverDirReclaimed = nullptr != driver && driver->reclaimed() ? 1 : 0;
+    agentSettings.idleMode = static_cast<std::uint8_t>(c.idleMode);
     fwd::ForwarderAgent<cl::ClusterClient<at::AeronTransport>, cl::ClusterClient<at::AeronTransport>> agent(core, me,
         agentSettings, &log);
 
@@ -274,7 +278,8 @@ int main()
 
     const int code = supervisor.run(
         [&] {
-            return fwd::runDuty(agent, supervisor, board, [&monitor] { return monitor->errorCount(); });
+            return fwd::runDuty(agent, supervisor, board, [&monitor] { return monitor->errorCount(); },
+                fwd::forwarderIdlePolicy(c));
         },
         &http);
     const fwd::StopReason &reason = agent.stopReason();

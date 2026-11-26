@@ -57,6 +57,12 @@ const char *driverModeLabel(std::uint8_t mode)
     return 1 == mode ? "embedded" : 2 == mode ? "external" : "unset";
 }
 
+const char *idleModeLabel(std::uint8_t mode)
+{
+    return mode <= static_cast<std::uint8_t>(runtime::IdleMode::SLEEP) ? runtime::idleModeName(static_cast<runtime::IdleMode>(mode))
+                                                                       : "unknown";
+}
+
 const char *kindLabel(unsigned bucket)
 {
     static const char *labels[] = { "0", "1", "2", "3", "other" };
@@ -205,6 +211,8 @@ std::string renderPrometheus(const ForwarderSnapshot &s)
     gauge(out, "forwarder_ready", s.ready ? 1 : 0);
     type(out, "forwarder_driver_mode", "gauge"); // The mode in force
     line(out, "forwarder_driver_mode{mode=\"%s\"} 1", driverModeLabel(s.driverMode));
+    type(out, "forwarder_idle_mode", "gauge"); // FWD_IDLE_MODE in force
+    line(out, "forwarder_idle_mode{mode=\"%s\"} 1", idleModeLabel(s.idleMode));
     counter(out, "forwarder_driver_dir_reclaimed_total", s.driverDirReclaimed);
     counter(out, "forwarder_storage_starved_seconds_total", s.storageStarvedSeconds); // Exit 70 after 30 s of it
     perCluster(out, "forwarder_session_state", "gauge", s.core.clientState, s.me.clientState);

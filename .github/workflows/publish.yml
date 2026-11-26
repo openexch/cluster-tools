@@ -58,12 +58,12 @@ jobs:
       # start smoke).
       BINARIES: switch-behavior ct-forwarder ct-bridge ct-genesis aeronmd libaeron_driver.so libaeron.so
       # The external media driver's launch files: driver.properties (match's file at the commit the
-      # lock pins, sha256-verified by scripts/stage-driver-properties.sh) and this repo's two profile
-      # overlays. The console launches every external driver as
-      # `aeronmd driver.properties driver-<dev|prod>.properties` from this set; nothing on the box
-      # reads a match checkout.
-      DRIVER_FILES: driver.properties driver-dev.properties driver-prod.properties
-      FILES: switch-behavior ct-forwarder ct-bridge ct-genesis aeronmd libaeron_driver.so libaeron.so driver.properties driver-dev.properties driver-prod.properties
+      # lock pins, sha256-verified by scripts/stage-driver-properties.sh), this repo's two profile
+      # overlays and its three idle overlays. The console launches every external driver as
+      # `aeronmd driver.properties driver-<dev|prod>.properties [driver-idle-<busy_spin|backoff|sleep>.properties]`
+      # from this set; nothing on the box reads a match checkout.
+      DRIVER_FILES: driver.properties driver-dev.properties driver-prod.properties driver-idle-busy_spin.properties driver-idle-backoff.properties driver-idle-sleep.properties
+      FILES: switch-behavior ct-forwarder ct-bridge ct-genesis aeronmd libaeron_driver.so libaeron.so driver.properties driver-dev.properties driver-prod.properties driver-idle-busy_spin.properties driver-idle-backoff.properties driver-idle-sleep.properties
       # Aeron, SBE and the wire schemas are NOT named here: dependencies.lock pins them and
       # scripts/fetch-deps.sh + scripts/fetch-schemas.sh fetch and sha256-verify them.
       CMAKE_VERSION: 3.31.6
@@ -238,7 +238,8 @@ jobs:
           # --strip-unneeded for the shared libraries: keep the dynamic symbols
           # the loader resolves against, drop the rest.
           strip --strip-unneeded dist/libaeron_driver.so dist/libaeron.so
-          # driver.properties at the lock's pin (sha256-verified) and the two overlays (key-checked)
+          # driver.properties at the lock's pin (sha256-verified), the two profile overlays and the three idle
+          # overlays (key-checked)
           scripts/stage-driver-properties.sh dist pinned/match-driver
           ls -la dist/
 
@@ -303,6 +304,13 @@ jobs:
             AERON_DIR=$(mktemp -u -p /dev/shm aeron-publish-XXXXXX) LD_LIBRARY_PATH=. \
               timeout 2 ./aeronmd driver.properties "$overlay" > "aeronmd-${overlay}.log" 2>&1 || rc=$?
             [ "$rc" -eq 124 ] || { cat "aeronmd-${overlay}.log"; echo "::error::aeronmd on driver.properties + $overlay did not stay up (rc=$rc)"; exit 1; }
+            # and each idle overlay after it, as the console appends the profile's idle mode
+            for idle in driver-idle-busy_spin.properties driver-idle-backoff.properties driver-idle-sleep.properties; do
+              rc=0
+              AERON_DIR=$(mktemp -u -p /dev/shm aeron-publish-XXXXXX) LD_LIBRARY_PATH=. \
+                timeout 2 ./aeronmd driver.properties "$overlay" "$idle" > "aeronmd-${overlay}-${idle}.log" 2>&1 || rc=$?
+              [ "$rc" -eq 124 ] || { cat "aeronmd-${overlay}-${idle}.log"; echo "::error::aeronmd on driver.properties + $overlay + $idle did not stay up (rc=$rc)"; exit 1; }
+            done
           done
           echo "bare-box closure verified"
 

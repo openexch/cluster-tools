@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 
+#include "cluster_tools/runtime/IdleMode.h"
 #include "cluster_tools/runtime/StorageStarvation.h"
 
 // EmbeddedDriver - <PROCESS>_DRIVER_MODE=embedded only (dev and demo; the prod mode is the host aeronmd that admin and
@@ -21,7 +22,8 @@
 //     kernel drops it at any exit, kill -9 included; the file is never deleted, so every instance locks the same inode):
 //     a second same-id instance refuses without touching the dir, also when both start in the same instant over a
 //     stale dir. A LIVE driver dir is never deleted;
-//   - SHARED threading (one driver thread), delete the dir on start and on shutdown;
+//   - SHARED threading (one driver thread), delete the dir on start and on shutdown; the idle strategies follow the
+//     process's idle mode (options.idleMode, applyDriverIdle: backoff = Aeron's default, untouched);
 //   - the termination hook is installed so that a validated TerminateDriver request is LOUD (exit 70); it is NOT a
 //     death detector: a dead driver thread is seen by the client conductor's CnC driver timeout;
 //   - any driver context / init / start error refuses the start (78: host configuration a restart
@@ -43,6 +45,9 @@ struct EmbeddedDriverOptions
     std::string processName = "ct-process";  // "ct-bridge", "ct-forwarder": the refusal texts
     std::string dirPrefix = "ct-process-";   // "ct-bridge-", "ct-forwarder-": <parent>/<dirPrefix><id>
     std::string instanceKey = "INSTANCE_ID"; // "BRIDGE_INSTANCE_ID", "FWD_INSTANCE_ID": named in the refusal texts
+    // The process's idle mode (IdleMode.h): backoff leaves Aeron's default idle strategies untouched (today's driver);
+    // busy_spin and sleep set every agent role's strategy (driverIdleFor) before aeron_driver_init.
+    IdleMode idleMode = IdleMode::BACKOFF;
     // Negative-control shapes, set only by the seamed builds of the owner (the owner's app seams decide):
     bool dirPerPid = false;    // EMBEDDED_DIR_PER_PID: the dir is per pid (a stale sibling is left behind)
     bool instanceLock = true;  // EMBEDDED_INSTANCE_LOCK off: no lock, two same-id starts both reclaim the dir
@@ -73,6 +78,9 @@ public:
     const std::string &dir() const noexcept { return m_dir; }
     bool running() const noexcept { return nullptr != m_driver; }
     const EmbeddedDriverOptions &options() const noexcept { return m_options; }
+    // The idle strategy the running driver's context holds for one role of DRIVER_IDLE_ROLES (0 conductor, 1 sender,
+    // 2 receiver, 3 shared, 4 sharednetwork; Aeron's name, e.g. "sleep-ns"), nullptr when not running or out of range.
+    const char *idleStrategyName(std::size_t role) const noexcept;
 
     // tc_driverstall: the manual duty-cycle thread stops calling the driver (the driver is dead, the client alive).
     void stopDriving() noexcept { m_driving.store(false, std::memory_order_release); }

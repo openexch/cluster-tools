@@ -12,6 +12,8 @@
 //                           live driver, one 78, the live dir kept (the instance lock)
 //   heldInstanceLockRefusesTheStart  in-process: a held <dir>.lock refuses the start and leaves a stale dir untouched
 //                           (RED EMBEDDED_INSTANCE_LOCK)
+//   idleModeSleepEndToEnd   BRIDGE_IDLE_MODE=sleep embedded: up for 6 s with its http answering, bridge_idle_mode
+//                           {mode="sleep"}, the start line names the mode and the driver's sleep-ns; =yield exits 78
 //   conductorStallExits70   ct_bridge_tc_conductorstall on a live aeronmd: SIGUSR2 parks the client conductor; exit 70
 //                           within the driver timeout + 2 s with the "conductor heartbeat stale" line, although the duty
 //                           heartbeat kept advancing (RED CONDUCTOR_WATCH_OFF: alive after 30 s with /health 200)
@@ -491,7 +493,7 @@ TEST_CASE("MainAeronTest.heldInstanceLockRefusesTheStart")
     const int held = ::open((instanceDir + ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
     REQUIRE(held >= 0);
     REQUIRE(0 == ::flock(held, LOCK_EX | LOCK_NB)); // the other instance
-    EmbeddedDriver driver([](const std::string &) {});
+    EmbeddedDriver driver(cluster_tools::runtime::IdleMode::BACKOFF, [](const std::string &) {});
     std::string error;
     const bool started = driver.start(instanceDir, false, error);
     const bool refused = !started;
@@ -504,7 +506,7 @@ TEST_CASE("MainAeronTest.heldInstanceLockRefusesTheStart")
     }
     ::close(held);
     // once the holder is gone the same start succeeds and reclaims the stale dir
-    EmbeddedDriver again([](const std::string &) {});
+    EmbeddedDriver again(cluster_tools::runtime::IdleMode::BACKOFF, [](const std::string &) {});
     REQUIRE(again.start(instanceDir, false, error));
     CHECK(again.reclaimed() == !started);
     CHECK(again.close(2000));
@@ -519,7 +521,7 @@ TEST_CASE("MainAeronTest.embeddedDirIsPerInstance")
     Process stale = startAeronmd(dir + "/ct-bridge-7", dir + "/stale-aeronmd.log");
     kill9(stale);
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    EmbeddedDriver driver([](const std::string &) {});
+    EmbeddedDriver driver(cluster_tools::runtime::IdleMode::BACKOFF, [](const std::string &) {});
     std::string error;
     REQUIRE(driver.start(EmbeddedDriver::dirFor(dir, 7), false, error));
     const bool reclaimed = driver.reclaimed();
@@ -570,4 +572,45 @@ TEST_CASE("MainAeronTest.conductorStallExits70")
     kill9(aeronmd);
     fs::remove_all(dir);
 #endif
+}
+
+TEST_CASE("MainAeronTest.idleModeSleepEndToEnd")
+{
+    const std::string dir = workDir("idle-e2e");
+    {
+        auto env = bridgeEnv("embedded", dir, 5000);
+        env["BRIDGE_IDLE_MODE"] = "sleep";
+        Process bridge = spawn(CT_BRIDGE_BINARY, {}, env, dir + "/../bridge-idle-sleep.log");
+        const int port = httpPort(bridge);
+        REQUIRE(port > 0);
+        // alive and answering over 6 s of 1 ms parks (past the 5 s watchdog and STALLED windows)
+        bool up = true;
+        for (int i = 0; i < 6 && up; ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            up = !waitExit(bridge, 0).has_value() && httpGet(port, "/metrics").find("bridge_idle_mode") != std::string::npos;
+        }
+        CHECK(up);
+        CHECK(httpGet(port, "/metrics").find("bridge_idle_mode{mode=\"sleep\"} 1") != std::string::npos);
+        CHECK(httpGet(port, "/health").find("\"status\":\"UP\"") != std::string::npos); // not STALLED
+        const std::string text = slurp(bridge.log);
+        CHECK(text.find("; idle sleep;") != std::string::npos);
+        CHECK(text.find("idle strategy sleep-ns") != std::string::npos);
+        ::kill(bridge.pid, SIGTERM);
+        const auto code = waitExit(bridge, 10000);
+        REQUIRE(code.has_value());
+        CHECK(*code == 0);
+        fs::remove(dir + "/../bridge-idle-sleep.log");
+    }
+    {
+        auto env = bridgeEnv("embedded", dir, 5000);
+        env["BRIDGE_IDLE_MODE"] = "yield";
+        Process bridge = spawn(CT_BRIDGE_BINARY, {}, env, dir + "/../bridge-idle-bad.log");
+        const auto code = waitExit(bridge, 10000);
+        REQUIRE(code.has_value());
+        CHECK(*code == 78);
+        CHECK(slurp(bridge.log).find("BRIDGE_IDLE_MODE must be exactly busy_spin, backoff or sleep") != std::string::npos);
+        fs::remove(dir + "/../bridge-idle-bad.log");
+    }
+    fs::remove_all(dir);
 }

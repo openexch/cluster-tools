@@ -2,7 +2,8 @@
 # Proves scripts/stage-driver-properties.sh refuses every drifted or malformed input: a
 # driver.properties whose bytes differ from the lock's sha256, a pinned ref the checkout does
 # not have, an overlay that sets a key outside threading and idle strategies, an overlay with
-# the other profile's threading mode, and a missing overlay. The positive control stages the
+# the other profile's threading mode, a missing overlay, an idle overlay that sets the threading
+# mode or leaves an agent role out, and a missing idle overlay. The positive control stages the
 # set. Registered as the ctest driver_properties.stage_gate; runnable by hand too.
 #
 # Usage: scripts/check-stage-driver-properties.sh
@@ -30,10 +31,23 @@ lockfile() { # path ref sha
     printf '{"driver_properties_ref": "%s", "driver_properties_path": "deploy/media-driver/driver.properties", "driver_properties_sha256": "%s"}\n' \
         "$2" "$3" > "$1"
 }
-overlays() { # dir dev-body prod-body
+IDLE_ROLES='conductor sender receiver shared sharednetwork'
+idle_body() { # strategy [init-args]
+    local r
+    for r in $IDLE_ROLES; do printf 'aeron.%s.idle.strategy=%s\n' "$r" "$1"; done
+    for r in $IDLE_ROLES; do printf 'aeron.%s.idle.strategy.init.args=%s\n' "$r" "${2:-}"; done
+}
+overlays() { # dir dev-body prod-body [sleep-idle-body|-] : the busy_spin and backoff idle overlays are always good
     mkdir -p "$1"
     [ -z "$2" ] || printf '%b' "$2" > "$1/driver-dev.properties"
     [ -z "$3" ] || printf '%b' "$3" > "$1/driver-prod.properties"
+    idle_body spin > "$1/driver-idle-busy_spin.properties"
+    idle_body backoff > "$1/driver-idle-backoff.properties"
+    case "${4:-good}" in
+        good) idle_body sleep-ns 1ms > "$1/driver-idle-sleep.properties" ;;
+        -) ;;
+        *) printf '%b' "$4" > "$1/driver-idle-sleep.properties" ;;
+    esac
 }
 DEV='aeron.threading.mode=SHARED\naeron.shared.idle.strategy=backoff\n'
 PROD='aeron.threading.mode=DEDICATED\naeron.conductor.idle.strategy=noop\n'
@@ -43,7 +57,9 @@ expect() { # name want(ok|fail) message-substring lock overlay-dir
     out=$(bash "$STAGE" "$WORK/out-$name" "$REPO" "$lock" "$ov" 2>&1) || rc=$?
     if [ "$want" = ok ]; then
         if [ "$rc" -eq 0 ] && cmp -s "$WORK/out-$name/driver.properties" "$REPO/deploy/media-driver/driver.properties" \
-            && [ -f "$WORK/out-$name/driver-dev.properties" ] && [ -f "$WORK/out-$name/driver-prod.properties" ]; then
+            && [ -f "$WORK/out-$name/driver-dev.properties" ] && [ -f "$WORK/out-$name/driver-prod.properties" ] \
+            && [ -f "$WORK/out-$name/driver-idle-busy_spin.properties" ] && [ -f "$WORK/out-$name/driver-idle-backoff.properties" ] \
+            && [ -f "$WORK/out-$name/driver-idle-sleep.properties" ]; then
             pass "$name"
         else
             fail "$name (rc=$rc: $out)"
@@ -75,6 +91,15 @@ expect overlay-wrong-threading fail "the dev overlay must set SHARED" "$WORK/goo
 
 overlays "$WORK/ov-missing" "$DEV" ""
 expect overlay-missing fail "missing" "$WORK/good.lock" "$WORK/ov-missing"
+
+overlays "$WORK/ov-idle-threading" "$DEV" "$PROD" "$(idle_body sleep-ns 1ms)\naeron.threading.mode=SHARED\n"
+expect idle-overlay-threading fail "'aeron.threading.mode' is not an idle overlay key" "$WORK/good.lock" "$WORK/ov-idle-threading"
+
+overlays "$WORK/ov-idle-role" "$DEV" "$PROD" "$(idle_body sleep-ns 1ms | grep -v '^aeron.sender.idle.strategy=')\n"
+expect idle-overlay-role-left-out fail "aeron.sender.idle.strategy is not set" "$WORK/good.lock" "$WORK/ov-idle-role"
+
+overlays "$WORK/ov-idle-missing" "$DEV" "$PROD" -
+expect idle-overlay-missing fail "driver-idle-sleep.properties" "$WORK/good.lock" "$WORK/ov-idle-missing"
 
 if [ "$FAILED" -ne 0 ]; then
     echo "$FAILED case(s) failed"

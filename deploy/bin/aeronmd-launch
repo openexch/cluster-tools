@@ -3,7 +3,8 @@
 #
 # aeronmd-launch: run the published aeronmd on the published properties, or wait for it to be usable.
 #
-# Usage: aeronmd-launch run        exec aeronmd: driver.properties, then the driver-<profile>.properties overlay
+# Usage: aeronmd-launch run        exec aeronmd: driver.properties, then the driver-<profile>.properties overlay, then
+#                                  the driver-idle-<mode>.properties overlay when AERON_DRIVER_IDLE_MODE is set
 #        aeronmd-launch wait-cnc   exit 0 once <AERON_DIR>/cnc.dat exists, 1 after AERONMD_CNC_WAIT_MS
 #
 # aeronmd@<name>.service runs `run` as its main process and `wait-cnc` as ExecStartPost, so the unit turns active
@@ -12,6 +13,9 @@
 # Knobs (env):
 #   AERON_DIR             required: the driver directory (shared memory, for example /dev/shm/aeron-openexchange-core).
 #   AERON_DRIVER_PROFILE  required: dev (SHARED threading, backoff idles) or prod (DEDICATED, busy-spin idles).
+#   AERON_DRIVER_IDLE_MODE optional: busy_spin, backoff or sleep (the idle vocabulary of every process); loads
+#                         driver-idle-<mode>.properties last, so the idle strategies follow it and the threading stays
+#                         the profile's. Empty or unset: the profile overlay's idle strategies (no idle overlay).
 #   DRIVER_CPU_SET        optional: a taskset CPU list for the driver's threads; empty runs unpinned.
 #   AERONMD_CNC_WAIT_MS   optional: the wait-cnc bound, default 10000.
 #   CT_HOME               optional: the published cluster-tools set, default /opt/openexchange/cluster-tools.
@@ -51,13 +55,20 @@ case "${AERON_DRIVER_PROFILE:-}" in
     dev | prod) ;;
     *) refuse "AERON_DRIVER_PROFILE='${AERON_DRIVER_PROFILE:-}' must be dev or prod" ;;
 esac
-for f in "$home/aeronmd" "$home/driver.properties" "$home/driver-$AERON_DRIVER_PROFILE.properties"; do
+idle=""
+case "${AERON_DRIVER_IDLE_MODE:-}" in
+    '') ;;
+    busy_spin | backoff | sleep) idle="$home/driver-idle-$AERON_DRIVER_IDLE_MODE.properties" ;;
+    *) refuse "AERON_DRIVER_IDLE_MODE='$AERON_DRIVER_IDLE_MODE' must be busy_spin, backoff or sleep (empty: the profile's idles)" ;;
+esac
+for f in "$home/aeronmd" "$home/driver.properties" "$home/driver-$AERON_DRIVER_PROFILE.properties" ${idle:+"$idle"}; do
     [ -r "$f" ] || refuse "$f is missing (the published cluster-tools set at CT_HOME=$home)"
 done
 LD_LIBRARY_PATH=$home${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export AERON_DIR LD_LIBRARY_PATH
 
 set -- "$home/aeronmd" "$home/driver.properties" "$home/driver-$AERON_DRIVER_PROFILE.properties"
+[ -z "$idle" ] || set -- "$@" "$idle"
 if [ -n "${DRIVER_CPU_SET:-}" ]; then
     case "$DRIVER_CPU_SET" in *[!0-9,-]*) refuse "DRIVER_CPU_SET='$DRIVER_CPU_SET' is not a CPU list" ;; esac
     command -v taskset >/dev/null 2>&1 || refuse "DRIVER_CPU_SET is set but taskset is not installed"

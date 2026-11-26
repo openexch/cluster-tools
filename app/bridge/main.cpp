@@ -139,13 +139,13 @@ int run()
     const br::BridgeConfig &c = config.config;
     std::fprintf(stderr,
         "ct-bridge %s identity %" PRId64 " money v%d (%s) journal v%d (%s) aeron %s; driver %s (%s, timeout %" PRId64
-        " ms); core %s egress %s; %zu archive source(s); http %s:%u\n",
+        " ms); idle %s; core %s egress %s; %zu archive source(s); http %s:%u\n",
         CT_BRIDGE_VERSION, c.instanceId, cluster_tools::build_info::MONEY_SCHEMA_VERSION,
         cluster_tools::build_info::MONEY_SCHEMA_SHA256, cluster_tools::build_info::ME_JOURNAL_SCHEMA_VERSION,
         cluster_tools::build_info::ME_JOURNAL_SCHEMA_SHA256, cluster_tools::build_info::AERON_VERSION,
         br::driverModeName(c.driverMode),
         br::DriverMode::EXTERNAL == c.driverMode ? c.aeronDir.c_str() : c.driverDir.c_str(), c.driverTimeoutMs,
-        c.ingressEndpoints.c_str(), c.egressEndpoint.c_str(), c.archive.archives.size(), c.httpHost.c_str(),
+        runtime::idleModeName(c.idleMode), c.ingressEndpoints.c_str(), c.egressEndpoint.c_str(), c.archive.archives.size(), c.httpHost.c_str(),
         static_cast<unsigned>(c.httpPort));
 
     runtime::LogRing log;
@@ -172,7 +172,8 @@ int run()
     std::string aeronDir = c.aeronDir;
     if (br::DriverMode::EMBEDDED == c.driverMode)
     {
-        driver = std::make_unique<br::EmbeddedDriver>([](const std::string &why) { runtime::Supervisor::exitProcess(70, why); });
+        driver = std::make_unique<br::EmbeddedDriver>(c.idleMode,
+            [](const std::string &why) { runtime::Supervisor::exitProcess(70, why); }); // BRIDGE_IDLE_MODE on its agents
         const std::string dir = br::EmbeddedDriver::dirFor(c.driverDir, c.instanceId);
 #if defined(CT_BRIDGE_TC_DRIVERSTALL)
         const bool manual = true;
@@ -185,7 +186,8 @@ int run()
             return 78;
         }
         aeronDir = dir;
-        std::fprintf(stderr, "ct-bridge: embedded media driver at %s%s\n", dir.c_str(),
+        std::fprintf(stderr, "ct-bridge: embedded media driver at %s, idle strategy %s%s\n", dir.c_str(),
+            nullptr == driver->idleStrategyName(3) ? "?" : driver->idleStrategyName(3), // SHARED threading: the one agent
             driver->reclaimed() ? " (a stale dir of this instance was reused and cleaned)" : "");
     }
 
@@ -263,6 +265,7 @@ int run()
     context.conductorStale = [&watch] { return watch.stale(); };
     context.sourceCount = c.archive.archives.size();
     context.driverMode = br::driverModeName(c.driverMode);
+    context.idleMode = runtime::idleModeName(c.idleMode);
     context.driverDirReclaimed = nullptr != driver && driver->reclaimed() ? 1 : 0;
 
 #if defined(CT_BRIDGE_TC_DRIVERSTALL) || defined(CT_BRIDGE_TC_CONDUCTORSTALL)
@@ -294,7 +297,8 @@ int run()
     // 3.3 steps 7-8
     agent.start();
     const int code = supervisor.run(
-        [&] { return br::runBridgeDuty(agent, supervisor, board, [&monitor] { return monitor->errorCount(); }); }, &http);
+        [&] { return br::runBridgeDuty(agent, supervisor, board, [&monitor] { return monitor->errorCount(); },
+            br::bridgeIdlePolicy(c)); }, &http);
     const br::StopReason &reason = agent.stopReason();
     if (reason.set())
     {

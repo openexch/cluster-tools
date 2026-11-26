@@ -8,6 +8,7 @@
 #include "cluster_tools/domain/forwarder/Counters.h"
 #include "cluster_tools/domain/forwarder/ResyncMachine.h"
 #include "cluster_tools/domain/forwarder/TickEmitter.h"
+#include "cluster_tools/runtime/IdleMode.h"
 
 // ForwarderSnapshot - everything /health, /ready and /metrics show, written by
 // the duty thread every 100 ms into the StatusBoard and read by fwd-http and main. Plain data: trivially
@@ -166,6 +167,8 @@ struct ForwarderSnapshot
     // per-instance dir was a stale one reused and cleaned at start
     std::uint8_t driverMode = 0;
     std::uint64_t driverDirReclaimed = 0;
+    // The idle mode in force (FWD_IDLE_MODE, runtime::IdleMode: 0 busy_spin, 1 backoff, 2 sleep)
+    std::uint8_t idleMode = static_cast<std::uint8_t>(runtime::IdleMode::BACKOFF);
     // Seconds an ingress publication has been refused for storage space (closed episodes + the current one)
     std::uint64_t storageStarvedSeconds = 0;
 

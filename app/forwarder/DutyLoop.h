@@ -16,8 +16,9 @@
 
 // The fwd-duty thread body and the fwd-http routes.
 //
-// Duty: one agent iteration, then the idle strategy when the iteration did no work (runtime::FORWARDER_IDLE: spin
-// 100, yield 100, then nanosleep 100 us: the only sleep, between iterations, never inside a step); the heartbeat counter is
+// Duty: one agent iteration, then the idle strategy when the iteration did no work (FWD_IDLE_MODE, forwarderIdlePolicy:
+// backoff = runtime::FORWARDER_IDLE, spin 100, yield 100, then nanosleep 100 us; sleep = nanosleep 1 ms; busy_spin =
+// never a yield or a sleep; the only sleep is between iterations, never inside a step); the heartbeat counter is
 // bumped every iteration (main's watchdog) and the StatusBoard snapshot is published every 100 ms. The
 // stop and resync flags are main's (signals) and fwd-http's (POST /resync).
 
@@ -27,11 +28,13 @@ inline constexpr std::int64_t PUBLISH_INTERVAL_NS = 100'000'000LL;
 inline constexpr std::int64_t MAX_CYCLE_WINDOW_NS = 10'000'000'000LL;
 
 // errorCount: the Aeron monitor's error count (forwarder_aeron_errors_total); may be empty.
+// idlePolicy: forwarderIdlePolicy(config), the FWD_IDLE_MODE in force.
 template<typename Agent>
-int runDuty(Agent &agent, Supervisor &supervisor, StatusBoard &board, const std::function<std::uint64_t()> &errorCount)
+int runDuty(Agent &agent, Supervisor &supervisor, StatusBoard &board, const std::function<std::uint64_t()> &errorCount,
+    runtime::IdlePolicy idlePolicy)
 {
     ForwarderSnapshot snapshot;
-    runtime::IdleStrategy idle(runtime::FORWARDER_IDLE);
+    runtime::IdleStrategy idle(idlePolicy);
     std::int64_t nextPublish = 0;
     std::int64_t windowStart = Supervisor::monotonicNs();
     std::uint64_t windowMax = 0;

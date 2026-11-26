@@ -5,7 +5,8 @@
 #
 # Usage: deploy/oci/smoke.sh --set <dir> [--tag <tag>]
 #   --set  a directory holding the published set (aeronmd, libaeron.so, libaeron_driver.so, driver.properties,
-#          driver-dev.properties, driver-prod.properties, ct-bridge, ct-forwarder, ...)
+#          driver-dev.properties, driver-prod.properties, driver-idle-{busy_spin,backoff,sleep}.properties, ct-bridge,
+#          ct-forwarder, ...)
 #
 # Steps: aeronmd under aeronmd-launch publishes its cnc.dat (read-only root, non-root uid); ct-forwarder and
 # ct-bridge started without settings refuse with 78 (the worker's own settings check, reached through
@@ -25,7 +26,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 for f in aeronmd libaeron.so libaeron_driver.so driver.properties driver-dev.properties driver-prod.properties \
-    ct-bridge ct-forwarder; do
+    driver-idle-busy_spin.properties driver-idle-backoff.properties driver-idle-sleep.properties ct-bridge ct-forwarder; do
     [ -r "$SET/$f" ] || { echo "smoke: $SET/$f is missing (--set <published set dir>)" >&2; exit 64; }
 done
 
@@ -61,6 +62,8 @@ expect78 "ct-forwarder without settings" "$TAG" "$BIN/worker-launch" embedded ct
 expect78 "ct-bridge without settings" "$TAG" "$BIN/worker-launch" embedded ct-bridge
 expect78 "env driver mode contradicting the command" -e FWD_DRIVER_MODE=embedded "$TAG" "$BIN/worker-launch" external ct-forwarder
 expect78 "aeronmd with an unknown profile" -e AERON_DIR=/dev/shm/x -e AERON_DRIVER_PROFILE=fast "$TAG" "$BIN/aeronmd-launch" run
+expect78 "aeronmd with an unknown idle mode" -e AERON_DIR=/dev/shm/x -e AERON_DRIVER_PROFILE=dev -e AERON_DRIVER_IDLE_MODE=yield \
+    "$TAG" "$BIN/aeronmd-launch" run
 
 if [ $FAILS -gt 0 ]; then
     echo "smoke: $FAILS step(s) failed"

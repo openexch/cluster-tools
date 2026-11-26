@@ -187,6 +187,12 @@ client conductor, duty watchdog, escaped exception, storage starvation for 30 s)
 Driver modes: `external` uses the host `aeronmd` (production); `embedded` starts a driver in the process
 (dev and demo only).
 
+Idle modes (`FWD_IDLE_MODE`, `BRIDGE_IDLE_MODE`; the same words as the engines' `TRANSPORT_IDLE_MODE`):
+`busy_spin` never yields or sleeps; `backoff` (the default) is each process's own policy; `sleep` parks 1 ms after
+an iteration without work. In `embedded` mode the driver follows the same mode on every agent: `busy_spin` is
+Aeron's `spin`, `sleep` is `sleep-ns` with `1ms`, `backoff` leaves Aeron's default `backoff`. An external driver
+takes it from `driver-idle-<mode>.properties` (below).
+
 ### ct-forwarder
 
 One resumable FORWARDER session on the core and one on the ME. Every pending core `MeDispatch` becomes the
@@ -213,6 +219,7 @@ env FWD_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron FWD_DRIVER_TIMEOUT_MS=5000
 | `FWD_DRIVER_DIR` | `embedded` only: an absolute, existing, writable directory; the driver runs in `<dir>/ct-forwarder-<FWD_INSTANCE_ID>` under a lock file, so a second instance with the same id exits 78; a live driver in the dir exits 78; a stale dir is reclaimed |
 | `FWD_DRIVER_TIMEOUT_MS` | 3000..60000: start-up connect wait, driver liveness check and conductor heartbeat threshold |
 | `FWD_INSTANCE_ID` | 1..INT64_MAX: the identity on both cluster sessions; keep it fixed per forwarder |
+| `FWD_IDLE_MODE` | optional: `busy_spin`, `backoff` (unset: spin 100, yield 100, park 100 us) or `sleep` (park 1 ms); the duty thread and the embedded driver follow it; any other value exits 78; `forwarder_idle_mode` shows it |
 | `FWD_CORE_INGRESS`, `FWD_ME_INGRESS` | `id=host:port,...` of each cluster's members |
 | `FWD_CORE_RESPONSE_CHANNEL`, `FWD_ME_RESPONSE_CHANNEL` | `aeron:udp?endpoint=host:port` (port 0 = driver-assigned), never `0.0.0.0`; two equal fixed ports exit 78 |
 | `CORE_AUTH_CREDENTIAL`, `ME_AUTH_CREDENTIAL` | `keyId:FORWARDER:secretHex` |
@@ -251,6 +258,7 @@ env BRIDGE_DRIVER_MODE=external AERON_DIR=/dev/shm/aeron BRIDGE_DRIVER_TIMEOUT_M
 | `AERON_DIR` | `external` only: the host driver's directory |
 | `BRIDGE_DRIVER_DIR` | `embedded` only: a writable directory; the driver runs in `<dir>/ct-bridge-<BRIDGE_INSTANCE_ID>` under a lock file |
 | `BRIDGE_DRIVER_TIMEOUT_MS` | 3000..60000 |
+| `BRIDGE_IDLE_MODE` | optional: `busy_spin`, `backoff` (unset: yield 10, park 1 ms) or `sleep` (park 1 ms, no yield); the duty thread and the embedded driver follow it; any other value exits 78; `bridge_idle_mode` shows it |
 | `BRIDGE_ME_JOURNAL_ARCHIVES` | `host:port` list in failover order |
 | `BRIDGE_JOURNAL_CONTROL_STREAM`, `BRIDGE_JOURNAL_STREAM`, `BRIDGE_JOURNAL_CHANNEL`, `BRIDGE_REPLAY_STREAM` | the ME archive's streams and channel |
 | `BRIDGE_JOURNAL_MTU` | multiple of 32, 1144..65504; must match the recording |
@@ -362,15 +370,20 @@ also moves the feed harness pin (`feed_harness_core_ref`, `feed_harness_url`, `f
 
 `publish.yml` builds on arm64 Linux, runs the tests, and publishes `switch-behavior`, `ct-forwarder`,
 `ct-bridge`, `ct-genesis`, `aeronmd`, `libaeron_driver.so`, `libaeron.so`, the external media driver's `driver.properties`,
-`driver-dev.properties` and `driver-prod.properties`, and a `manifest.json` with per-file sha256 under the
-commit sha (or the tag). Run them with `LD_LIBRARY_PATH` pointing at the artifact directory; run a driver as
-`aeronmd driver.properties driver-<dev|prod>.properties`.
+`driver-dev.properties`, `driver-prod.properties`, the idle overlays `driver-idle-busy_spin.properties`,
+`driver-idle-backoff.properties` and `driver-idle-sleep.properties`, and a `manifest.json` with per-file sha256 under
+the commit sha (or the tag). Run them with `LD_LIBRARY_PATH` pointing at the artifact directory; run a driver as
+`aeronmd driver.properties driver-<dev|prod>.properties [driver-idle-<mode>.properties]` (a later file wins: the
+profile overlay sets the threading, the idle overlay the idle strategies; `deploy/bin/aeronmd-launch` adds it from
+`AERON_DRIVER_IDLE_MODE`).
 
 `driver.properties` is match's `deploy/media-driver/driver.properties` at the commit `dependencies.lock`
 pins (`driver_properties_ref`), verified against `driver_properties_sha256` by
 `scripts/stage-driver-properties.sh`; it is never copied into this repo. The two overlays live in
 `deploy/media-driver/` and may set only the threading mode and idle strategies (dev: SHARED + backoff,
-prod: DEDICATED + noop). Take a newer `driver.properties` by bumping the ref and sha256 in the lock.
+prod: DEDICATED + noop). The three idle overlays set only the idle strategy (and init args) of the conductor,
+sender, receiver, shared and sharednetwork agents: `spin`, `backoff`, or `sleep-ns` with `1ms`. Take a newer
+`driver.properties` by bumping the ref and sha256 in the lock.
 `scripts/check-stage-driver-properties.sh` (ctest `driver_properties.stage_gate`) proves every refusal.
 
 ## License

@@ -8,22 +8,23 @@ Units, launchers and an image definition for the external media driver (`aeronmd
 | `systemd/aeronmd@.service` | the external media driver of one process: `aeronmd@<name>.service` (core, match, core-replica, ct-bridge, oe-gateway, ...) |
 | `systemd/ct-worker@.service` | a worker with the external driver (production): `ct-worker@ct-bridge.service` |
 | `systemd/ct-worker-embedded@.service` | a worker with the driver in the process (development and demo) |
-| `bin/aeronmd-launch` | runs aeronmd on `driver.properties` plus the `driver-<profile>.properties` overlay; `wait-cnc` waits for a usable driver |
+| `bin/aeronmd-launch` | runs aeronmd on `driver.properties` plus the `driver-<profile>.properties` overlay and, with `AERON_DRIVER_IDLE_MODE`, the `driver-idle-<mode>.properties` overlay last; `wait-cnc` waits for a usable driver |
 | `bin/worker-launch` | sets the worker's driver mode from the unit, refuses an env file that says otherwise, execs the worker |
 | `env/*.env.example` | the driver and worker env files |
-| `media-driver/` | the dev and prod driver overlays |
+| `media-driver/` | the dev and prod driver overlays and the three idle overlays (`driver-idle-{busy_spin,backoff,sleep}.properties`) |
 | `oci/Dockerfile`, `oci/smoke.sh` | the image (published set on ubuntu:24.04, non-root, read-only root) and its smoke test |
 | `render-verify.sh` | renders three hosts and checks the result |
 
 ## Install
 
 1. Create the user every process and its driver run as: `useradd --system --no-create-home --shell /usr/sbin/nologin openexchange`.
-2. Put the published set (aeronmd, `libaeron.so`, `libaeron_driver.so`, the three driver properties files, the
+2. Put the published set (aeronmd, `libaeron.so`, `libaeron_driver.so`, the six driver properties files, the
    workers) at `/opt/openexchange/cluster-tools/` and `bin/*` at `/opt/openexchange/cluster-tools/bin/` (0755).
 3. Copy the units to `/etc/systemd/system/`.
 4. Driver knobs (optional) in `/etc/openexchange/aeronmd/<name>.env`: `AERON_DIR` (default
    `/dev/shm/aeron-openexchange-<name>`, the same default the client unit uses), `AERON_DRIVER_PROFILE` (dev|prod,
-   default prod), `DRIVER_CPU_SET`.
+   default prod), `AERON_DRIVER_IDLE_MODE` (busy_spin|backoff|sleep, empty = the profile's idles; anything else
+   exits 78), `DRIVER_CPU_SET`.
 5. Worker settings in `/etc/openexchange/cluster-tools/<worker>.env` (the worker checks them all and exits 78 on any
    problem), credentials in `<worker>.secrets.env` (root:root 0600).
 6. `systemctl enable --now ct-worker@ct-bridge.service`.

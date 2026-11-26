@@ -5,6 +5,8 @@
 # The same file on every host; per-driver knobs go in /etc/openexchange/aeronmd/<name>.env:
 #   AERON_DIR             default /dev/shm/aeron-openexchange-<name>; the client unit sets the same default
 #   AERON_DRIVER_PROFILE  dev | prod (default prod): the overlay loaded after driver.properties
+#   AERON_DRIVER_IDLE_MODE busy_spin | backoff | sleep (default empty: the profile's idles): driver-idle-<mode>.properties
+#                         loaded last
 #   DRIVER_CPU_SET        a taskset CPU list for the driver (empty: unpinned)
 # The unit turns active only once cnc.dat exists (ExecStartPost), so a client ordered After= this unit starts
 # against a usable driver. Its clients bind to it (BindsTo=): they stop when it stops or dies, and they are

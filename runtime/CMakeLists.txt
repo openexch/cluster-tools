@@ -27,6 +27,16 @@ target_compile_features(ct_runtime PUBLIC cxx_std_20)
 target_link_libraries(ct_runtime PUBLIC Threads::Threads)
 target_compile_options(ct_runtime PRIVATE -Wall -Wextra)
 
+# The idle vocabulary (IdleMode.h), the duty policies and the shipped idle overlays against the embedded driver's mapping
+if(BUILD_TESTING)
+    add_executable(ct_runtime_idle_tests tests/IdleModeTest.cpp)
+    target_link_libraries(ct_runtime_idle_tests PRIVATE ct_runtime)
+    target_include_directories(ct_runtime_idle_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_definitions(ct_runtime_idle_tests PRIVATE CT_MEDIA_DRIVER_DIR="${PROJECT_SOURCE_DIR}/deploy/media-driver")
+    target_compile_options(ct_runtime_idle_tests PRIVATE -Wall -Wextra)
+    add_test(NAME runtime.idle_mode COMMAND ct_runtime_idle_tests)
+endif()
+
 # The embedded driver's one source file: the build tree's ct-forwarder and ct-bridge compile it into their final targets
 # (their link lines name aeron_driver_static first); the installed package carries it as an interface source.
 set(CT_EMBEDDED_DRIVER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/EmbeddedDriver.cpp" CACHE INTERNAL "the runtime's embedded driver")

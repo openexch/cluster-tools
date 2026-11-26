@@ -10,6 +10,7 @@
 #include "cluster_tools/client/Credentials.h"
 
 #include "cluster_tools/runtime/DirProbe.h"
+#include "cluster_tools/runtime/IdleMode.h"
 
 // ForwarderConfig - the strict environment: every variable is required, a
 // missing or malformed one refuses to start (exit 78); both credentials must be of class FORWARDER;
@@ -31,6 +32,11 @@
 //   FWD_INSTANCE_ID       1..INT64_MAX, both modes: the embedded dir's id and the identity on BOTH cluster sessions
 //                         (the core's RegisterSession.identity and the clientInfo of both connect requests), replacing
 //                         the random identity per start (a breaking env change, accepted at beta).
+// The idle mode, one vocabulary with every process of the stack (runtime/include/cluster_tools/runtime/IdleMode.h):
+//   FWD_IDLE_MODE         busy_spin | backoff | sleep; unset = backoff (FORWARDER_IDLE, today's policy); any other value,
+//                         an empty one included, refuses (78). The fwd-duty thread and, in embedded mode, the driver's
+//                         agents follow it. FORWARDER_IDLE_MODE (not this repo's FWD_ prefix) is refused naming
+//                         FWD_IDLE_MODE, so a renderer that writes that name is never silently ignored.
 
 namespace cluster_tools { namespace app { namespace forwarder {
 
@@ -56,6 +62,7 @@ struct ForwarderConfig
     std::string driverDir;            // FWD_DRIVER_DIR (embedded only)
     std::int64_t driverTimeoutMs = 0; // FWD_DRIVER_TIMEOUT_MS
     std::int64_t instanceId = 0;      // FWD_INSTANCE_ID
+    runtime::IdleMode idleMode = runtime::IdleMode::BACKOFF; // FWD_IDLE_MODE (unset = backoff)
     std::string httpHost;             // FWD_HTTP_BIND host:port
     std::uint16_t httpPort = 0;
 };
@@ -74,6 +81,9 @@ ConfigResult parseForwarderConfig(const EnvGetter &getenv, const runtime::DirPro
 
 // The identity both cluster sessions carry: FWD_INSTANCE_ID (the IDENTITY_RANDOM RED: a random value per call).
 std::int64_t forwarderIdentity(const ForwarderConfig &config);
+
+// The fwd-duty thread's idle policy for the configured mode (backoff = runtime::FORWARDER_IDLE).
+runtime::IdlePolicy forwarderIdlePolicy(const ForwarderConfig &config) noexcept;
 
 // The ClientSettings of each session (the client defaults otherwise: keepalive 1 s, message timeout 5 s). The client
 // name carries the identity into each connect request's clientInfo ("name=ct-forwarder-<cluster> identity=<id> ...").
